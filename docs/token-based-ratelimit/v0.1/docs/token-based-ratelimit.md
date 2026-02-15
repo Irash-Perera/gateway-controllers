@@ -43,7 +43,7 @@ These parameters are configured per LLM provider path by the API developer:
 
 > **Note:** At least one of `promptTokenLimits`, `completionTokenLimits`, or `totalTokenLimits` should be configured for the policy to enforce any limits.
 
-#### Limit Object
+#### Limit Configuration
 
 Each limit entry defines a quota for a specific time window:
 
