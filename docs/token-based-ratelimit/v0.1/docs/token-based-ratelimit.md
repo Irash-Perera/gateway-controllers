@@ -14,7 +14,7 @@ Use this policy when you need to:
 - Limit LLM API usage based on actual token consumption.
 - Apply separate quotas for prompt (input) and completion (output) tokens.
 - Enforce total token budgets across time windows.
-- Protect against excessive LLM costs by capping token usage per route.
+- Protect against excessive LLM costs by capping token usage per provider path.
 
 ## Features
 
@@ -29,11 +29,11 @@ Use this policy when you need to:
 
 ## Configuration
 
-This policy uses a two-level configuration: system parameters configured by administrators and user parameters configured per API/route.
+This policy uses a two-level configuration: system parameters configured by administrators and user parameters configured per LLM provider.
 
-### User Parameters (API Definition)
+### User Parameters (LLM Provider Definition)
 
-These parameters are configured per API or route by the API developer:
+These parameters are configured per LLM provider path by the API developer:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -131,35 +131,76 @@ Inside the `gateway/build.yaml`, ensure the policy module is added under `polici
 
 ## Reference Scenarios
 
-### Example 1: Limit Total Tokens Per Minute
+This policy is designed to be attached to an `LlmProvider`. Before attaching the policy, you must create an `LlmProviderTemplate` that defines the token extraction paths for your LLM backend.
 
-Apply a simple total token limit to an LLM API route:
+### LLM Provider Template
+
+The `LlmProviderTemplate` tells the policy where to find token usage information in the LLM provider's response. Here is an example template for an OpenAI-compatible provider:
 
 ```yaml
 apiVersion: gateway.api-platform.wso2.com/v1alpha1
-kind: RestApi
+kind: LlmProviderTemplate
 metadata:
-  name: llm-api-v1.0
+  name: openai-template
 spec:
-  displayName: LLM API
+  displayName: OpenAI Template
+  promptTokens:
+    location: payload
+    identifier: $.usage.prompt_tokens
+  completionTokens:
+    location: payload
+    identifier: $.usage.completion_tokens
+  totalTokens:
+    location: payload
+    identifier: $.usage.total_tokens
+  requestModel:
+    location: payload
+    identifier: $.model
+  responseModel:
+    location: payload
+    identifier: $.model
+```
+
+The `identifier` fields use JSONPath expressions to locate token counts in the response body. Adjust these paths to match the response format of your LLM provider.
+
+### Example 1: Limit Total Tokens Per Minute
+
+Apply a simple total token limit to an LLM provider:
+
+```yaml
+apiVersion: gateway.api-platform.wso2.com/v1alpha1
+kind: LlmProvider
+metadata:
+  name: openai-provider
+spec:
+  displayName: OpenAI Provider
   version: v1.0
-  context: /llm/$version
+  context: /openai
+  template: openai-template
   upstream:
-    main:
-      url: http://llm-service:8080
-  operations:
-    - method: POST
-      path: /chat/completions
-      policies:
-        - name: token-based-ratelimit
-          version: v0
+    url: https://api.openai.com
+    auth:
+      type: api-key
+      header: Authorization
+      value: Bearer ${OPENAI_API_KEY}
+  accessControl:
+    mode: deny_all
+    exceptions:
+      - path: /chat/completions
+        methods: [POST]
+  policies:
+    - name: token-based-ratelimit
+      version: v0
+      paths:
+        - path: /chat/completions
+          methods: [POST]
           params:
             totalTokenLimits:
               - count: 10000
                 duration: "1m"
 ```
 
-This limits the route to 10,000 total tokens per minute. Once the quota is exhausted, subsequent requests are rejected with a 429 response until the window resets.
+This limits the `/chat/completions` path to 10,000 total tokens per minute. Once the quota is exhausted, subsequent requests are rejected with a 429 response until the window resets.
 
 ### Example 2: Separate Prompt and Completion Token Limits
 
@@ -167,22 +208,31 @@ Apply independent limits for prompt (input) and completion (output) tokens:
 
 ```yaml
 apiVersion: gateway.api-platform.wso2.com/v1alpha1
-kind: RestApi
+kind: LlmProvider
 metadata:
-  name: llm-api-v1.0
+  name: openai-provider
 spec:
-  displayName: LLM API
+  displayName: OpenAI Provider
   version: v1.0
-  context: /llm/$version
+  context: /openai
+  template: openai-template
   upstream:
-    main:
-      url: http://llm-service:8080
-  operations:
-    - method: POST
-      path: /chat/completions
-      policies:
-        - name: token-based-ratelimit
-          version: v0
+    url: https://api.openai.com
+    auth:
+      type: api-key
+      header: Authorization
+      value: Bearer ${OPENAI_API_KEY}
+  accessControl:
+    mode: deny_all
+    exceptions:
+      - path: /chat/completions
+        methods: [POST]
+  policies:
+    - name: token-based-ratelimit
+      version: v0
+      paths:
+        - path: /chat/completions
+          methods: [POST]
           params:
             promptTokenLimits:
               - count: 5000
@@ -200,22 +250,31 @@ Enforce both short-term and long-term token budgets:
 
 ```yaml
 apiVersion: gateway.api-platform.wso2.com/v1alpha1
-kind: RestApi
+kind: LlmProvider
 metadata:
-  name: llm-api-v1.0
+  name: openai-provider
 spec:
-  displayName: LLM API
+  displayName: OpenAI Provider
   version: v1.0
-  context: /llm/$version
+  context: /openai
+  template: openai-template
   upstream:
-    main:
-      url: http://llm-service:8080
-  operations:
-    - method: POST
-      path: /chat/completions
-      policies:
-        - name: token-based-ratelimit
-          version: v0
+    url: https://api.openai.com
+    auth:
+      type: api-key
+      header: Authorization
+      value: Bearer ${OPENAI_API_KEY}
+  accessControl:
+    mode: deny_all
+    exceptions:
+      - path: /chat/completions
+        methods: [POST]
+  policies:
+    - name: token-based-ratelimit
+      version: v0
+      paths:
+        - path: /chat/completions
+          methods: [POST]
           params:
             totalTokenLimits:
               - count: 10000
@@ -232,22 +291,31 @@ Apply limits to all three token types with multiple time windows:
 
 ```yaml
 apiVersion: gateway.api-platform.wso2.com/v1alpha1
-kind: RestApi
+kind: LlmProvider
 metadata:
-  name: llm-api-v1.0
+  name: openai-provider
 spec:
-  displayName: LLM API
+  displayName: OpenAI Provider
   version: v1.0
-  context: /llm/$version
+  context: /openai
+  template: openai-template
   upstream:
-    main:
-      url: http://llm-service:8080
-  operations:
-    - method: POST
-      path: /chat/completions
-      policies:
-        - name: token-based-ratelimit
-          version: v0
+    url: https://api.openai.com
+    auth:
+      type: api-key
+      header: Authorization
+      value: Bearer ${OPENAI_API_KEY}
+  accessControl:
+    mode: deny_all
+    exceptions:
+      - path: /chat/completions
+        methods: [POST]
+  policies:
+    - name: token-based-ratelimit
+      version: v0
+      paths:
+        - path: /chat/completions
+          methods: [POST]
           params:
             promptTokenLimits:
               - count: 5000
@@ -268,44 +336,52 @@ spec:
 
 This applies per-minute and daily limits across all token types. Each token type is tracked and enforced independently. A request is rejected if any one of the configured limits is exceeded.
 
-### Example 5: Token Limits on Multiple Routes
+### Example 5: Token Limits on Multiple Paths
 
-Apply different token limits to different operations:
+Apply different token limits to different paths within the same LLM provider:
 
 ```yaml
 apiVersion: gateway.api-platform.wso2.com/v1alpha1
-kind: RestApi
+kind: LlmProvider
 metadata:
-  name: llm-api-v1.0
+  name: openai-provider
 spec:
-  displayName: LLM API
+  displayName: OpenAI Provider
   version: v1.0
-  context: /llm/$version
+  context: /openai
+  template: openai-template
   upstream:
-    main:
-      url: http://llm-service:8080
-  operations:
-    - method: POST
-      path: /chat/completions
-      policies:
-        - name: token-based-ratelimit
-          version: v0
+    url: https://api.openai.com
+    auth:
+      type: api-key
+      header: Authorization
+      value: Bearer ${OPENAI_API_KEY}
+  accessControl:
+    mode: deny_all
+    exceptions:
+      - path: /chat/completions
+        methods: [POST]
+      - path: /completions
+        methods: [POST]
+  policies:
+    - name: token-based-ratelimit
+      version: v0
+      paths:
+        - path: /chat/completions
+          methods: [POST]
           params:
             totalTokenLimits:
               - count: 50000
                 duration: "1h"
-    - method: POST
-      path: /completions
-      policies:
-        - name: token-based-ratelimit
-          version: v0
+        - path: /completions
+          methods: [POST]
           params:
             totalTokenLimits:
               - count: 100000
                 duration: "1h"
 ```
 
-Each route maintains its own independent token quota. The `/chat/completions` route is limited to 50,000 total tokens per hour, while `/completions` is limited to 100,000 total tokens per hour.
+Each path maintains its own independent token quota. The `/chat/completions` path is limited to 50,000 total tokens per hour, while `/completions` is limited to 100,000 total tokens per hour.
 
 ## Notes
 
