@@ -6,19 +6,19 @@ import (
 	"fmt"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
-func newBasicRequestContext(headers map[string][]string) *policy.RequestContext {
+func newBasicRequestContext(headers map[string][]string) *policyv1alpha.RequestContext {
 	if headers == nil {
 		headers = map[string][]string{}
 	}
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+	return &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
-		Headers: policy.NewHeaders(headers),
+		Headers: policyv1alpha.NewHeaders(headers),
 		Method:  "GET",
 		Path:    "/api/resource",
 	}
@@ -39,11 +39,11 @@ func defaultParams() map[string]interface{} {
 func TestBasicAuthPolicy_Mode(t *testing.T) {
 	p := &BasicAuthPolicy{}
 	got := p.Mode()
-	want := policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess,
-		RequestBodyMode:    policy.BodyModeSkip,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeSkip,
+	want := policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeProcess,
+		RequestBodyMode:    policyv1alpha.BodyModeSkip,
+		ResponseHeaderMode: policyv1alpha.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha.BodyModeSkip,
 	}
 	if got != want {
 		t.Fatalf("unexpected mode: got %+v, want %+v", got, want)
@@ -51,11 +51,11 @@ func TestBasicAuthPolicy_Mode(t *testing.T) {
 }
 
 func TestGetPolicy_ReturnsSingleton(t *testing.T) {
-	p1, err := GetPolicy(policy.PolicyMetadata{}, nil)
+	p1, err := GetPolicy(policyv1alpha.PolicyMetadata{}, nil)
 	if err != nil {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
-	p2, err := GetPolicy(policy.PolicyMetadata{}, nil)
+	p2, err := GetPolicy(policyv1alpha.PolicyMetadata{}, nil)
 	if err != nil {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestBasicAuthPolicy_OnRequest_ValidCredentials(t *testing.T) {
 	if ctx.SharedContext.AuthContext.Subject != "admin" {
 		t.Errorf("expected Subject='admin', got %q", ctx.SharedContext.AuthContext.Subject)
 	}
-	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := action.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
 }
@@ -107,7 +107,7 @@ func TestBasicAuthPolicy_OnRequest_WrongPassword(t *testing.T) {
 		t.Errorf("expected AuthType='basic', got %q", ctx.SharedContext.AuthContext.AuthType)
 	}
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -122,7 +122,7 @@ func TestBasicAuthPolicy_OnRequest_MissingAuthorizationHeader(t *testing.T) {
 
 	action := p.OnRequest(ctx, defaultParams())
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -159,7 +159,7 @@ func TestBasicAuthPolicy_OnRequest_MalformedAuthorizationHeader(t *testing.T) {
 				t.Error("expected Authenticated=false")
 			}
 
-			resp, ok := action.(policy.ImmediateResponse)
+			resp, ok := action.(policyv1alpha.ImmediateResponse)
 			if !ok {
 				t.Fatalf("expected ImmediateResponse, got %T", action)
 			}
@@ -183,7 +183,7 @@ func TestBasicAuthPolicy_OnRequest_AllowUnauthenticated(t *testing.T) {
 	action := p.OnRequest(ctx, params)
 
 	// Should allow through even without credentials
-	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := action.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications (allow through), got %T", action)
 	}
 	// AuthContext should still reflect the failure
@@ -207,7 +207,7 @@ func TestBasicAuthPolicy_OnRequest_CustomRealm(t *testing.T) {
 
 	action := p.OnRequest(ctx, params)
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -228,7 +228,7 @@ func TestBasicAuthPolicy_OnRequest_InvalidConfig_NoUsername(t *testing.T) {
 
 	action := p.OnRequest(ctx, params)
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -247,7 +247,7 @@ func TestBasicAuthPolicy_OnRequest_InvalidConfig_NoPassword(t *testing.T) {
 
 	action := p.OnRequest(ctx, params)
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -258,7 +258,7 @@ func TestBasicAuthPolicy_OnRequest_InvalidConfig_NoPassword(t *testing.T) {
 
 func TestBasicAuthPolicy_OnResponse_NoOp(t *testing.T) {
 	p := &BasicAuthPolicy{}
-	action := p.OnResponse(&policy.ResponseContext{}, nil)
+	action := p.OnResponse(&policyv1alpha.ResponseContext{}, nil)
 	if action != nil {
 		t.Fatalf("expected nil response action, got %T", action)
 	}
@@ -266,7 +266,7 @@ func TestBasicAuthPolicy_OnResponse_NoOp(t *testing.T) {
 
 func TestBasicAuthPolicy_AuthContext_PreviousPreserved_OnSuccess(t *testing.T) {
 	p := &BasicAuthPolicy{}
-	prior := &policy.AuthContext{Authenticated: true, AuthType: "other"}
+	prior := &policyv1alpha.AuthContext{Authenticated: true, AuthType: "other"}
 	ctx := newBasicRequestContext(nil)
 	ctx.SharedContext.AuthContext = prior
 
@@ -282,7 +282,7 @@ func TestBasicAuthPolicy_AuthContext_PreviousPreserved_OnSuccess(t *testing.T) {
 
 func TestBasicAuthPolicy_AuthContext_PreviousPreserved_OnFailure(t *testing.T) {
 	p := &BasicAuthPolicy{}
-	prior := &policy.AuthContext{Authenticated: true, AuthType: "other"}
+	prior := &policyv1alpha.AuthContext{Authenticated: true, AuthType: "other"}
 	ctx := newBasicRequestContext(nil)
 	ctx.SharedContext.AuthContext = prior
 

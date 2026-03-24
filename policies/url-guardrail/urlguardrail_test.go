@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 func mustMessageMap(t *testing.T, body []byte) map[string]interface{} {
@@ -258,7 +258,7 @@ func TestGetPolicy(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pRaw, err := GetPolicy(policy.PolicyMetadata{}, tc.params)
+			pRaw, err := GetPolicy(policyv1alpha.PolicyMetadata{}, tc.params)
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
@@ -288,17 +288,17 @@ func TestMode(t *testing.T) {
 	p := &URLGuardrailPolicy{}
 	mode := p.Mode()
 
-	if mode.RequestHeaderMode != policy.HeaderModeSkip {
+	if mode.RequestHeaderMode != policyv1alpha.HeaderModeSkip {
 		t.Fatalf("expected RequestHeaderMode=Skip, got %v", mode.RequestHeaderMode)
 	}
-	if mode.RequestBodyMode != policy.BodyModeBuffer {
+	if mode.RequestBodyMode != policyv1alpha.BodyModeBuffer {
 		t.Fatalf("expected RequestBodyMode=Buffer, got %v", mode.RequestBodyMode)
 	}
-	if mode.ResponseHeaderMode != policy.HeaderModeSkip {
+	if mode.ResponseHeaderMode != policyv1alpha.HeaderModeSkip {
 		t.Fatalf("expected ResponseHeaderMode=Skip, got %v", mode.ResponseHeaderMode)
 	}
-	if mode.ResponseBodyMode != policy.BodyModeBuffer {
-		t.Fatalf("expected ResponseBodyMode=Buffer, got %v", mode.ResponseBodyMode)
+	if mode.ResponseBodyMode != policyv1alpha.BodyModeStream {
+		t.Fatalf("expected ResponseBodyMode=Stream, got %v", mode.ResponseBodyMode)
 	}
 }
 
@@ -344,12 +344,12 @@ func TestValidatePayload_RequestPaths(t *testing.T) {
 	p := &URLGuardrailPolicy{}
 
 	pass := p.validatePayload([]byte(`{"text":"`+server.URL+`"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 1000}, false)
-	if _, ok := pass.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := pass.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications on valid URL payload, got %T", pass)
 	}
 
 	fail := p.validatePayload([]byte(`{"text":"http://127.0.0.1:1"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 200, ShowAssessment: true}, false)
-	imm, ok := fail.(policy.ImmediateResponse)
+	imm, ok := fail.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse on invalid URL payload, got %T", fail)
 	}
@@ -377,12 +377,12 @@ func TestValidatePayload_ResponsePaths(t *testing.T) {
 	p := &URLGuardrailPolicy{}
 
 	pass := p.validatePayload([]byte(`{"text":"no urls here"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 100}, true)
-	if _, ok := pass.(policy.UpstreamResponseModifications); !ok {
+	if _, ok := pass.(policyv1alpha.UpstreamResponseModifications); !ok {
 		t.Fatalf("expected UpstreamResponseModifications on no-url payload, got %T", pass)
 	}
 
 	fail := p.validatePayload([]byte(`{"text":"http://127.0.0.1:1"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 200, ShowAssessment: false}, true)
-	resp, ok := fail.(policy.UpstreamResponseModifications)
+	resp, ok := fail.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications on invalid response URL payload, got %T", fail)
 	}
@@ -405,7 +405,7 @@ func TestValidatePayload_OnlyDNSMode(t *testing.T) {
 	p := &URLGuardrailPolicy{}
 
 	pass := p.validatePayload([]byte(`{"text":"http://127.0.0.1"}`), URLGuardrailPolicyParams{JsonPath: "$.text", OnlyDNS: true, Timeout: 200}, false)
-	if _, ok := pass.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := pass.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications for valid DNS-only check, got %T", pass)
 	}
 }
@@ -413,7 +413,7 @@ func TestValidatePayload_OnlyDNSMode(t *testing.T) {
 func TestValidatePayload_JSONPathExtractionFailure(t *testing.T) {
 	p := &URLGuardrailPolicy{}
 	fail := p.validatePayload([]byte(`{"text":"hello"}`), URLGuardrailPolicyParams{JsonPath: "$.missing", Timeout: 100, ShowAssessment: true}, false)
-	imm, ok := fail.(policy.ImmediateResponse)
+	imm, ok := fail.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse on jsonPath extraction failure, got %T", fail)
 	}
@@ -455,28 +455,28 @@ func TestBuildAssessmentObject(t *testing.T) {
 func TestOnRequestAndOnResponse(t *testing.T) {
 	// No params configured -> no-op.
 	p := &URLGuardrailPolicy{hasRequestParams: false, hasResponseParams: false}
-	reqNoOp := p.OnRequest(&policy.RequestContext{}, nil)
-	if _, ok := reqNoOp.(policy.UpstreamRequestModifications); !ok {
+	reqNoOp := p.OnRequest(&policyv1alpha.RequestContext{}, nil)
+	if _, ok := reqNoOp.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected request no-op modifications, got %T", reqNoOp)
 	}
-	respNoOp := p.OnResponse(&policy.ResponseContext{}, nil)
-	if _, ok := respNoOp.(policy.UpstreamResponseModifications); !ok {
+	respNoOp := p.OnResponse(&policyv1alpha.ResponseContext{}, nil)
+	if _, ok := respNoOp.(policyv1alpha.UpstreamResponseModifications); !ok {
 		t.Fatalf("expected response no-op modifications, got %T", respNoOp)
 	}
 
 	// Request validation with nil body and explicit jsonPath should fail extraction.
 	p.hasRequestParams = true
 	p.requestParams = URLGuardrailPolicyParams{Enabled: true, JsonPath: "$.text", Timeout: 100}
-	reqFail := p.OnRequest(&policy.RequestContext{Body: nil}, nil)
-	if _, ok := reqFail.(policy.ImmediateResponse); !ok {
+	reqFail := p.OnRequest(&policyv1alpha.RequestContext{Body: nil}, nil)
+	if _, ok := reqFail.(policyv1alpha.ImmediateResponse); !ok {
 		t.Fatalf("expected ImmediateResponse for request nil-body extraction failure, got %T", reqFail)
 	}
 
 	// Response validation with nil body and explicit jsonPath should fail extraction.
 	p.hasResponseParams = true
 	p.responseParams = URLGuardrailPolicyParams{Enabled: true, JsonPath: "$.text", Timeout: 100}
-	respFail := p.OnResponse(&policy.ResponseContext{ResponseBody: nil}, nil)
-	respMod, ok := respFail.(policy.UpstreamResponseModifications)
+	respFail := p.OnResponse(&policyv1alpha.ResponseContext{ResponseBody: nil}, nil)
+	respMod, ok := respFail.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications for response nil-body extraction failure, got %T", respFail)
 	}
@@ -485,14 +485,14 @@ func TestOnRequestAndOnResponse(t *testing.T) {
 	}
 
 	p.requestParams.Enabled = false
-	reqDisabled := p.OnRequest(&policy.RequestContext{Body: &policy.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
-	if _, ok := reqDisabled.(policy.UpstreamRequestModifications); !ok {
+	reqDisabled := p.OnRequest(&policyv1alpha.RequestContext{Body: &policyv1alpha.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
+	if _, ok := reqDisabled.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected request no-op when request.enabled=false, got %T", reqDisabled)
 	}
 
 	p.responseParams.Enabled = false
-	respDisabled := p.OnResponse(&policy.ResponseContext{ResponseBody: &policy.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
-	if _, ok := respDisabled.(policy.UpstreamResponseModifications); !ok {
+	respDisabled := p.OnResponse(&policyv1alpha.ResponseContext{ResponseBody: &policyv1alpha.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
+	if _, ok := respDisabled.(policyv1alpha.UpstreamResponseModifications); !ok {
 		t.Fatalf("expected response no-op when response.enabled=false, got %T", respDisabled)
 	}
 }

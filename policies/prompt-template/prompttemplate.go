@@ -26,7 +26,8 @@ import (
 	"slices"
 	"strings"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 	utils "github.com/wso2/api-platform/sdk/utils"
 )
 
@@ -72,9 +73,9 @@ type PromptTemplatePolicyParams struct {
 }
 
 func GetPolicy(
-	metadata policy.PolicyMetadata,
+	metadata policyv1alpha.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha.Policy, error) {
 	p := &PromptTemplatePolicy{}
 
 	// Parse parameters
@@ -210,29 +211,92 @@ func parseParams(params map[string]interface{}) (PromptTemplatePolicyParams, err
 }
 
 // Mode returns the processing mode for this policy
-func (p *PromptTemplatePolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeSkip,
+func (p *PromptTemplatePolicy) Mode() policyv1alpha.ProcessingMode {
+	return policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha.BodyModeSkip,
 	}
 }
 
 // OnRequest delegates to OnRequestBody for v1alpha engine compatibility.
-func (p *PromptTemplatePolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
-	return p.OnRequestBody(ctx)
-}
-
-// OnRequestBody applies template to request body.
-func (p *PromptTemplatePolicy) OnRequestBody(ctx *policy.RequestContext) policy.RequestAction {
+// OnRequest applies the configured template to the request body.
+func (p *PromptTemplatePolicy) OnRequest(ctx *policyv1alpha.RequestContext, params map[string]interface{}) policyv1alpha.RequestAction {
 	var content []byte
 	if ctx.Body != nil {
 		content = ctx.Body.Content
 	}
 
 	if len(content) == 0 {
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
+	}
+
+	// If jsonPath is empty, resolve template references across the whole payload
+	// string (legacy behavior).
+	if p.params.JsonPath == "" {
+		updatedContent, err := p.resolveTemplatesInText(string(content), true)
+		if err != nil {
+			return p.buildV1ErrorResponse("Error resolving templates", err)
+		}
+		if updatedContent == string(content) {
+			return policyv1alpha.UpstreamRequestModifications{}
+		}
+		return policyv1alpha.UpstreamRequestModifications{
+			Body: []byte(updatedContent),
+		}
+	}
+
+	// jsonPath configured: resolve template references in the extracted string only.
+	var payloadData map[string]interface{}
+	if err := json.Unmarshal(content, &payloadData); err != nil {
+		return p.buildV1ErrorResponse("Error parsing JSON payload", err)
+	}
+
+	extractedValue, err := p.extractStringAtPath(content, p.params.JsonPath)
+	if err != nil {
+		return p.buildV1ErrorResponse("Error extracting value from JSONPath", err)
+	}
+
+	updatedValue, err := p.resolveTemplatesInText(extractedValue, false)
+	if err != nil {
+		return p.buildV1ErrorResponse("Error resolving templates", err)
+	}
+	if updatedValue == extractedValue {
+		return policyv1alpha.UpstreamRequestModifications{}
+	}
+
+	if err := utils.SetValueAtJSONPath(payloadData, p.params.JsonPath, updatedValue); err != nil {
+		return p.buildV1ErrorResponse("Error updating JSONPath", err)
+	}
+
+	updatedPayload, err := json.Marshal(payloadData)
+	if err != nil {
+		return p.buildV1ErrorResponse("Error marshaling updated JSON payload", err)
+	}
+
+	return policyv1alpha.UpstreamRequestModifications{
+		Body: updatedPayload,
+	}
+}
+
+// OnRequestBody applies the configured template to the request body.
+func (p *PromptTemplatePolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ map[string]interface{}) policyv1alpha2.RequestAction {
+	var v1Body *policyv1alpha.Body
+	if ctx.Body != nil {
+		v1Body = &policyv1alpha.Body{Content: ctx.Body.Content, Present: ctx.Body.Present, EndOfStream: ctx.Body.EndOfStream}
+	}
+	return p.processRequestBody(&policyv1alpha.RequestContext{Body: v1Body})
+}
+
+func (p *PromptTemplatePolicy) processRequestBody(ctx *policyv1alpha.RequestContext) policyv1alpha2.RequestAction {
+	var content []byte
+	if ctx.Body != nil {
+		content = ctx.Body.Content
+	}
+
+	if len(content) == 0 {
+		return policyv1alpha2.UpstreamRequestModifications{}
 	}
 
 	// If jsonPath is empty, resolve template references across the whole payload
@@ -243,9 +307,9 @@ func (p *PromptTemplatePolicy) OnRequestBody(ctx *policy.RequestContext) policy.
 			return p.buildErrorResponse("Error resolving templates", err)
 		}
 		if updatedContent == string(content) {
-			return policy.UpstreamRequestModifications{}
+			return policyv1alpha2.UpstreamRequestModifications{}
 		}
-		return policy.UpstreamRequestModifications{
+		return policyv1alpha2.UpstreamRequestModifications{
 			Body: []byte(updatedContent),
 		}
 	}
@@ -266,7 +330,7 @@ func (p *PromptTemplatePolicy) OnRequestBody(ctx *policy.RequestContext) policy.
 		return p.buildErrorResponse("Error resolving templates", err)
 	}
 	if updatedValue == extractedValue {
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha2.UpstreamRequestModifications{}
 	}
 
 	if err := utils.SetValueAtJSONPath(payloadData, p.params.JsonPath, updatedValue); err != nil {
@@ -278,7 +342,7 @@ func (p *PromptTemplatePolicy) OnRequestBody(ctx *policy.RequestContext) policy.
 		return p.buildErrorResponse("Error marshaling updated JSON payload", err)
 	}
 
-	return policy.UpstreamRequestModifications{
+	return policyv1alpha2.UpstreamRequestModifications{
 		Body: updatedPayload,
 	}
 }
@@ -391,12 +455,35 @@ func (p *PromptTemplatePolicy) extractStringAtPath(payload []byte, jsonPath stri
 }
 
 // OnResponse is not used for this policy
-func (p *PromptTemplatePolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
-	return policy.UpstreamResponseModifications{}
+func (p *PromptTemplatePolicy) OnResponse(ctx *policyv1alpha.ResponseContext, params map[string]interface{}) policyv1alpha.ResponseAction {
+	return policyv1alpha.UpstreamResponseModifications{}
+}
+
+// buildV1ErrorResponse builds an error response for the v1alpha OnRequest method.
+func (p *PromptTemplatePolicy) buildV1ErrorResponse(reason string, validationError error) policyv1alpha.RequestAction {
+	errorMessage := reason
+	if validationError != nil {
+		errorMessage = fmt.Sprintf("%s: %v", reason, validationError)
+	}
+	responseBody := map[string]interface{}{
+		"type":    "PROMPT_TEMPLATE_ERROR",
+		"message": errorMessage,
+	}
+	bodyBytes, err := json.Marshal(responseBody)
+	if err != nil {
+		bodyBytes = []byte(`{"type":"PROMPT_TEMPLATE_ERROR","message":"Internal error"}`)
+	}
+	return policyv1alpha.ImmediateResponse{
+		StatusCode: 500,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body: bodyBytes,
+	}
 }
 
 // buildErrorResponse builds an error response
-func (p *PromptTemplatePolicy) buildErrorResponse(reason string, validationError error) policy.RequestAction {
+func (p *PromptTemplatePolicy) buildErrorResponse(reason string, validationError error) policyv1alpha2.RequestAction {
 	errorMessage := reason
 	if validationError != nil {
 		errorMessage = fmt.Sprintf("%s: %v", reason, validationError)
@@ -412,7 +499,7 @@ func (p *PromptTemplatePolicy) buildErrorResponse(reason string, validationError
 		bodyBytes = []byte(`{"type":"PROMPT_TEMPLATE_ERROR","message":"Internal error"}`)
 	}
 
-	return policy.ImmediateResponse{
+	return policyv1alpha2.ImmediateResponse{
 		StatusCode: 500,
 		Headers: map[string]string{
 			"Content-Type": "application/json",

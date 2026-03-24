@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
-	embeddingproviders "github.com/wso2/api-platform/sdk/utils/embeddingproviders"
+	embeddingproviders "github.com/wso2/api-platform/sdk/ai/embeddings"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 type mockEmbeddingProvider struct {
@@ -46,11 +46,11 @@ func (m *mockEmbeddingProvider) GetEmbeddings(inputs []string) ([][]float32, err
 func TestSemanticPromptGuardPolicy_Mode(t *testing.T) {
 	p := &SemanticPromptGuardPolicy{}
 	got := p.Mode()
-	want := policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeSkip,
+	want := policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha.BodyModeSkip,
 	}
 	if got != want {
 		t.Fatalf("unexpected mode: got %+v, want %+v", got, want)
@@ -59,14 +59,14 @@ func TestSemanticPromptGuardPolicy_Mode(t *testing.T) {
 
 func TestSemanticPromptGuardPolicy_OnResponse_NoOp(t *testing.T) {
 	p := &SemanticPromptGuardPolicy{}
-	action := p.OnResponse(&policy.ResponseContext{}, nil)
-	if _, ok := action.(policy.UpstreamResponseModifications); !ok {
+	action := p.OnResponse(&policyv1alpha.ResponseContext{}, nil)
+	if _, ok := action.(policyv1alpha.UpstreamResponseModifications); !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", action)
 	}
 }
 
 func TestGetPolicy_InvalidEmbeddingConfig(t *testing.T) {
-	_, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{})
+	_, err := GetPolicy(policyv1alpha.PolicyMetadata{}, map[string]interface{}{})
 	if err == nil {
 		t.Fatalf("expected error for missing embedding config")
 	}
@@ -578,20 +578,20 @@ func TestSemanticPromptGuardPolicy_OnRequestAndValidatePayload(t *testing.T) {
 				params:            tt.params,
 			}
 
-			ctx := &policy.RequestContext{
-				SharedContext: &policy.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}},
-				Body:          &policy.Body{Content: []byte(tt.payload), Present: true, EndOfStream: true},
+			ctx := &policyv1alpha.RequestContext{
+				SharedContext: &policyv1alpha.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}},
+				Body:          &policyv1alpha.Body{Content: []byte(tt.payload), Present: true, EndOfStream: true},
 			}
 
 			action := p.OnRequest(ctx, nil)
 			if !tt.wantImmediate {
-				if _, ok := action.(policy.UpstreamRequestModifications); !ok {
+				if _, ok := action.(policyv1alpha.UpstreamRequestModifications); !ok {
 					t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 				}
 				return
 			}
 
-			resp, ok := action.(policy.ImmediateResponse)
+			resp, ok := action.(policyv1alpha.ImmediateResponse)
 			if !ok {
 				t.Fatalf("expected ImmediateResponse, got %T", action)
 			}

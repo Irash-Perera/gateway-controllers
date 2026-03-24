@@ -7,17 +7,17 @@ import (
 	"testing"
 
 	apikeycommon "github.com/wso2/api-platform/common/apikey"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 func TestAPIKeyPolicy_Mode(t *testing.T) {
 	p := &APIKeyPolicy{}
 	got := p.Mode()
-	want := policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess,
-		RequestBodyMode:    policy.BodyModeSkip,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeSkip,
+	want := policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeProcess,
+		RequestBodyMode:    policyv1alpha.BodyModeSkip,
+		ResponseHeaderMode: policyv1alpha.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha.BodyModeSkip,
 	}
 
 	if got != want {
@@ -26,11 +26,11 @@ func TestAPIKeyPolicy_Mode(t *testing.T) {
 }
 
 func TestGetPolicy_ReturnsSingleton(t *testing.T) {
-	p1, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{})
+	p1, err := GetPolicy(policyv1alpha.PolicyMetadata{}, map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
-	p2, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{})
+	p2, err := GetPolicy(policyv1alpha.PolicyMetadata{}, map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestAPIKeyPolicy_OnRequest_SuccessFromHeader(t *testing.T) {
 	if ctx.SharedContext.AuthContext.AuthType != "apikey" {
 		t.Fatalf("expected AuthType='apikey', got %q", ctx.SharedContext.AuthContext.AuthType)
 	}
-	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := action.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
 }
@@ -79,7 +79,7 @@ func TestAPIKeyPolicy_OnRequest_SuccessFromQuery(t *testing.T) {
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
 		t.Fatalf("expected AuthContext.Authenticated=true")
 	}
-	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := action.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
 }
@@ -192,7 +192,7 @@ func TestAPIKeyPolicy_OnRequest_FailsWhenValidationErrors(t *testing.T) {
 
 func TestAPIKeyPolicy_OnResponse_NoOp(t *testing.T) {
 	p := &APIKeyPolicy{}
-	action := p.OnResponse(&policy.ResponseContext{}, nil)
+	action := p.OnResponse(&policyv1alpha.ResponseContext{}, nil)
 	if action != nil {
 		t.Fatalf("expected nil response action, got %T", action)
 	}
@@ -203,7 +203,7 @@ func TestAPIKeyPolicy_HandleAuthFailure_PlainFormat(t *testing.T) {
 	ctx := newRequestContext(t, "GET", "/orders", nil, "api-1", "OrdersAPI", "v1", "/orders")
 
 	action := p.handleAuthFailure(ctx, 401, "plain", "Auth failed", "test failure")
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -264,13 +264,13 @@ func TestExtractQueryParam(t *testing.T) {
 	}
 }
 
-func newRequestContext(t *testing.T, method, path string, headers map[string][]string, apiID, apiName, apiVersion, opPath string) *policy.RequestContext {
+func newRequestContext(t *testing.T, method, path string, headers map[string][]string, apiID, apiName, apiVersion, opPath string) *policyv1alpha.RequestContext {
 	t.Helper()
 	if headers == nil {
 		headers = map[string][]string{}
 	}
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+	return &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID:     "req-1",
 			Metadata:      map[string]interface{}{},
 			APIId:         apiID,
@@ -278,15 +278,15 @@ func newRequestContext(t *testing.T, method, path string, headers map[string][]s
 			APIVersion:    apiVersion,
 			OperationPath: opPath,
 		},
-		Headers: policy.NewHeaders(headers),
+		Headers: policyv1alpha.NewHeaders(headers),
 		Method:  method,
 		Path:    path,
 	}
 }
 
-func assertUnauthorizedJSON(t *testing.T, action policy.RequestAction) {
+func assertUnauthorizedJSON(t *testing.T, action policyv1alpha.RequestAction) {
 	t.Helper()
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -342,7 +342,7 @@ func sanitizeTestName(v string) string {
 
 func TestAPIKeyPolicy_AuthContext_PreviousPreserved_OnSuccess(t *testing.T) {
 	p := &APIKeyPolicy{}
-	prior := &policy.AuthContext{Authenticated: true, AuthType: "other"}
+	prior := &policyv1alpha.AuthContext{Authenticated: true, AuthType: "other"}
 	ctx := newRequestContext(t, "GET", "/orders", nil, "api-1", "OrdersAPI", "v1", "/orders")
 	ctx.SharedContext.AuthContext = prior
 
@@ -358,7 +358,7 @@ func TestAPIKeyPolicy_AuthContext_PreviousPreserved_OnSuccess(t *testing.T) {
 
 func TestAPIKeyPolicy_AuthContext_PreviousPreserved_OnFailure(t *testing.T) {
 	p := &APIKeyPolicy{}
-	prior := &policy.AuthContext{Authenticated: true, AuthType: "other"}
+	prior := &policyv1alpha.AuthContext{Authenticated: true, AuthType: "other"}
 	ctx := newRequestContext(t, "GET", "/orders", nil, "api-1", "OrdersAPI", "v1", "/orders")
 	ctx.SharedContext.AuthContext = prior
 

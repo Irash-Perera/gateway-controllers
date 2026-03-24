@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/cel-go/cel"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 // CELEvaluator provides CEL expression evaluation for rate limit key and cost extraction
@@ -112,7 +112,7 @@ func createCostExtractionEnv() (*cel.Env, error) {
 
 // EvaluateKeyExpression evaluates a CEL expression for key extraction from request context
 // Returns the extracted key string or an error
-func (e *CELEvaluator) EvaluateKeyExpression(expression string, ctx *policy.RequestContext, routeName string) (string, error) {
+func (e *CELEvaluator) EvaluateKeyExpression(expression string, ctx *policyv1alpha.RequestContext, routeName string) (string, error) {
 	program, err := e.getOrCompileKeyProgram(expression)
 	if err != nil {
 		return "", fmt.Errorf("failed to compile CEL expression: %w", err)
@@ -139,7 +139,7 @@ func (e *CELEvaluator) EvaluateKeyExpression(expression string, ctx *policy.Requ
 
 // EvaluateRequestCostExpression evaluates a CEL expression for cost extraction from request context
 // Returns the extracted cost value or an error
-func (e *CELEvaluator) EvaluateRequestCostExpression(expression string, ctx *policy.RequestContext) (float64, error) {
+func (e *CELEvaluator) EvaluateRequestCostExpression(expression string, ctx *policyv1alpha.RequestContext) (float64, error) {
 	program, err := e.getOrCompileCostProgram(expression)
 	if err != nil {
 		return 0, fmt.Errorf("failed to compile CEL expression: %w", err)
@@ -161,7 +161,7 @@ func (e *CELEvaluator) EvaluateRequestCostExpression(expression string, ctx *pol
 
 // EvaluateResponseCostExpression evaluates a CEL expression for cost extraction from response context
 // Returns the extracted cost value or an error
-func (e *CELEvaluator) EvaluateResponseCostExpression(expression string, ctx *policy.ResponseContext) (float64, error) {
+func (e *CELEvaluator) EvaluateResponseCostExpression(expression string, ctx *policyv1alpha.ResponseContext) (float64, error) {
 	program, err := e.getOrCompileCostProgram(expression)
 	if err != nil {
 		return 0, fmt.Errorf("failed to compile CEL expression: %w", err)
@@ -182,7 +182,7 @@ func (e *CELEvaluator) EvaluateResponseCostExpression(expression string, ctx *po
 }
 
 // buildKeyEvalContext builds the CEL evaluation context for key extraction
-func buildKeyEvalContext(ctx *policy.RequestContext, routeName string) map[string]interface{} {
+func buildKeyEvalContext(ctx *policyv1alpha.RequestContext, routeName string) map[string]interface{} {
 	// Convert headers to map[string][]string for CEL
 	headers := make(map[string][]string)
 	if ctx.Headers != nil {
@@ -213,7 +213,7 @@ func buildKeyEvalContext(ctx *policy.RequestContext, routeName string) map[strin
 }
 
 // buildRequestCostEvalContext builds the CEL evaluation context for request-phase cost extraction
-func buildRequestCostEvalContext(ctx *policy.RequestContext) map[string]interface{} {
+func buildRequestCostEvalContext(ctx *policyv1alpha.RequestContext) map[string]interface{} {
 	// Convert headers to map[string][]string for CEL
 	headers := make(map[string][]string)
 	if ctx.Headers != nil {
@@ -258,7 +258,7 @@ func buildRequestCostEvalContext(ctx *policy.RequestContext) map[string]interfac
 }
 
 // buildResponseCostEvalContext builds the CEL evaluation context for response-phase cost extraction
-func buildResponseCostEvalContext(ctx *policy.ResponseContext) map[string]interface{} {
+func buildResponseCostEvalContext(ctx *policyv1alpha.ResponseContext) map[string]interface{} {
 	// Convert request headers to map[string][]string for CEL
 	requestHeaders := make(map[string][]string)
 	if ctx.RequestHeaders != nil {

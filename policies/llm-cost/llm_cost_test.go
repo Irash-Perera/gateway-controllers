@@ -24,7 +24,7 @@ import (
 	"runtime"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 const floatTolerance = 1e-12
@@ -1777,13 +1777,13 @@ func TestOpenAICalculator_Normalize_MalformedBody(t *testing.T) {
 func TestLLMCostPolicy_Mode(t *testing.T) {
 	p := &LLMCostPolicy{}
 	mode := p.Mode()
-	if mode.RequestBodyMode != policy.BodyModeBuffer {
+	if mode.RequestBodyMode != policyv1alpha.BodyModeBuffer {
 		t.Errorf("expected RequestBodyMode=BUFFER, got %v", mode.RequestBodyMode)
 	}
-	if mode.ResponseBodyMode != policy.BodyModeBuffer {
+	if mode.ResponseBodyMode != policyv1alpha.BodyModeBuffer {
 		t.Errorf("expected ResponseBodyMode=BUFFER, got %v", mode.ResponseBodyMode)
 	}
-	if mode.ResponseHeaderMode == policy.HeaderModeProcess {
+	if mode.ResponseHeaderMode == policyv1alpha.HeaderModeProcess {
 		t.Errorf("expected ResponseHeaderMode unset (cost stored in metadata, not headers), got %v", mode.ResponseHeaderMode)
 	}
 }
@@ -1804,7 +1804,7 @@ func TestSetCostMetadata_Formatting(t *testing.T) {
 	for _, tc := range cases {
 		ctx := makeResponseContext(nil)
 		result := setCostMetadata(ctx, tc.cost, costStatusCalculated)
-		_, ok := result.(policy.UpstreamResponseModifications)
+		_, ok := result.(policyv1alpha.UpstreamResponseModifications)
 		if !ok {
 			t.Fatalf("unexpected action type")
 		}
@@ -1823,21 +1823,21 @@ func TestSetCostMetadata_Formatting(t *testing.T) {
 // OnResponse — cost status header
 // ---------------------------------------------------------------------------
 
-func makeResponseContext(body []byte) *policy.ResponseContext {
-	ctx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+func makeResponseContext(body []byte) *policyv1alpha.ResponseContext {
+	ctx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: make(map[string]interface{}),
 		},
 	}
 	if body != nil {
-		ctx.ResponseBody = &policy.Body{Present: true, Content: body}
+		ctx.ResponseBody = &policyv1alpha.Body{Present: true, Content: body}
 	}
 	return ctx
 }
 
-func assertCostMetadata(t *testing.T, ctx *policy.ResponseContext, action policy.ResponseAction, wantStatus string, wantCost string) {
+func assertCostMetadata(t *testing.T, ctx *policyv1alpha.ResponseContext, action policyv1alpha.ResponseAction, wantStatus string, wantCost string) {
 	t.Helper()
-	_, ok := action.(policy.UpstreamResponseModifications)
+	_, ok := action.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", action)
 	}
@@ -1870,9 +1870,9 @@ func TestOnResponse_SuccessStatus_Calculated(t *testing.T) {
 
 func TestOnResponse_EmptyBody_NotCalculated(t *testing.T) {
 	p := &LLMCostPolicy{pricingMap: testPricingMap}
-	ctx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{Metadata: make(map[string]interface{})},
-		ResponseBody:  &policy.Body{Present: false},
+	ctx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{Metadata: make(map[string]interface{})},
+		ResponseBody:  &policyv1alpha.Body{Present: false},
 	}
 	assertCostMetadata(t, ctx, p.OnResponse(ctx, nil), costStatusNotCalculated, "0.0000000000")
 }
@@ -2090,14 +2090,14 @@ func TestGenericCalculateCost_SearchContextPrecedenceOverFlatRate(t *testing.T) 
 // ---------------------------------------------------------------------------
 
 func TestGetPolicy_EmptyPricingFile(t *testing.T) {
-	_, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{})
+	_, err := GetPolicy(policyv1alpha.PolicyMetadata{}, map[string]interface{}{})
 	if err == nil {
 		t.Fatal("expected error when pricing_file is empty, got nil")
 	}
 }
 
 func TestGetPolicy_MissingFile(t *testing.T) {
-	_, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{
+	_, err := GetPolicy(policyv1alpha.PolicyMetadata{}, map[string]interface{}{
 		"pricing_file": "/nonexistent/path/model_prices.json",
 	})
 	if err == nil {

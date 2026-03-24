@@ -25,7 +25,8 @@ import (
 	"strconv"
 	"strings"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 	utils "github.com/wso2/api-platform/sdk/utils"
 )
 
@@ -38,9 +39,11 @@ const (
 	RequestFlowEnabledByDefault  = true
 	ResponseFlowEnabledByDefault = false
 
-	sseDataPrefix     = "data: "
-	sseDone           = "[DONE]"
-	metaKeyAccContent = "wordcountguardrail:accumulated_content"
+	sseDataPrefix            = "data: "
+	sseDone                  = "[DONE]"
+	metaKeyAccContent        = "wordcountguardrail:accumulated_content"
+	metaKeyAccJsonBody       = "wordcountguardrail:json_body"
+	DefaultStreamingJsonPath = "$.choices[*].delta.content"
 )
 
 var (
@@ -57,18 +60,35 @@ type WordCountGuardrailPolicy struct {
 }
 
 type WordCountGuardrailPolicyParams struct {
-	Enabled        bool
-	Min            int
-	Max            int
-	JsonPath       string
-	Invert         bool
-	ShowAssessment bool
+	Enabled           bool
+	Min               int
+	Max               int
+	JsonPath          string
+	StreamingJsonPath string
+	Invert            bool
+	ShowAssessment    bool
 }
 
+// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
+// The returned concrete type also satisfies policyv1alpha2 phase interfaces
+// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
+// can discover those capabilities via type assertions even when using this factory.
 func GetPolicy(
-	metadata policy.PolicyMetadata,
+	metadata policyv1alpha.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha.Policy, error) {
+	return newPolicy(params)
+}
+
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
+	params map[string]interface{},
+) (policyv1alpha2.Policy, error) {
+	return newPolicy(params)
+}
+
+func newPolicy(params map[string]interface{}) (*WordCountGuardrailPolicy, error) {
 	p := &WordCountGuardrailPolicy{}
 
 	requestParamsRaw, hasRequest, err := getFlowParams(params, "request")
@@ -122,8 +142,9 @@ func getFlowParams(params map[string]interface{}, flow string) (map[string]inter
 // parseParams parses and validates parameters from map to struct
 func parseParams(params map[string]interface{}, isResponse bool) (WordCountGuardrailPolicyParams, error) {
 	result := WordCountGuardrailPolicyParams{
-		JsonPath: DefaultJSONPath,
-		Enabled:  RequestFlowEnabledByDefault,
+		JsonPath:          DefaultJSONPath,
+		StreamingJsonPath: DefaultStreamingJsonPath,
+		Enabled:           RequestFlowEnabledByDefault,
 	}
 	enabledExplicitlyFalse := false
 	if isResponse {
@@ -188,6 +209,15 @@ func parseParams(params map[string]interface{}, isResponse bool) (WordCountGuard
 		}
 	}
 
+	// Extract optional streamingJsonPath parameter
+	if streamingJsonPathRaw, ok := params["streamingJsonPath"]; ok {
+		if streamingJsonPath, ok := streamingJsonPathRaw.(string); ok {
+			result.StreamingJsonPath = streamingJsonPath
+		} else {
+			return result, fmt.Errorf("'streamingJsonPath' must be a string")
+		}
+	}
+
 	// Extract optional invert parameter
 	if invertRaw, ok := params["invert"]; ok {
 		if invert, ok := invertRaw.(bool); ok {
@@ -236,47 +266,45 @@ func extractInt(value interface{}) (int, error) {
 }
 
 // Mode returns the processing mode for this policy
-func (p *WordCountGuardrailPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeBuffer,
+func (p *WordCountGuardrailPolicy) Mode() policyv1alpha2.ProcessingMode {
+	return policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha2.BodyModeStream,
 	}
 }
 
-// OnRequest delegates to OnRequestBody for v1alpha engine compatibility.
-func (p *WordCountGuardrailPolicy) OnRequest(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
-	return p.OnRequestBody(ctx)
-}
-
-// OnResponse delegates to OnResponseBody for v1alpha engine compatibility.
-func (p *WordCountGuardrailPolicy) OnResponse(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
-	return p.OnResponseBody(ctx)
-}
-
-// OnRequestBody validates the word count of the request body.
-func (p *WordCountGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext) policy.RequestAction {
+// OnRequest validates the word count of the request body.
+func (p *WordCountGuardrailPolicy) OnRequest(ctx *policyv1alpha.RequestContext, _ map[string]interface{}) policyv1alpha.RequestAction {
 	if !p.hasRequestParams || !p.requestParams.Enabled {
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	var content []byte
 	if ctx.Body != nil {
 		content = ctx.Body.Content
 	}
-	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
+	return p.validatePayload(content, p.requestParams, false).(policyv1alpha.RequestAction)
 }
 
-// OnResponseBody validates the word count of the response body.
-//
-// SSE (stream: true) responses are also handled here. Because Mode() declares
-// BodyModeBuffer, the kernel fully buffers the entire SSE body before calling
-// this method — response headers are not yet committed, so a normal 422 error
-// response can still be returned (no SSE error-event workaround needed).
-func (p *WordCountGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext) policy.ResponseAction {
+// OnRequestBody validates the word count of the request body.
+func (p *WordCountGuardrailPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ map[string]interface{}) policyv1alpha2.RequestAction {
+	if !p.hasRequestParams || !p.requestParams.Enabled {
+		return policyv1alpha2.UpstreamRequestModifications{}
+	}
+
+	var content []byte
+	if ctx.Body != nil {
+		content = ctx.Body.Content
+	}
+	return p.validatePayloadV2(content, p.requestParams, false).(policyv1alpha2.RequestAction)
+}
+
+// OnResponse validates the word count of the response body.
+func (p *WordCountGuardrailPolicy) OnResponse(ctx *policyv1alpha.ResponseContext, _ map[string]interface{}) policyv1alpha.ResponseAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
-		return policy.UpstreamResponseModifications{}
+		return policyv1alpha.UpstreamResponseModifications{}
 	}
 
 	var content []byte
@@ -287,16 +315,42 @@ func (p *WordCountGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext) p
 	// For SSE responses, reconstruct the full assistant text from delta events
 	// and count words on that, bypassing the JSONPath extraction (which targets
 	// the non-streaming response structure).
-	if text := extractSSEDeltaContent(string(content)); text != "" {
+	if text := extractSSEDeltaContent(string(content), p.responseParams.StreamingJsonPath); text != "" {
 		return p.validateWordCount(text, p.responseParams, true)
 	}
 
-	return p.validatePayload(content, p.responseParams, true).(policy.ResponseAction)
+	return p.validatePayload(content, p.responseParams, true).(policyv1alpha.ResponseAction)
 }
 
-// extractSSEDeltaContent concatenates choices[*].delta.content values from
-// every complete SSE data line in s. Returns "" for non-SSE content.
-func extractSSEDeltaContent(s string) string {
+// OnResponseBody validates the word count of the response body.
+//
+// SSE (stream: true) responses are also handled here
+// response headers are not yet committed, so a normal 422 error
+// response can still be returned (no SSE error-event workaround needed).
+func (p *WordCountGuardrailPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseContext, _ map[string]interface{}) policyv1alpha2.ResponseAction {
+	if !p.hasResponseParams || !p.responseParams.Enabled {
+		return policyv1alpha2.DownstreamResponseModifications{}
+	}
+
+	var content []byte
+	if ctx.ResponseBody != nil {
+		content = ctx.ResponseBody.Content
+	}
+
+	// For SSE responses, reconstruct the full assistant text from delta events
+	// and count words on that, bypassing the JSONPath extraction (which targets
+	// the non-streaming response structure).
+	if text := extractSSEDeltaContent(string(content), p.responseParams.StreamingJsonPath); text != "" {
+		return p.validateWordCountV2(text, p.responseParams, true)
+	}
+
+	return p.validatePayloadV2(content, p.responseParams, true).(policyv1alpha2.ResponseAction)
+}
+
+// extractSSEDeltaContent extracts and concatenates content values from every
+// complete SSE data line in s using the provided streamingJsonPath.
+// Returns "" for non-SSE content or when no content is found.
+func extractSSEDeltaContent(s string, streamingJsonPath string) string {
 	var sb strings.Builder
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimRight(line, "\r")
@@ -307,23 +361,45 @@ func extractSSEDeltaContent(s string) string {
 		if jsonStr == sseDone {
 			continue
 		}
-		var data map[string]interface{}
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+		if text, err := utils.ExtractStringValueFromJsonpath([]byte(jsonStr), streamingJsonPath); err == nil {
+			sb.WriteString(text)
 			continue
 		}
-		choices, _ := data["choices"].([]interface{})
-		for _, cr := range choices {
-			choice, _ := cr.(map[string]interface{})
-			delta, _ := choice["delta"].(map[string]interface{})
-			content, _ := delta["content"].(string)
-			sb.WriteString(content)
+		var jsonData map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonStr), &jsonData); err != nil {
+			continue
 		}
+		val, err := utils.ExtractValueFromJsonpath(jsonData, streamingJsonPath)
+		if err != nil {
+			continue
+		}
+		sb.WriteString(joinSSEFragments(val))
 	}
 	return sb.String()
 }
 
+// joinSSEFragments converts an extracted JSONPath value to a string.
+// Array elements are concatenated without a separator because SSE delta
+// fragments must be joined as-is without artificial whitespace.
+func joinSSEFragments(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []interface{}:
+		var sb strings.Builder
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				sb.WriteString(s)
+			}
+		}
+		return sb.String()
+	default:
+		return ""
+	}
+}
+
 // validateWordCount counts words in text and validates against params.
-func (p *WordCountGuardrailPolicy) validateWordCount(text string, params WordCountGuardrailPolicyParams, isResponse bool) policy.ResponseAction {
+func (p *WordCountGuardrailPolicy) validateWordCount(text string, params WordCountGuardrailPolicyParams, isResponse bool) policyv1alpha.ResponseAction {
 	text = textCleanRegexCompiled.ReplaceAllString(text, "")
 	text = strings.TrimSpace(text)
 
@@ -350,10 +426,10 @@ func (p *WordCountGuardrailPolicy) validateWordCount(text string, params WordCou
 		}
 		slog.Debug("WordCountGuardrail: validation failed",
 			"wordCount", wordCount, "min", params.Min, "max", params.Max, "invert", params.Invert)
-		return p.buildErrorResponse(reason, nil, isResponse, params.ShowAssessment, params.Min, params.Max).(policy.ResponseAction)
+		return p.buildErrorResponse(reason, nil, isResponse, params.ShowAssessment, params.Min, params.Max).(policyv1alpha.ResponseAction)
 	}
 
-	return policy.UpstreamResponseModifications{}
+	return policyv1alpha.UpstreamResponseModifications{}
 }
 
 // validatePayload validates payload word count
@@ -401,9 +477,9 @@ func (p *WordCountGuardrailPolicy) validatePayload(payload []byte, params WordCo
 
 	slog.Debug("WordCountGuardrail: Validation passed", "wordCount", wordCount, "min", params.Min, "max", params.Max, "isResponse", isResponse)
 	if isResponse {
-		return policy.UpstreamResponseModifications{}
+		return policyv1alpha.UpstreamResponseModifications{}
 	}
-	return policy.UpstreamRequestModifications{}
+	return policyv1alpha.UpstreamRequestModifications{}
 }
 
 func extractStringFromJSONPath(payload []byte, jsonPath string) (string, error) {
@@ -489,7 +565,7 @@ func (p *WordCountGuardrailPolicy) buildErrorResponse(reason string, validationE
 
 	if isResponse {
 		statusCode := GuardrailErrorCode
-		return policy.UpstreamResponseModifications{
+		return policyv1alpha.UpstreamResponseModifications{
 			StatusCode: &statusCode,
 			Body:       bodyBytes,
 			SetHeaders: map[string]string{
@@ -498,13 +574,129 @@ func (p *WordCountGuardrailPolicy) buildErrorResponse(reason string, validationE
 		}
 	}
 
-	return policy.ImmediateResponse{
+	return policyv1alpha.ImmediateResponse{
 		StatusCode: GuardrailErrorCode,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},
 		Body: bodyBytes,
 	}
+}
+
+// buildErrorResponseV2 builds a v1alpha2 error response for both request and response phases.
+func (p *WordCountGuardrailPolicy) buildErrorResponseV2(reason string, validationError error, isResponse bool, showAssessment bool, min, max int) interface{} {
+	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, min, max)
+
+	responseBody := map[string]interface{}{
+		"type":    "WORD_COUNT_GUARDRAIL",
+		"message": assessment,
+	}
+
+	bodyBytes, err := json.Marshal(responseBody)
+	if err != nil {
+		bodyBytes = []byte(`{"type":"WORD_COUNT_GUARDRAIL","message":"Internal error"}`)
+	}
+
+	if isResponse {
+		statusCode := GuardrailErrorCode
+		return policyv1alpha2.DownstreamResponseModifications{
+			StatusCode: &statusCode,
+			Body:       bodyBytes,
+			DownstreamResponseHeaderModifications: policyv1alpha2.DownstreamResponseHeaderModifications{
+				HeadersToSet: map[string]string{
+					"Content-Type": "application/json",
+				},
+			},
+		}
+	}
+
+	return policyv1alpha2.ImmediateResponse{
+		StatusCode: GuardrailErrorCode,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body: bodyBytes,
+	}
+}
+
+// validateWordCountV2 counts words in text and validates against params, returning a v1alpha2 response action.
+func (p *WordCountGuardrailPolicy) validateWordCountV2(text string, params WordCountGuardrailPolicyParams, isResponse bool) policyv1alpha2.ResponseAction {
+	text = textCleanRegexCompiled.ReplaceAllString(text, "")
+	text = strings.TrimSpace(text)
+
+	words := wordSplitRegexCompiled.Split(text, -1)
+	wordCount := 0
+	for _, w := range words {
+		if w != "" {
+			wordCount++
+		}
+	}
+
+	isWithinRange := wordCount >= params.Min && wordCount <= params.Max
+	validationPassed := isWithinRange
+	if params.Invert {
+		validationPassed = !isWithinRange
+	}
+
+	if !validationPassed {
+		var reason string
+		if params.Invert {
+			reason = fmt.Sprintf("word count %d is within the excluded range %d-%d words", wordCount, params.Min, params.Max)
+		} else {
+			reason = fmt.Sprintf("word count %d is outside the allowed range %d-%d words", wordCount, params.Min, params.Max)
+		}
+		slog.Debug("WordCountGuardrail: validation failed",
+			"wordCount", wordCount, "min", params.Min, "max", params.Max, "invert", params.Invert)
+		return p.buildErrorResponseV2(reason, nil, isResponse, params.ShowAssessment, params.Min, params.Max).(policyv1alpha2.ResponseAction)
+	}
+
+	return policyv1alpha2.DownstreamResponseModifications{}
+}
+
+// validatePayloadV2 validates payload word count returning v1alpha2 actions.
+func (p *WordCountGuardrailPolicy) validatePayloadV2(payload []byte, params WordCountGuardrailPolicyParams, isResponse bool) interface{} {
+	extractedValue, err := extractStringFromJSONPath(payload, params.JsonPath)
+	if err != nil {
+		slog.Debug("WordCountGuardrail: Error extracting value from JSONPath", "jsonPath", params.JsonPath, "error", err, "isResponse", isResponse)
+		return p.buildErrorResponseV2("Error extracting value from JSONPath", err, isResponse, params.ShowAssessment, params.Min, params.Max)
+	}
+
+	extractedValue = textCleanRegexCompiled.ReplaceAllString(extractedValue, "")
+	extractedValue = strings.TrimSpace(extractedValue)
+
+	words := wordSplitRegexCompiled.Split(extractedValue, -1)
+	wordCount := 0
+	for _, w := range words {
+		if w != "" {
+			wordCount++
+		}
+	}
+
+	isWithinRange := wordCount >= params.Min && wordCount <= params.Max
+
+	var validationPassed bool
+	if params.Invert {
+		validationPassed = !isWithinRange
+	} else {
+		validationPassed = isWithinRange
+	}
+
+	if !validationPassed {
+		slog.Debug("WordCountGuardrail: Validation failed", "wordCount", wordCount, "min", params.Min, "max", params.Max, "invert", params.Invert, "isResponse", isResponse)
+		var reason string
+		if params.Invert {
+			reason = fmt.Sprintf("word count %d is within the excluded range %d-%d words", wordCount, params.Min, params.Max)
+		} else {
+			reason = fmt.Sprintf("word count %d is outside the allowed range %d-%d words", wordCount, params.Min, params.Max)
+		}
+		return p.buildErrorResponseV2(reason, nil, isResponse, params.ShowAssessment, params.Min, params.Max)
+	}
+
+	slog.Debug("WordCountGuardrail: Validation passed", "wordCount", wordCount, "min", params.Min, "max", params.Max, "isResponse", isResponse)
+	if isResponse {
+		return policyv1alpha2.DownstreamResponseModifications{}
+	}
+	return policyv1alpha2.UpstreamRequestModifications{}
 }
 
 // buildAssessmentObject builds the assessment object
@@ -575,7 +767,7 @@ func (p *WordCountGuardrailPolicy) NeedsMoreResponseData(accumulated []byte) boo
 	if strings.Contains(s, sseDataPrefix+sseDone) {
 		return false
 	}
-	count := countWords(extractSSEDeltaContent(s))
+	count := countWords(extractSSEDeltaContent(s, p.responseParams.StreamingJsonPath))
 	rp := p.responseParams
 	if rp.Invert {
 		// Invert mode: buffer while still within or below the excluded range.
@@ -588,16 +780,28 @@ func (p *WordCountGuardrailPolicy) NeedsMoreResponseData(accumulated []byte) boo
 // OnResponseBodyChunk implements StreamingResponsePolicy.
 // Receives flushed batches from the kernel accumulator and validates them.
 // ctx.Metadata tracks the full accumulated text across windows for accuracy.
-func (p *WordCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
+func (p *WordCountGuardrailPolicy) OnResponseBodyChunk(ctx *policyv1alpha2.ResponseStreamContext, chunk *policyv1alpha2.StreamBody, params map[string]interface{}) policyv1alpha2.ResponseChunkAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
-		return policy.ResponseChunkAction{}
+		return policyv1alpha2.ResponseChunkAction{}
 	}
 	if chunk == nil || len(chunk.Chunk) == 0 {
-		return policy.ResponseChunkAction{}
+		return policyv1alpha2.ResponseChunkAction{}
 	}
 	chunkStr := string(chunk.Chunk)
 	if !isSSEChunk(chunkStr) {
-		return policy.ResponseChunkAction{}
+		// Plain JSON via chunked transfer (e.g. OpenAI stream:false with Transfer-Encoding: chunked).
+		// Accumulate all chunks and validate the complete body at end of stream.
+		prev, _ := ctx.Metadata[metaKeyAccJsonBody].(string)
+		full := prev + chunkStr
+		ctx.Metadata[metaKeyAccJsonBody] = full
+		if !chunk.EndOfStream {
+			return policyv1alpha2.ResponseChunkAction{}
+		}
+		result := p.validatePayloadV2([]byte(full), p.responseParams, true)
+		if mod, ok := result.(policyv1alpha2.DownstreamResponseModifications); ok && mod.StatusCode != nil {
+			return policyv1alpha2.ResponseChunkAction{Body: mod.Body}
+		}
+		return policyv1alpha2.ResponseChunkAction{}
 	}
 
 	rp := p.responseParams
@@ -611,10 +815,10 @@ func (p *WordCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStrea
 			prev = s
 		}
 	}
-	fullContent := prev + extractSSEDeltaContent(chunkStr)
+	fullContent := prev + extractSSEDeltaContent(chunkStr, rp.StreamingJsonPath)
 	ctx.Metadata[metaKeyAccContent] = fullContent
 	count := countWords(fullContent)
-	isDone := strings.Contains(chunkStr, sseDataPrefix+sseDone)
+	isDone := chunk.EndOfStream
 
 	if !rp.Invert {
 		// Normal mode: max violation at any point, or below min at [DONE].
@@ -622,15 +826,15 @@ func (p *WordCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStrea
 			slog.Debug("WordCountGuardrail: max exceeded",
 				"count", count, "max", rp.Max, "chunkIndex", chunk.Index)
 			reason := fmt.Sprintf("word count %d exceeded maximum of %d words", count, rp.Max)
-			return policy.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
+			return policyv1alpha2.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
 		}
 		if isDone && count < rp.Min {
 			slog.Debug("WordCountGuardrail: below min at stream end",
 				"count", count, "min", rp.Min, "chunkIndex", chunk.Index)
 			reason := fmt.Sprintf("word count %d is below minimum of %d words", count, rp.Min)
-			return policy.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
+			return policyv1alpha2.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
 		}
-		return policy.ResponseChunkAction{}
+		return policyv1alpha2.ResponseChunkAction{}
 	}
 
 	// Invert mode: at [DONE], check if count falls within the excluded range.
@@ -639,10 +843,10 @@ func (p *WordCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStrea
 			slog.Debug("WordCountGuardrail: invert violation at stream end",
 				"count", count, "min", rp.Min, "max", rp.Max, "chunkIndex", chunk.Index)
 			reason := fmt.Sprintf("word count %d is within the excluded range %d-%d words", count, rp.Min, rp.Max)
-			return policy.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
+			return policyv1alpha2.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
 		}
 	}
-	return policy.ResponseChunkAction{}
+	return policyv1alpha2.ResponseChunkAction{}
 }
 
 // isSSEChunk reports whether s contains at least one "data: " SSE line.

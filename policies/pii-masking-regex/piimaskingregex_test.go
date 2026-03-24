@@ -6,17 +6,17 @@ import (
 	"strings"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 func TestPIIMaskingRegexPolicy_Mode(t *testing.T) {
 	p := &PIIMaskingRegexPolicy{}
 	got := p.Mode()
-	want := policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeBuffer,
+	want := policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha.BodyModeBuffer,
 	}
 	if got != want {
 		t.Fatalf("unexpected mode: got %+v, want %+v", got, want)
@@ -120,7 +120,7 @@ func TestPIIMaskingRegexPolicy_GetPolicy_ParseErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := GetPolicy(policy.PolicyMetadata{}, tt.params)
+			_, err := GetPolicy(policyv1alpha.PolicyMetadata{}, tt.params)
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}
@@ -239,7 +239,7 @@ func TestPIIMaskingRegexPolicy_OnRequest_JSONPathError(t *testing.T) {
 
 	ctx := piiRequestContext(`{"messages":"a.user@example.com"}`)
 	action := p.OnRequest(ctx, nil)
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse for extraction error, got %T", action)
 	}
@@ -253,8 +253,8 @@ func TestPIIMaskingRegexPolicy_OnResponse_RestoreMaskedPII(t *testing.T) {
 		"email": true,
 	})
 
-	ctx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-id",
 			Metadata: map[string]interface{}{
 				MetadataKeyPIIEntities: map[string]string{
@@ -262,13 +262,13 @@ func TestPIIMaskingRegexPolicy_OnResponse_RestoreMaskedPII(t *testing.T) {
 				},
 			},
 		},
-		ResponseBody: &policy.Body{
+		ResponseBody: &policyv1alpha.Body{
 			Content: []byte(`{"answer":"Found [EMAIL_0000]"}`),
 			Present: true,
 		},
 	}
 	action := p.OnResponse(ctx, nil)
-	mods, ok := action.(policy.UpstreamResponseModifications)
+	mods, ok := action.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", action)
 	}
@@ -283,18 +283,18 @@ func TestPIIMaskingRegexPolicy_OnResponse_NoOpCases(t *testing.T) {
 	})
 
 	// No metadata
-	ctx1 := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	ctx1 := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-id",
 			Metadata:  map[string]interface{}{},
 		},
-		ResponseBody: &policy.Body{
+		ResponseBody: &policyv1alpha.Body{
 			Content: []byte(`{"x":"y"}`),
 			Present: true,
 		},
 	}
 	a1 := p.OnResponse(ctx1, nil)
-	if _, ok := a1.(policy.UpstreamResponseModifications); !ok {
+	if _, ok := a1.(policyv1alpha.UpstreamResponseModifications); !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", a1)
 	}
 
@@ -303,27 +303,27 @@ func TestPIIMaskingRegexPolicy_OnResponse_NoOpCases(t *testing.T) {
 		"email":     true,
 		"redactPII": true,
 	})
-	ctx2 := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	ctx2 := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-id",
 			Metadata: map[string]interface{}{
 				MetadataKeyPIIEntities: map[string]string{"a.user@example.com": "[EMAIL_0000]"},
 			},
 		},
-		ResponseBody: &policy.Body{
+		ResponseBody: &policyv1alpha.Body{
 			Content: []byte(`{"x":"[EMAIL_0000]"}`),
 			Present: true,
 		},
 	}
 	a2 := pRedact.OnResponse(ctx2, nil)
-	if _, ok := a2.(policy.UpstreamResponseModifications); !ok {
+	if _, ok := a2.(policyv1alpha.UpstreamResponseModifications); !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", a2)
 	}
 }
 
 func mustGetPIIPolicy(t *testing.T, params map[string]interface{}) *PIIMaskingRegexPolicy {
 	t.Helper()
-	p, err := GetPolicy(policy.PolicyMetadata{}, params)
+	p, err := GetPolicy(policyv1alpha.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("failed to create policy: %v", err)
 	}
@@ -334,22 +334,22 @@ func mustGetPIIPolicy(t *testing.T, params map[string]interface{}) *PIIMaskingRe
 	return pp
 }
 
-func mustPIIRequestMods(t *testing.T, action policy.RequestAction) policy.UpstreamRequestModifications {
+func mustPIIRequestMods(t *testing.T, action policyv1alpha.RequestAction) policyv1alpha.UpstreamRequestModifications {
 	t.Helper()
-	mods, ok := action.(policy.UpstreamRequestModifications)
+	mods, ok := action.(policyv1alpha.UpstreamRequestModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
 	return mods
 }
 
-func piiRequestContext(body string) *policy.RequestContext {
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+func piiRequestContext(body string) *policyv1alpha.RequestContext {
+	return &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-id",
 			Metadata:  map[string]interface{}{},
 		},
-		Body: &policy.Body{
+		Body: &policyv1alpha.Body{
 			Content: []byte(body),
 			Present: body != "",
 		},

@@ -24,9 +24,9 @@ import (
 	"fmt"
 	"strings"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
-
 
 const (
 	AuthType = "basic"
@@ -38,31 +38,31 @@ type BasicAuthPolicy struct{}
 var ins = &BasicAuthPolicy{}
 
 func GetPolicy(
-	metadata policy.PolicyMetadata,
+	metadata policyv1alpha.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha.Policy, error) {
 	return ins, nil
 }
 
 // Mode returns the processing mode for this policy
-func (p *BasicAuthPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess, // Process request headers for auth
-		RequestBodyMode:    policy.BodyModeSkip,      // Don't need request body
-		ResponseHeaderMode: policy.HeaderModeSkip,    // Don't process response headers
-		ResponseBodyMode:   policy.BodyModeSkip,      // Don't need response body
+func (p *BasicAuthPolicy) Mode() policyv1alpha.ProcessingMode {
+	return policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeProcess, // Process request headers for auth
+		RequestBodyMode:    policyv1alpha.BodyModeSkip,      // Don't need request body
+		ResponseHeaderMode: policyv1alpha.HeaderModeSkip,    // Don't process response headers
+		ResponseBodyMode:   policyv1alpha.BodyModeSkip,      // Don't need response body
 	}
 }
 
 // OnRequestHeaders performs Basic Authentication in the request header phase.
-func (p *BasicAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *BasicAuthPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, params map[string]interface{}) policyv1alpha2.RequestHeaderAction {
 	expectedUsername, ok := params["username"].(string)
 	if !ok || expectedUsername == "" {
 		errBody, _ := json.Marshal(map[string]string{
 			"error":   "Internal Server Error",
 			"message": "Invalid policy configuration: username must be a non-empty string",
 		})
-		return policy.ImmediateResponse{
+		return policyv1alpha2.ImmediateResponse{
 			StatusCode: 500,
 			Headers:    map[string]string{"content-type": "application/json"},
 			Body:       errBody,
@@ -75,7 +75,7 @@ func (p *BasicAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, par
 			"error":   "Internal Server Error",
 			"message": "Invalid policy configuration: password must be a non-empty string",
 		})
-		return policy.ImmediateResponse{
+		return policyv1alpha2.ImmediateResponse{
 			StatusCode: 500,
 			Headers:    map[string]string{"content-type": "application/json"},
 			Body:       errBody,
@@ -128,25 +128,25 @@ func (p *BasicAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, par
 		return p.handleAuthFailureHeaders(ctx.SharedContext, allowUnauthenticated, realm)
 	}
 
-	ctx.SharedContext.AuthContext = &policy.AuthContext{
+	ctx.SharedContext.AuthContext = &policyv1alpha2.AuthContext{
 		Authenticated: true,
 		AuthType:      AuthType,
 		Subject:       providedUsername,
 		Previous:      ctx.SharedContext.AuthContext,
 	}
-	return policy.UpstreamRequestHeaderModifications{}
+	return policyv1alpha2.UpstreamRequestHeaderModifications{}
 }
 
 // handleAuthFailureHeaders handles authentication failure in the header phase.
-func (p *BasicAuthPolicy) handleAuthFailureHeaders(shared *policy.SharedContext, allowUnauthenticated bool, realm string) policy.RequestHeaderAction {
-	shared.AuthContext = &policy.AuthContext{
+func (p *BasicAuthPolicy) handleAuthFailureHeaders(shared *policyv1alpha2.SharedContext, allowUnauthenticated bool, realm string) policyv1alpha2.RequestHeaderAction {
+	shared.AuthContext = &policyv1alpha2.AuthContext{
 		Authenticated: false,
 		AuthType:      AuthType,
 		Previous:      shared.AuthContext,
 	}
 
 	if allowUnauthenticated {
-		return policy.UpstreamRequestHeaderModifications{}
+		return policyv1alpha2.UpstreamRequestHeaderModifications{}
 	}
 
 	escapedRealm := strings.ReplaceAll(strings.ReplaceAll(realm, "\\", "\\\\"), "\"", "\\\"")
@@ -160,15 +160,15 @@ func (p *BasicAuthPolicy) handleAuthFailureHeaders(shared *policy.SharedContext,
 		"message": "Authentication required",
 	})
 
-	return policy.ImmediateResponse{
+	return policyv1alpha2.ImmediateResponse{
 		StatusCode: 401,
 		Headers:    headers,
 		Body:       body,
 	}
 }
 
-// OnRequest performs Basic Authentication
-func (p *BasicAuthPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
+// OnRequest performs Basic Authentication for v1alpha engine compatibility.
+func (p *BasicAuthPolicy) OnRequest(ctx *policyv1alpha.RequestContext, params map[string]interface{}) policyv1alpha.RequestAction {
 	// Get configuration parameters with safe type assertions
 	expectedUsername, ok := params["username"].(string)
 	if !ok || expectedUsername == "" {
@@ -176,7 +176,7 @@ func (p *BasicAuthPolicy) OnRequest(ctx *policy.RequestContext, params map[strin
 			"error":   "Internal Server Error",
 			"message": "Invalid policy configuration: username must be a non-empty string",
 		})
-		return policy.ImmediateResponse{
+		return policyv1alpha.ImmediateResponse{
 			StatusCode: 500,
 			Headers: map[string]string{
 				"content-type": "application/json",
@@ -191,7 +191,7 @@ func (p *BasicAuthPolicy) OnRequest(ctx *policy.RequestContext, params map[strin
 			"error":   "Internal Server Error",
 			"message": "Invalid policy configuration: password must be a non-empty string",
 		})
-		return policy.ImmediateResponse{
+		return policyv1alpha.ImmediateResponse{
 			StatusCode: 500,
 			Headers: map[string]string{
 				"content-type": "application/json",
@@ -256,9 +256,10 @@ func (p *BasicAuthPolicy) OnRequest(ctx *policy.RequestContext, params map[strin
 	return p.handleAuthSuccess(ctx, providedUsername)
 }
 
+
 // handleAuthSuccess handles successful authentication
-func (p *BasicAuthPolicy) handleAuthSuccess(ctx *policy.RequestContext, username string) policy.RequestAction {
-	ctx.SharedContext.AuthContext = &policy.AuthContext{
+func (p *BasicAuthPolicy) handleAuthSuccess(ctx *policyv1alpha.RequestContext, username string) policyv1alpha.RequestAction {
+	ctx.SharedContext.AuthContext = &policyv1alpha.AuthContext{
 		Authenticated: true,
 		AuthType:      AuthType,
 		Subject:       username,
@@ -266,17 +267,17 @@ func (p *BasicAuthPolicy) handleAuthSuccess(ctx *policy.RequestContext, username
 	}
 
 	// Continue to upstream with no modifications
-	return policy.UpstreamRequestModifications{}
+	return policyv1alpha.UpstreamRequestModifications{}
 }
 
 // OnResponse is not used by this policy (authentication is request-only)
-func (p *BasicAuthPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
+func (p *BasicAuthPolicy) OnResponse(ctx *policyv1alpha.ResponseContext, params map[string]interface{}) policyv1alpha.ResponseAction {
 	return nil // No response processing needed
 }
 
 // handleAuthFailure handles authentication failure
-func (p *BasicAuthPolicy) handleAuthFailure(ctx *policy.RequestContext, allowUnauthenticated bool, realm string, reason string) policy.RequestAction {
-	ctx.SharedContext.AuthContext = &policy.AuthContext{
+func (p *BasicAuthPolicy) handleAuthFailure(ctx *policyv1alpha.RequestContext, allowUnauthenticated bool, realm string, reason string) policyv1alpha.RequestAction {
+	ctx.SharedContext.AuthContext = &policyv1alpha.AuthContext{
 		Authenticated: false,
 		AuthType:      AuthType,
 		Previous:      ctx.SharedContext.AuthContext,
@@ -284,7 +285,7 @@ func (p *BasicAuthPolicy) handleAuthFailure(ctx *policy.RequestContext, allowUna
 
 	// If allowUnauthenticated is true, allow request to proceed
 	if allowUnauthenticated {
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	// Return 401 Unauthorized response
@@ -300,7 +301,7 @@ func (p *BasicAuthPolicy) handleAuthFailure(ctx *policy.RequestContext, allowUna
 		"message": "Authentication required",
 	})
 
-	return policy.ImmediateResponse{
+	return policyv1alpha.ImmediateResponse{
 		StatusCode: 401,
 		Headers:    headers,
 		Body:       body,

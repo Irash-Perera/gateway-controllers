@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 type mockBedrockClient struct {
@@ -53,13 +53,13 @@ func makePIIIntervenedOutput(match string) *bedrockruntime.ApplyGuardrailOutput 
 }
 
 func TestGetPolicy_ValidatesRequiredAndPhaseParams(t *testing.T) {
-	_, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{})
+	_, err := GetPolicy(policyv1alpha.PolicyMetadata{}, map[string]interface{}{})
 	if err == nil || !strings.Contains(err.Error(), "'region' parameter is required") {
 		t.Fatalf("expected missing region error, got: %v", err)
 	}
 
 	params := baseParams()
-	_, err = GetPolicy(policy.PolicyMetadata{}, params)
+	_, err = GetPolicy(policyv1alpha.PolicyMetadata{}, params)
 	if err == nil || !strings.Contains(err.Error(), "at least one of 'request' or 'response' parameters must be provided") {
 		t.Fatalf("expected missing phase params error, got: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestGetPolicy_ValidatesRequiredAndPhaseParams(t *testing.T) {
 	params["request"] = map[string]interface{}{
 		"jsonPath": 1, // invalid type
 	}
-	_, err = GetPolicy(policy.PolicyMetadata{}, params)
+	_, err = GetPolicy(policyv1alpha.PolicyMetadata{}, params)
 	if err == nil || !strings.Contains(err.Error(), "invalid request parameters") {
 		t.Fatalf("expected invalid request params error, got: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestGetPolicy_RequestRedactForcesResponseRedact(t *testing.T) {
 		"redactPII": false,
 	}
 
-	pRaw, err := GetPolicy(policy.PolicyMetadata{}, params)
+	pRaw, err := GetPolicy(policyv1alpha.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("GetPolicy returned error: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestValidatePayload_EarlyAndErrorPaths(t *testing.T) {
 	restored := p.validatePayload([]byte(`{"msg":"EMAIL_0000"}`), AWSBedrockGuardrailPolicyParams{
 		RedactPII: false,
 	}, true, metadata)
-	respMod, ok := restored.(policy.UpstreamResponseModifications)
+	respMod, ok := restored.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", restored)
 	}
@@ -310,7 +310,7 @@ func TestValidatePayload_EarlyAndErrorPaths(t *testing.T) {
 		PassthroughOnError: false,
 		ShowAssessment:     false,
 	}, false, map[string]interface{}{})
-	immResp, ok := blocked.(policy.ImmediateResponse)
+	immResp, ok := blocked.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse for request block, got %T", blocked)
 	}
@@ -323,7 +323,7 @@ func TestValidatePayload_EarlyAndErrorPaths(t *testing.T) {
 		JsonPath:           "$.msg",
 		PassthroughOnError: true,
 	}, false, map[string]interface{}{})
-	if _, ok := passthrough.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := passthrough.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications on passthrough, got %T", passthrough)
 	}
 
@@ -332,7 +332,7 @@ func TestValidatePayload_EarlyAndErrorPaths(t *testing.T) {
 		JsonPath:           "$.msg",
 		PassthroughOnError: false,
 	}, true, map[string]interface{}{})
-	respBlockedMod, ok := respBlocked.(policy.UpstreamResponseModifications)
+	respBlockedMod, ok := respBlocked.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications for response block, got %T", respBlocked)
 	}
@@ -345,7 +345,7 @@ func TestBuildErrorResponse_RequestAndResponse(t *testing.T) {
 	p := &AWSBedrockGuardrailPolicy{}
 
 	reqResp := p.buildErrorResponse("reason", nil, false, false, nil)
-	imm, ok := reqResp.(policy.ImmediateResponse)
+	imm, ok := reqResp.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", reqResp)
 	}
@@ -357,7 +357,7 @@ func TestBuildErrorResponse_RequestAndResponse(t *testing.T) {
 	}
 
 	respResp := p.buildErrorResponse("reason", nil, true, false, nil)
-	upResp, ok := respResp.(policy.UpstreamResponseModifications)
+	upResp, ok := respResp.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", respResp)
 	}
@@ -371,17 +371,17 @@ func TestOnRequest_NoRequestParams_ReturnsNoOp(t *testing.T) {
 		hasRequestParams: false,
 	}
 
-	ctx := &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: map[string]interface{}{},
 		},
-		Body: &policy.Body{
+		Body: &policyv1alpha.Body{
 			Content: []byte(`{"msg":"hello"}`),
 		},
 	}
 
 	result := p.OnRequest(ctx, map[string]interface{}{})
-	mod, ok := result.(policy.UpstreamRequestModifications)
+	mod, ok := result.(policyv1alpha.UpstreamRequestModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", result)
 	}
@@ -398,27 +398,27 @@ func TestOnRequest_DisabledRequestFlow_ReturnsNoOp(t *testing.T) {
 		},
 	}
 
-	ctx := &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: map[string]interface{}{},
 		},
-		Body: &policy.Body{
+		Body: &policyv1alpha.Body{
 			Content: []byte(`{"msg":"hello"}`),
 		},
 	}
 
 	result := p.OnRequest(ctx, map[string]interface{}{})
-	if _, ok := result.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := result.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", result)
 	}
 }
 
 func TestOnRequest_BlockAndPassthroughOnJSONPathError(t *testing.T) {
-	ctx := &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: map[string]interface{}{},
 		},
-		Body: &policy.Body{
+		Body: &policyv1alpha.Body{
 			Content: []byte(`not-json`),
 		},
 	}
@@ -432,7 +432,7 @@ func TestOnRequest_BlockAndPassthroughOnJSONPathError(t *testing.T) {
 		},
 	}
 	blockResult := blockPolicy.OnRequest(ctx, map[string]interface{}{})
-	imm, ok := blockResult.(policy.ImmediateResponse)
+	imm, ok := blockResult.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", blockResult)
 	}
@@ -449,7 +449,7 @@ func TestOnRequest_BlockAndPassthroughOnJSONPathError(t *testing.T) {
 		},
 	}
 	passthroughResult := passthroughPolicy.OnRequest(ctx, map[string]interface{}{})
-	if _, ok := passthroughResult.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := passthroughResult.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", passthroughResult)
 	}
 }
@@ -459,17 +459,17 @@ func TestOnResponse_NoResponseParams_ReturnsNoOp(t *testing.T) {
 		hasResponseParams: false,
 	}
 
-	ctx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: map[string]interface{}{},
 		},
-		ResponseBody: &policy.Body{
+		ResponseBody: &policyv1alpha.Body{
 			Content: []byte(`{"msg":"hello"}`),
 		},
 	}
 
 	result := p.OnResponse(ctx, map[string]interface{}{})
-	mod, ok := result.(policy.UpstreamResponseModifications)
+	mod, ok := result.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", result)
 	}
@@ -486,17 +486,17 @@ func TestOnResponse_DisabledResponseFlow_ReturnsNoOp(t *testing.T) {
 		},
 	}
 
-	ctx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: map[string]interface{}{},
 		},
-		ResponseBody: &policy.Body{
+		ResponseBody: &policyv1alpha.Body{
 			Content: []byte(`{"msg":"hello"}`),
 		},
 	}
 
 	result := p.OnResponse(ctx, map[string]interface{}{})
-	if _, ok := result.(policy.UpstreamResponseModifications); !ok {
+	if _, ok := result.(policyv1alpha.UpstreamResponseModifications); !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", result)
 	}
 }
@@ -510,21 +510,21 @@ func TestOnResponse_RestoreAndBlockPaths(t *testing.T) {
 		},
 	}
 
-	restoreCtx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	restoreCtx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: map[string]interface{}{
 				MetadataKeyPIIEntities: map[string]string{
 					"alice@example.com": "EMAIL_0000",
 				},
 			},
 		},
-		ResponseBody: &policy.Body{
+		ResponseBody: &policyv1alpha.Body{
 			Content: []byte(`{"msg":"EMAIL_0000"}`),
 		},
 	}
 
 	restoreResult := restorePolicy.OnResponse(restoreCtx, map[string]interface{}{})
-	restoreMod, ok := restoreResult.(policy.UpstreamResponseModifications)
+	restoreMod, ok := restoreResult.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", restoreResult)
 	}
@@ -541,17 +541,17 @@ func TestOnResponse_RestoreAndBlockPaths(t *testing.T) {
 		},
 	}
 
-	blockCtx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	blockCtx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: map[string]interface{}{},
 		},
-		ResponseBody: &policy.Body{
+		ResponseBody: &policyv1alpha.Body{
 			Content: []byte(`not-json`),
 		},
 	}
 
 	blockResult := blockPolicy.OnResponse(blockCtx, map[string]interface{}{})
-	blockMod, ok := blockResult.(policy.UpstreamResponseModifications)
+	blockMod, ok := blockResult.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", blockResult)
 	}
@@ -585,17 +585,17 @@ func TestOnRequest_WithMockedBedrockNoViolation(t *testing.T) {
 		},
 	}
 
-	ctx := &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: map[string]interface{}{},
 		},
-		Body: &policy.Body{
+		Body: &policyv1alpha.Body{
 			Content: []byte(`{"msg":"hello from request"}`),
 		},
 	}
 
 	result := p.OnRequest(ctx, map[string]interface{}{})
-	mod, ok := result.(policy.UpstreamRequestModifications)
+	mod, ok := result.(policyv1alpha.UpstreamRequestModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", result)
 	}
@@ -635,17 +635,17 @@ func TestOnRequest_WithMockedBedrockViolation(t *testing.T) {
 		},
 	}
 
-	ctx := &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: map[string]interface{}{},
 		},
-		Body: &policy.Body{
+		Body: &policyv1alpha.Body{
 			Content: []byte(`hello`),
 		},
 	}
 
 	result := p.OnRequest(ctx, map[string]interface{}{})
-	imm, ok := result.(policy.ImmediateResponse)
+	imm, ok := result.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", result)
 	}
@@ -676,17 +676,17 @@ func TestOnRequest_WithMockedBedrockErrorPassthrough(t *testing.T) {
 		},
 	}
 
-	ctx := &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: map[string]interface{}{},
 		},
-		Body: &policy.Body{
+		Body: &policyv1alpha.Body{
 			Content: []byte(`hello`),
 		},
 	}
 
 	result := p.OnRequest(ctx, map[string]interface{}{})
-	if _, ok := result.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := result.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications on passthrough, got %T", result)
 	}
 }
@@ -714,17 +714,17 @@ func TestOnResponse_WithMockedBedrockPIIRedaction(t *testing.T) {
 		},
 	}
 
-	ctx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			Metadata: map[string]interface{}{},
 		},
-		ResponseBody: &policy.Body{
+		ResponseBody: &policyv1alpha.Body{
 			Content: []byte(`{"msg":"john@example.com"}`),
 		},
 	}
 
 	result := p.OnResponse(ctx, map[string]interface{}{})
-	mod, ok := result.(policy.UpstreamResponseModifications)
+	mod, ok := result.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", result)
 	}

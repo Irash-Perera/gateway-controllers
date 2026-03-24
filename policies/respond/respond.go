@@ -22,7 +22,8 @@ import (
 	"fmt"
 	"regexp"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 const (
@@ -42,19 +43,33 @@ type RespondPolicy struct{}
 var ins = &RespondPolicy{}
 
 func GetPolicy(
-	metadata policy.PolicyMetadata,
+	metadata policyv1alpha.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha.Policy, error) {
 	return ins, nil
 }
 
 // configError returns a 500 error response for configuration issues
-func configError(message string) policy.ImmediateResponse {
+func configError(message string) policyv1alpha2.ImmediateResponse {
 	errBody, _ := json.Marshal(map[string]string{
 		"error":   "Configuration Error",
 		"message": message,
 	})
-	return policy.ImmediateResponse{
+	return policyv1alpha2.ImmediateResponse{
+		StatusCode: 500,
+		Headers: map[string]string{
+			"content-type": "application/json",
+		},
+		Body: errBody,
+	}
+}
+
+func configErrorV1(message string) policyv1alpha.ImmediateResponse {
+	errBody, _ := json.Marshal(map[string]string{
+		"error":   "Configuration Error",
+		"message": message,
+	})
+	return policyv1alpha.ImmediateResponse{
 		StatusCode: 500,
 		Headers: map[string]string{
 			"content-type": "application/json",
@@ -64,17 +79,17 @@ func configError(message string) policy.ImmediateResponse {
 }
 
 // Mode returns the processing mode for this policy
-func (p *RespondPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess, // Can use request headers for context
-		RequestBodyMode:    policy.BodyModeSkip,      // Don't need request body
-		ResponseHeaderMode: policy.HeaderModeSkip,    // Returns immediate response
-		ResponseBodyMode:   policy.BodyModeSkip,      // Returns immediate response
+func (p *RespondPolicy) Mode() policyv1alpha.ProcessingMode {
+	return policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeProcess, // Can use request headers for context
+		RequestBodyMode:    policyv1alpha.BodyModeSkip,      // Don't need request body
+		ResponseHeaderMode: policyv1alpha.HeaderModeSkip,    // Returns immediate response
+		ResponseBodyMode:   policyv1alpha.BodyModeSkip,      // Returns immediate response
 	}
 }
 
 // OnRequestHeaders returns an immediate response to the client in the request header phase.
-func (p *RespondPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *RespondPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, params map[string]interface{}) policyv1alpha2.RequestHeaderAction {
 	statusCode := defaultStatusCode
 	if statusCodeRaw, ok := params["statusCode"]; ok {
 		parsedStatusCode, err := parseStatusCode(statusCodeRaw)
@@ -142,7 +157,7 @@ func (p *RespondPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 		}
 	}
 
-	return policy.ImmediateResponse{
+	return policyv1alpha2.ImmediateResponse{
 		StatusCode: statusCode,
 		Headers:    headers,
 		Body:       body,
@@ -150,13 +165,13 @@ func (p *RespondPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 }
 
 // OnRequest returns an immediate response to the client
-func (p *RespondPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
+func (p *RespondPolicy) OnRequest(ctx *policyv1alpha.RequestContext, params map[string]interface{}) policyv1alpha.RequestAction {
 	// Extract statusCode (default to 200 OK)
 	statusCode := defaultStatusCode
 	if statusCodeRaw, ok := params["statusCode"]; ok {
 		parsedStatusCode, err := parseStatusCode(statusCodeRaw)
 		if err != nil {
-			return configError(err.Error())
+			return configErrorV1(err.Error())
 		}
 		statusCode = parsedStatusCode
 	}
@@ -166,7 +181,7 @@ func (p *RespondPolicy) OnRequest(ctx *policy.RequestContext, params map[string]
 	if bodyRaw, ok := params["body"]; ok {
 		bodyString, ok := bodyRaw.(string)
 		if !ok {
-			return configError("body must be a string")
+			return configErrorV1("body must be a string")
 		}
 		body = []byte(bodyString)
 	}
@@ -176,47 +191,47 @@ func (p *RespondPolicy) OnRequest(ctx *policy.RequestContext, params map[string]
 	if headersRaw, ok := params["headers"]; ok {
 		headersList, ok := headersRaw.([]interface{})
 		if !ok {
-			return configError("headers must be an array")
+			return configErrorV1("headers must be an array")
 		}
 		for i, headerRaw := range headersList {
 			headerMap, ok := headerRaw.(map[string]interface{})
 			if !ok {
-				return configError(fmt.Sprintf("headers[%d] must be an object", i))
+				return configErrorV1(fmt.Sprintf("headers[%d] must be an object", i))
 			}
 			if err := validateHeaderObjectKeys(headerMap, i); err != nil {
-				return configError(err.Error())
+				return configErrorV1(err.Error())
 			}
 
 			// Safe type assertion for name
 			nameRaw, ok := headerMap["name"]
 			if !ok {
-				return configError(fmt.Sprintf("headers[%d] missing required 'name' field", i))
+				return configErrorV1(fmt.Sprintf("headers[%d] missing required 'name' field", i))
 			}
 			name, ok := nameRaw.(string)
 			if !ok {
-				return configError(fmt.Sprintf("headers[%d].name must be a string", i))
+				return configErrorV1(fmt.Sprintf("headers[%d].name must be a string", i))
 			}
 			if name == "" {
-				return configError(fmt.Sprintf("headers[%d].name cannot be empty", i))
+				return configErrorV1(fmt.Sprintf("headers[%d].name cannot be empty", i))
 			}
 			if len(name) > headerNameMaxLen {
-				return configError(fmt.Sprintf("headers[%d].name must not exceed %d characters", i, headerNameMaxLen))
+				return configErrorV1(fmt.Sprintf("headers[%d].name must not exceed %d characters", i, headerNameMaxLen))
 			}
 			if !headerNamePattern.MatchString(name) {
-				return configError(fmt.Sprintf("headers[%d].name contains invalid characters", i))
+				return configErrorV1(fmt.Sprintf("headers[%d].name contains invalid characters", i))
 			}
 
 			// Safe type assertion for value
 			valueRaw, ok := headerMap["value"]
 			if !ok {
-				return configError(fmt.Sprintf("headers[%d] missing required 'value' field", i))
+				return configErrorV1(fmt.Sprintf("headers[%d] missing required 'value' field", i))
 			}
 			value, ok := valueRaw.(string)
 			if !ok {
-				return configError(fmt.Sprintf("headers[%d].value must be a string", i))
+				return configErrorV1(fmt.Sprintf("headers[%d].value must be a string", i))
 			}
 			if len(value) > headerValueMaxLen {
-				return configError(fmt.Sprintf("headers[%d].value must not exceed %d characters", i, headerValueMaxLen))
+				return configErrorV1(fmt.Sprintf("headers[%d].value must not exceed %d characters", i, headerValueMaxLen))
 			}
 
 			headers[name] = value
@@ -224,7 +239,7 @@ func (p *RespondPolicy) OnRequest(ctx *policy.RequestContext, params map[string]
 	}
 
 	// Return immediate response action
-	return policy.ImmediateResponse{
+	return policyv1alpha.ImmediateResponse{
 		StatusCode: statusCode,
 		Headers:    headers,
 		Body:       body,
@@ -232,7 +247,7 @@ func (p *RespondPolicy) OnRequest(ctx *policy.RequestContext, params map[string]
 }
 
 // OnResponse is not used by this policy (returns immediate response in request phase)
-func (p *RespondPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
+func (p *RespondPolicy) OnResponse(ctx *policyv1alpha.ResponseContext, params map[string]interface{}) policyv1alpha.ResponseAction {
 	return nil // No response processing needed
 }
 

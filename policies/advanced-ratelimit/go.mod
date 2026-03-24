@@ -1,11 +1,12 @@
-module github.com/Thushani-Jayasekera/gateway-controllers/policies/advanced-ratelimit
+module github.com/wso2/gateway-controllers/policies/advanced-ratelimit
 
 go 1.25.1
 
 require (
 	github.com/google/cel-go v0.26.1
 	github.com/redis/go-redis/v9 v9.17.3
-	github.com/wso2/api-platform/sdk v0.5.0
+	github.com/wso2/api-platform/sdk v0.4.5
+	github.com/wso2/api-platform/sdk/core v0.0.1
 )
 
 require (
@@ -19,5 +20,3 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/wso2/api-platform/sdk => github.com/Thushani-Jayasekera/api-platform/sdk v0.5.0

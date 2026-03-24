@@ -28,7 +28,8 @@ import (
 	"sync"
 	"time"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 	utils "github.com/wso2/api-platform/sdk/utils"
 )
 
@@ -70,9 +71,9 @@ type ModelWeightedRoundRobinPolicy struct {
 }
 
 func GetPolicy(
-	metadata policy.PolicyMetadata,
+	metadata policyv1alpha.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha.Policy, error) {
 	// Parse and validate parameters
 	policyParams, err := parseParams(params)
 	if err != nil {
@@ -249,25 +250,25 @@ func extractInt(value interface{}) (int, error) {
 }
 
 // Mode returns the processing mode for this policy
-func (p *ModelWeightedRoundRobinPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeProcess,
-		ResponseBodyMode:   policy.BodyModeBuffer,
+func (p *ModelWeightedRoundRobinPolicy) Mode() policyv1alpha.ProcessingMode {
+	return policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeProcess,
+		RequestBodyMode:    policyv1alpha.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha.HeaderModeProcess,
+		ResponseBodyMode:   policyv1alpha.BodyModeBuffer,
 	}
 }
 
 // OnRequestHeaders selects the next weighted model and applies the modification for
 // header/queryParam/pathParam locations in the request header phase.
 // For payload location, the model is pre-selected and stored in metadata for OnRequest.
-func (p *ModelWeightedRoundRobinPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *ModelWeightedRoundRobinPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, params map[string]interface{}) policyv1alpha2.RequestHeaderAction {
 	location := p.params.RequestModel.Location
 	identifier := p.params.RequestModel.Identifier
 
 	selectedModel := p.selectNextAvailableWeightedModel()
 	if selectedModel == nil {
-		return policy.ImmediateResponse{
+		return policyv1alpha2.ImmediateResponse{
 			StatusCode: 503,
 			Headers:    map[string]string{"Content-Type": "application/json"},
 			Body:       []byte(`{"error": "All models are currently unavailable"}`),
@@ -286,32 +287,32 @@ func (p *ModelWeightedRoundRobinPolicy) OnRequestHeaders(ctx *policy.RequestHead
 				ctx.Metadata[MetadataKeyOriginalModel] = values[0]
 			}
 		}
-		return policy.UpstreamRequestHeaderModifications{
-			Set: map[string]string{identifier: selectedModel.Model},
+		return policyv1alpha2.UpstreamRequestHeaderModifications{
+			HeadersToSet: map[string]string{identifier: selectedModel.Model},
 		}
 	case "queryParam":
 		newPath := p.modifyQueryParamInPath(ctx.Path, identifier, selectedModel.Model)
 		if newPath != ctx.Path {
-			return policy.UpstreamRequestHeaderModifications{
-				Set: map[string]string{":path": newPath},
+			return policyv1alpha2.UpstreamRequestHeaderModifications{
+				HeadersToSet: map[string]string{":path": newPath},
 			}
 		}
-		return policy.UpstreamRequestHeaderModifications{}
+		return policyv1alpha2.UpstreamRequestHeaderModifications{}
 	case "pathParam":
 		newPath := p.modifyPathParamInPath(ctx.Path, identifier, selectedModel.Model)
 		if newPath != ctx.Path {
-			return policy.UpstreamRequestHeaderModifications{
-				Set: map[string]string{":path": newPath},
+			return policyv1alpha2.UpstreamRequestHeaderModifications{
+				HeadersToSet: map[string]string{":path": newPath},
 			}
 		}
-		return policy.UpstreamRequestHeaderModifications{}
+		return policyv1alpha2.UpstreamRequestHeaderModifications{}
 	default: // payload — body not available in header phase; OnRequest will handle it
-		return policy.UpstreamRequestHeaderModifications{}
+		return policyv1alpha2.UpstreamRequestHeaderModifications{}
 	}
 }
 
 // OnResponseHeaders suspends a model in the response header phase when an error is detected.
-func (p *ModelWeightedRoundRobinPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
+func (p *ModelWeightedRoundRobinPolicy) OnResponseHeaders(ctx *policyv1alpha2.ResponseHeaderContext, params map[string]interface{}) policyv1alpha2.ResponseHeaderAction {
 	if ctx.ResponseStatus >= 500 || ctx.ResponseStatus == 429 {
 		selectedModel := ""
 		if model, ok := ctx.Metadata[MetadataKeySelectedModel]; ok {
@@ -326,22 +327,74 @@ func (p *ModelWeightedRoundRobinPolicy) OnResponseHeaders(ctx *policy.ResponseHe
 			slog.Debug("ModelWeightedRoundRobin: OnResponseHeaders suspended model", "model", selectedModel, "duration", p.params.SuspendDuration)
 		}
 	}
-	return policy.DownstreamResponseHeaderModifications{}
+	return policyv1alpha2.DownstreamResponseHeaderModifications{}
 }
 
-// OnRequest delegates to OnRequestBody for v1alpha engine compatibility.
-func (p *ModelWeightedRoundRobinPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
-	return p.OnRequestBody(ctx)
+// OnRequest delegates to processRequestBody for v1alpha engine compatibility.
+func (p *ModelWeightedRoundRobinPolicy) OnRequest(ctx *policyv1alpha.RequestContext, params map[string]interface{}) policyv1alpha.RequestAction {
+	return p.processRequestBody(ctx)
 }
 
-// OnRequestBody processes the request and selects a model based on weights.
-func (p *ModelWeightedRoundRobinPolicy) OnRequestBody(ctx *policy.RequestContext) policy.RequestAction {
+// OnRequestBody processes the request body in the v1alpha2 engine.
+// Since OnRequestHeaders always runs first in the v1alpha2 engine, only the payload
+// location case requires body-phase processing.
+func (p *ModelWeightedRoundRobinPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ map[string]interface{}) policyv1alpha2.RequestAction {
+	if p.params.RequestModel.Location != "payload" {
+		// Non-payload locations were handled in OnRequestHeaders
+		return policyv1alpha2.UpstreamRequestModifications{}
+	}
+
+	selectedModel, _ := ctx.Metadata[MetadataKeySelectedModel].(string)
+	if selectedModel == "" {
+		return policyv1alpha2.UpstreamRequestModifications{}
+	}
+
+	if ctx.Body == nil || ctx.Body.Content == nil {
+		return policyv1alpha2.ImmediateResponse{
+			StatusCode: 400,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+			Body:       []byte(`{"error":"Request body is empty."}`),
+		}
+	}
+
+	var payloadData map[string]interface{}
+	if err := json.Unmarshal(ctx.Body.Content, &payloadData); err != nil {
+		return policyv1alpha2.ImmediateResponse{
+			StatusCode: 400,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+			Body:       []byte(fmt.Sprintf(`{"error":"Invalid JSON in request body: %s"}`, err.Error())),
+		}
+	}
+
+	identifier := p.params.RequestModel.Identifier
+	if err := utils.SetValueAtJSONPath(payloadData, identifier, selectedModel); err != nil {
+		return policyv1alpha2.ImmediateResponse{
+			StatusCode: 400,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+			Body:       []byte(fmt.Sprintf(`{"error":"Invalid or missing model at '%s': %s"}`, identifier, err.Error())),
+		}
+	}
+
+	updatedPayload, err := json.Marshal(payloadData)
+	if err != nil {
+		return policyv1alpha2.ImmediateResponse{
+			StatusCode: 500,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+			Body:       []byte(fmt.Sprintf(`{"error":"Failed to serialize updated request body: %s"}`, err.Error())),
+		}
+	}
+
+	slog.Debug("ModelWeightedRoundRobin: OnRequestBody modified payload model", "newModel", selectedModel)
+	return policyv1alpha2.UpstreamRequestModifications{Body: updatedPayload}
+}
+
+func (p *ModelWeightedRoundRobinPolicy) processRequestBody(ctx *policyv1alpha.RequestContext) policyv1alpha.RequestAction {
 	// If OnRequestHeaders already ran, use the pre-selected model rather than re-selecting
 	if _, done := ctx.Metadata[MetadataKeyHeadersProcessed]; done {
 		if p.params.RequestModel.Location == "payload" {
 			selectedModel, _ := ctx.Metadata[MetadataKeySelectedModel].(string)
 			if selectedModel == "" {
-				return policy.UpstreamRequestModifications{}
+				return policyv1alpha.UpstreamRequestModifications{}
 			}
 			originalModel, err := p.extractModelFromRequest(ctx)
 			if err != nil {
@@ -353,7 +406,7 @@ func (p *ModelWeightedRoundRobinPolicy) OnRequestBody(ctx *policy.RequestContext
 			return p.modifyRequestModel(ctx, selectedModel)
 		}
 		// Non-payload locations were already handled in OnRequestHeaders
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	// Extract original model from request
@@ -371,7 +424,7 @@ func (p *ModelWeightedRoundRobinPolicy) OnRequestBody(ctx *policy.RequestContext
 	selectedModel := p.selectNextAvailableWeightedModel()
 
 	if selectedModel == nil {
-		return policy.ImmediateResponse{
+		return policyv1alpha.ImmediateResponse{
 			StatusCode: 503,
 			Headers:    map[string]string{"Content-Type": "application/json"},
 			Body:       []byte(`{"error": "All models are currently unavailable"}`),
@@ -386,7 +439,7 @@ func (p *ModelWeightedRoundRobinPolicy) OnRequestBody(ctx *policy.RequestContext
 }
 
 // OnResponse handles response processing and suspension on error
-func (p *ModelWeightedRoundRobinPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
+func (p *ModelWeightedRoundRobinPolicy) OnResponse(ctx *policyv1alpha.ResponseContext, params map[string]interface{}) policyv1alpha.ResponseAction {
 	// Check if response indicates an error that should trigger suspension
 	if ctx.ResponseStatus >= 500 || ctx.ResponseStatus == 429 {
 		selectedModel := ""
@@ -405,7 +458,7 @@ func (p *ModelWeightedRoundRobinPolicy) OnResponse(ctx *policy.ResponseContext, 
 		}
 	}
 
-	return policy.UpstreamResponseModifications{}
+	return policyv1alpha.UpstreamResponseModifications{}
 }
 
 // selectNextAvailableWeightedModel selects the next available model based on weight distribution
@@ -478,7 +531,7 @@ func buildWeightedSequence(weightedModels []*WeightedModel) []*WeightedModel {
 
 // extractModelFromRequest extracts the model identifier from the request using requestModel config
 // Note: requestModel is validated in GetPolicy, so it will always be present
-func (p *ModelWeightedRoundRobinPolicy) extractModelFromRequest(ctx *policy.RequestContext) (string, error) {
+func (p *ModelWeightedRoundRobinPolicy) extractModelFromRequest(ctx *policyv1alpha.RequestContext) (string, error) {
 	location := p.params.RequestModel.Location
 	identifier := p.params.RequestModel.Identifier
 
@@ -503,7 +556,7 @@ func (p *ModelWeightedRoundRobinPolicy) extractModelFromRequest(ctx *policy.Requ
 }
 
 // extractModelFromBody extracts model from request body using JSONPath
-func (p *ModelWeightedRoundRobinPolicy) extractModelFromBody(ctx *policy.RequestContext, jsonPath string) (string, error) {
+func (p *ModelWeightedRoundRobinPolicy) extractModelFromBody(ctx *policyv1alpha.RequestContext, jsonPath string) (string, error) {
 	if ctx.Body == nil || ctx.Body.Content == nil {
 		return "", fmt.Errorf("request body is empty")
 	}
@@ -517,7 +570,7 @@ func (p *ModelWeightedRoundRobinPolicy) extractModelFromBody(ctx *policy.Request
 }
 
 // extractModelFromQuery extracts model from query parameter
-func (p *ModelWeightedRoundRobinPolicy) extractModelFromQuery(ctx *policy.RequestContext, paramName string) (string, error) {
+func (p *ModelWeightedRoundRobinPolicy) extractModelFromQuery(ctx *policyv1alpha.RequestContext, paramName string) (string, error) {
 	if ctx.Path == "" {
 		return "", fmt.Errorf("request path is empty")
 	}
@@ -550,7 +603,7 @@ func (p *ModelWeightedRoundRobinPolicy) extractModelFromQuery(ctx *policy.Reques
 }
 
 // extractModelFromPath extracts model from path using regex pattern
-func (p *ModelWeightedRoundRobinPolicy) extractModelFromPath(ctx *policy.RequestContext, regexPattern string) (string, error) {
+func (p *ModelWeightedRoundRobinPolicy) extractModelFromPath(ctx *policyv1alpha.RequestContext, regexPattern string) (string, error) {
 	if ctx.Path == "" {
 		return "", fmt.Errorf("request path is empty")
 	}
@@ -639,7 +692,7 @@ func (p *ModelWeightedRoundRobinPolicy) modifyPathParamInPath(rawPath, regexPatt
 }
 
 // modifyRequestModel modifies the request to replace the model field based on location
-func (p *ModelWeightedRoundRobinPolicy) modifyRequestModel(ctx *policy.RequestContext, newModel string) policy.RequestAction {
+func (p *ModelWeightedRoundRobinPolicy) modifyRequestModel(ctx *policyv1alpha.RequestContext, newModel string) policyv1alpha.RequestAction {
 	location := p.params.RequestModel.Location
 	identifier := p.params.RequestModel.Identifier
 
@@ -654,14 +707,14 @@ func (p *ModelWeightedRoundRobinPolicy) modifyRequestModel(ctx *policy.RequestCo
 		return p.modifyModelInPathParam(ctx, newModel, identifier)
 	default:
 		slog.Debug("ModelWeightedRoundRobin: Unsupported location", "location", location)
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 }
 
 // modifyModelInPayload modifies the model in request body using JSONPath
-func (p *ModelWeightedRoundRobinPolicy) modifyModelInPayload(ctx *policy.RequestContext, newModel string, jsonPath string) policy.RequestAction {
+func (p *ModelWeightedRoundRobinPolicy) modifyModelInPayload(ctx *policyv1alpha.RequestContext, newModel string, jsonPath string) policyv1alpha.RequestAction {
 	if ctx.Body == nil || ctx.Body.Content == nil {
-		return policy.ImmediateResponse{
+		return policyv1alpha.ImmediateResponse{
 			StatusCode: 400,
 			Headers:    map[string]string{"Content-Type": "application/json"},
 			Body:       []byte(`{"error":"Request body is empty."}`),
@@ -672,7 +725,7 @@ func (p *ModelWeightedRoundRobinPolicy) modifyModelInPayload(ctx *policy.Request
 	var payloadData map[string]interface{}
 	if err := json.Unmarshal(ctx.Body.Content, &payloadData); err != nil {
 		slog.Debug("ModelWeightedRoundRobin: Error unmarshaling request body", "error", err)
-		return policy.ImmediateResponse{
+		return policyv1alpha.ImmediateResponse{
 			StatusCode: 400,
 			Headers:    map[string]string{"Content-Type": "application/json"},
 			Body:       []byte(fmt.Sprintf(`{"error":"Invalid JSON in request body: %s"}`, err.Error())),
@@ -682,7 +735,7 @@ func (p *ModelWeightedRoundRobinPolicy) modifyModelInPayload(ctx *policy.Request
 	// Update model in payload
 	if err := utils.SetValueAtJSONPath(payloadData, jsonPath, newModel); err != nil {
 		slog.Debug("ModelWeightedRoundRobin: Error setting model in request body", "jsonPath", jsonPath, "error", err)
-		return policy.ImmediateResponse{
+		return policyv1alpha.ImmediateResponse{
 			StatusCode: 400,
 			Headers:    map[string]string{"Content-Type": "application/json"},
 			Body:       []byte(fmt.Sprintf(`{"error":"Invalid or missing model at '%s': %s"}`, jsonPath, err.Error())),
@@ -693,7 +746,7 @@ func (p *ModelWeightedRoundRobinPolicy) modifyModelInPayload(ctx *policy.Request
 	updatedPayload, err := json.Marshal(payloadData)
 	if err != nil {
 		slog.Debug("ModelWeightedRoundRobin: Error marshaling updated request body", "error", err)
-		return policy.ImmediateResponse{
+		return policyv1alpha.ImmediateResponse{
 			StatusCode: 500,
 			Headers:    map[string]string{"Content-Type": "application/json"},
 			Body:       []byte(fmt.Sprintf(`{"error":"Failed to serialize updated request body: %s"}`, err.Error())),
@@ -702,32 +755,32 @@ func (p *ModelWeightedRoundRobinPolicy) modifyModelInPayload(ctx *policy.Request
 
 	slog.Debug("ModelWeightedRoundRobin: Modified request model in payload", "originalModel", ctx.Metadata[MetadataKeyOriginalModel], "newModel", newModel, "jsonPath", jsonPath)
 
-	return policy.UpstreamRequestModifications{
+	return policyv1alpha.UpstreamRequestModifications{
 		Body: updatedPayload,
 	}
 }
 
 // modifyModelInHeader modifies the model in request header
-func (p *ModelWeightedRoundRobinPolicy) modifyModelInHeader(ctx *policy.RequestContext, newModel string, headerName string) policy.RequestAction {
+func (p *ModelWeightedRoundRobinPolicy) modifyModelInHeader(ctx *policyv1alpha.RequestContext, newModel string, headerName string) policyv1alpha.RequestAction {
 	slog.Debug("ModelWeightedRoundRobin: Modified request model in header", "originalModel", ctx.Metadata[MetadataKeyOriginalModel], "newModel", newModel, "header", headerName)
 
-	return policy.UpstreamRequestModifications{
+	return policyv1alpha.UpstreamRequestModifications{
 		SetHeaders: map[string]string{headerName: newModel},
 	}
 }
 
 // modifyModelInQueryParam modifies the model in query parameter by updating the path
-func (p *ModelWeightedRoundRobinPolicy) modifyModelInQueryParam(ctx *policy.RequestContext, newModel string, paramName string) policy.RequestAction {
+func (p *ModelWeightedRoundRobinPolicy) modifyModelInQueryParam(ctx *policyv1alpha.RequestContext, newModel string, paramName string) policyv1alpha.RequestAction {
 	if ctx.Path == "" {
 		slog.Debug("ModelWeightedRoundRobin: Cannot modify query param, path is empty")
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	// Parse the URL-encoded path
 	decodedPath, err := url.PathUnescape(ctx.Path)
 	if err != nil {
 		slog.Debug("ModelWeightedRoundRobin: Error decoding path", "error", err)
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	// Split path and query string
@@ -740,7 +793,7 @@ func (p *ModelWeightedRoundRobinPolicy) modifyModelInQueryParam(ctx *policy.Requ
 		queryValues, err = url.ParseQuery(parts[1])
 		if err != nil {
 			slog.Debug("ModelWeightedRoundRobin: Error parsing query string", "error", err)
-			return policy.UpstreamRequestModifications{}
+			return policyv1alpha.UpstreamRequestModifications{}
 		}
 	} else {
 		// No existing query string, create new
@@ -760,7 +813,7 @@ func (p *ModelWeightedRoundRobinPolicy) modifyModelInQueryParam(ctx *policy.Requ
 
 	// Set the :path pseudo-header to modify the path and query string
 	// Envoy ext_proc requires path modifications via the :path header
-	return policy.UpstreamRequestModifications{
+	return policyv1alpha.UpstreamRequestModifications{
 		SetHeaders: map[string]string{
 			":path": updatedPath,
 		},
@@ -768,17 +821,17 @@ func (p *ModelWeightedRoundRobinPolicy) modifyModelInQueryParam(ctx *policy.Requ
 }
 
 // modifyModelInPathParam modifies the model in path parameter using regex replacement
-func (p *ModelWeightedRoundRobinPolicy) modifyModelInPathParam(ctx *policy.RequestContext, newModel string, regexPattern string) policy.RequestAction {
+func (p *ModelWeightedRoundRobinPolicy) modifyModelInPathParam(ctx *policyv1alpha.RequestContext, newModel string, regexPattern string) policyv1alpha.RequestAction {
 	if ctx.Path == "" {
 		slog.Debug("ModelWeightedRoundRobin: Cannot modify path param, path is empty")
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	// Parse the URL-encoded path
 	decodedPath, err := url.PathUnescape(ctx.Path)
 	if err != nil {
 		slog.Debug("ModelWeightedRoundRobin: Error decoding path", "error", err)
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	// Split path and query string (we need to preserve query string)
@@ -793,14 +846,14 @@ func (p *ModelWeightedRoundRobinPolicy) modifyModelInPathParam(ctx *policy.Reque
 	re, err := regexp.Compile(regexPattern)
 	if err != nil {
 		slog.Debug("ModelWeightedRoundRobin: Invalid regex pattern", "pattern", regexPattern, "error", err)
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	// Find the match to verify it exists and get the match indices
 	matchIndices := re.FindStringSubmatchIndex(pathWithoutQuery)
 	if len(matchIndices) < 4 {
 		slog.Debug("ModelWeightedRoundRobin: Regex pattern did not match path or no capture group", "pattern", regexPattern, "path", pathWithoutQuery)
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	// Replace the first capture group (indices 2-3) with the new model
@@ -811,7 +864,7 @@ func (p *ModelWeightedRoundRobinPolicy) modifyModelInPathParam(ctx *policy.Reque
 
 	if captureStart == -1 || captureEnd == -1 {
 		slog.Debug("ModelWeightedRoundRobin: No capture group found in regex pattern", "pattern", regexPattern)
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	// Replace the captured portion with the new model
@@ -827,7 +880,7 @@ func (p *ModelWeightedRoundRobinPolicy) modifyModelInPathParam(ctx *policy.Reque
 
 	// Set the :path pseudo-header to modify the path
 	// Envoy ext_proc requires path modifications via the :path header
-	return policy.UpstreamRequestModifications{
+	return policyv1alpha.UpstreamRequestModifications{
 		SetHeaders: map[string]string{
 			":path": updatedFullPath,
 		},

@@ -5,7 +5,7 @@ import (
 	"compress/gzip"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 func TestCostExtractor_ExtractResponseCost_GzipEncodedBody(t *testing.T) {
@@ -22,12 +22,12 @@ func TestCostExtractor_ExtractResponseCost_GzipEncodedBody(t *testing.T) {
 	})
 
 	body := gzipBytes(t, []byte(`{"usage":{"prompt_tokens":42}}`))
-	ctx := &policy.ResponseContext{
-		ResponseHeaders: policy.NewHeaders(map[string][]string{
+	ctx := &policyv1alpha.ResponseContext{
+		ResponseHeaders: policyv1alpha.NewHeaders(map[string][]string{
 			"content-encoding": {"gzip"},
 			"content-type":     {"application/json"},
 		}),
-		ResponseBody: &policy.Body{
+		ResponseBody: &policyv1alpha.Body{
 			Present: true,
 			Content: body,
 		},
@@ -55,12 +55,12 @@ func TestCostExtractor_ExtractResponseCost_InvalidGzipBodyFallsBackToDefault(t *
 		},
 	})
 
-	ctx := &policy.ResponseContext{
-		ResponseHeaders: policy.NewHeaders(map[string][]string{
+	ctx := &policyv1alpha.ResponseContext{
+		ResponseHeaders: policyv1alpha.NewHeaders(map[string][]string{
 			"content-encoding": {"gzip"},
 			"content-type":     {"application/json"},
 		}),
-		ResponseBody: &policy.Body{
+		ResponseBody: &policyv1alpha.Body{
 			Present: true,
 			Content: []byte(`{"usage":{"prompt_tokens":42}}`),
 		},

@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"strings"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 const (
@@ -74,9 +74,9 @@ type McpAuthzPolicy struct {
 }
 
 func GetPolicy(
-	metadata policy.PolicyMetadata,
+	metadata policyv1alpha.PolicyMetadata,
 	params map[string]any,
-) (policy.Policy, error) {
+) (policyv1alpha.Policy, error) {
 	slog.Debug("MCP Authorization Policy: GetPolicy called")
 
 	p := &McpAuthzPolicy{}
@@ -214,16 +214,16 @@ func isValidAttributeType(attrType string) bool {
 	return attrType == "tool" || attrType == "resource" || attrType == "prompt" || attrType == "method"
 }
 
-func (p *McpAuthzPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeSkip,
+func (p *McpAuthzPolicy) Mode() policyv1alpha.ProcessingMode {
+	return policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha.BodyModeSkip,
 	}
 }
 
-func (p *McpAuthzPolicy) OnRequest(ctx *policy.RequestContext, params map[string]any) policy.RequestAction {
+func (p *McpAuthzPolicy) OnRequest(ctx *policyv1alpha.RequestContext, params map[string]any) policyv1alpha.RequestAction {
 	if strings.EqualFold(ctx.Method, "POST") && strings.Contains(ctx.Path, "/mcp") {
 		slog.Debug("MCP Authorization Policy: Processing MCP request for authorization")
 	} else {
@@ -283,7 +283,7 @@ func (p *McpAuthzPolicy) OnRequest(ctx *policy.RequestContext, params map[string
 	return nil
 }
 
-func (p *McpAuthzPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]any) policy.ResponseAction {
+func (p *McpAuthzPolicy) OnResponse(ctx *policyv1alpha.ResponseContext, params map[string]any) policyv1alpha.ResponseAction {
 	return nil
 }
 
@@ -328,7 +328,7 @@ func (p *McpAuthzPolicy) getAttributeNameFromParams(method string, params MCPReq
 }
 
 // checkAuthorization validates whether the request should be authorized
-func (p *McpAuthzPolicy) checkAuthorization(attributeType, attributeName, method string, authCtx *policy.AuthContext) (bool, map[string]struct{}) {
+func (p *McpAuthzPolicy) checkAuthorization(attributeType, attributeName, method string, authCtx *policyv1alpha.AuthContext) (bool, map[string]struct{}) {
 	if len(p.Rules) == 0 {
 		slog.Debug("MCP Authorization Policy: No rules configured")
 		return true, nil
@@ -408,7 +408,7 @@ func (p *McpAuthzPolicy) findMatchingRules(attributeType, attributeName, method 
 }
 
 // ruleGrantsAccess checks if a rule's claims and scopes are satisfied
-func (p *McpAuthzPolicy) ruleGrantsAccess(rule Rule, authCtx *policy.AuthContext) (bool, []string) {
+func (p *McpAuthzPolicy) ruleGrantsAccess(rule Rule, authCtx *policyv1alpha.AuthContext) (bool, []string) {
 	// Check required claims
 	if len(rule.RequiredClaims) > 0 {
 		if !p.checkClaims(rule.RequiredClaims, authCtx) {
@@ -428,7 +428,7 @@ func (p *McpAuthzPolicy) ruleGrantsAccess(rule Rule, authCtx *policy.AuthContext
 }
 
 // checkClaims verifies that all required claims match their expected values in the AuthContext
-func (p *McpAuthzPolicy) checkClaims(requiredClaims map[string]string, authCtx *policy.AuthContext) bool {
+func (p *McpAuthzPolicy) checkClaims(requiredClaims map[string]string, authCtx *policyv1alpha.AuthContext) bool {
 	for claimName, expectedValue := range requiredClaims {
 		switch claimName {
 		case "sub":
@@ -481,7 +481,7 @@ func (p *McpAuthzPolicy) checkClaims(requiredClaims map[string]string, authCtx *
 }
 
 // checkScopes verifies that all required scopes are present in the AuthContext
-func (p *McpAuthzPolicy) checkScopes(requiredScopes []string, authCtx *policy.AuthContext) (bool, []string) {
+func (p *McpAuthzPolicy) checkScopes(requiredScopes []string, authCtx *policyv1alpha.AuthContext) (bool, []string) {
 	var missing []string
 	for _, required := range requiredScopes {
 		if !authCtx.Scopes[required] {
@@ -497,7 +497,7 @@ func (p *McpAuthzPolicy) checkScopes(requiredScopes []string, authCtx *policy.Au
 }
 
 // generateResourcePath generates the full resource URL for the given resource path
-func generateResourcePath(ctx *policy.RequestContext, gatewayHost string, resource string) string {
+func generateResourcePath(ctx *policyv1alpha.RequestContext, gatewayHost string, resource string) string {
 	slog.Debug("MCP Authorization Policy: Generating resource path for", "resource", resource)
 
 	scheme := ctx.Scheme
@@ -542,7 +542,7 @@ func generateResourcePath(ctx *policy.RequestContext, gatewayHost string, resour
 }
 
 // generateWwwAuthenticateHeader generates the WWW-Authenticate header value
-func generateWwwAuthenticateHeader(ctx *policy.RequestContext, scopes []string, errorDesc string) string {
+func generateWwwAuthenticateHeader(ctx *policyv1alpha.RequestContext, scopes []string, errorDesc string) string {
 	slog.Debug("MCP Authorization Policy: Generating WWW-Authenticate header")
 	gatewayHost, ok := ctx.Metadata["gatewayHost"]
 	gatewayHostString, _ := gatewayHost.(string)
@@ -582,7 +582,7 @@ func isStandardPort(scheme string, port int) bool {
 	return (scheme == "http" && port == 80) || (scheme == "https" && port == 443)
 }
 
-func (p *McpAuthzPolicy) handleAuthFailure(ctx *policy.RequestContext, errorMessage string, scopeMap map[string]struct{}) policy.RequestAction {
+func (p *McpAuthzPolicy) handleAuthFailure(ctx *policyv1alpha.RequestContext, errorMessage string, scopeMap map[string]struct{}) policyv1alpha.RequestAction {
 	slog.Debug("MCP Authorization Policy: handleAuthFailure called",
 		"errorMessage", errorMessage,
 	)
@@ -606,7 +606,7 @@ func (p *McpAuthzPolicy) handleAuthFailure(ctx *policy.RequestContext, errorMess
 	}
 	bodyBytes, _ := json.Marshal(errResponse)
 
-	return policy.ImmediateResponse{
+	return policyv1alpha.ImmediateResponse{
 		StatusCode: 403,
 		Headers:    headers,
 		Body:       bodyBytes,

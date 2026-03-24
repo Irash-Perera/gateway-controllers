@@ -1,11 +1,13 @@
-module github.com/Thushani-Jayasekera/gateway-controllers/policies/basic-ratelimit
+module github.com/wso2/gateway-controllers/policies/basic-ratelimit
 
 go 1.25.1
 
 require (
-	github.com/wso2/api-platform/sdk v0.5.0
+	github.com/wso2/api-platform/sdk v0.4.5
 	github.com/wso2/gateway-controllers/policies/advanced-ratelimit v0.3.1
 )
+
+require github.com/wso2/api-platform/sdk/core v0.1.0
 
 require (
 	cel.dev/expr v0.24.0 // indirect
@@ -20,5 +22,3 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/wso2/api-platform/sdk => github.com/Thushani-Jayasekera/api-platform/sdk v0.5.0

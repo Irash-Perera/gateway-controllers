@@ -26,25 +26,25 @@ import (
 	"strings"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 var slogMessagePattern = regexp.MustCompile(`msg="((?:\\.|[^"])*)"`)
 
-func createTestHeaders(headers map[string]string) *policy.Headers {
+func createTestHeaders(headers map[string]string) *policyv1alpha.Headers {
 	headerMap := make(map[string][]string)
 	for key, value := range headers {
 		headerMap[key] = []string{value}
 	}
-	return policy.NewHeaders(headerMap)
+	return policyv1alpha.NewHeaders(headerMap)
 }
 
-func createTestHeadersMulti(headers map[string][]string) *policy.Headers {
+func createTestHeadersMulti(headers map[string][]string) *policyv1alpha.Headers {
 	headerMap := make(map[string][]string)
 	for key, values := range headers {
 		headerMap[key] = values
 	}
-	return policy.NewHeaders(headerMap)
+	return policyv1alpha.NewHeaders(headerMap)
 }
 
 func toInterfaceSlice(items []string) []interface{} {
@@ -106,11 +106,11 @@ func TestLogMessagePolicy_Mode(t *testing.T) {
 	p := &LogMessagePolicy{}
 	mode := p.Mode()
 
-	expectedMode := policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeProcess,
-		ResponseBodyMode:   policy.BodyModeBuffer,
+	expectedMode := policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeProcess,
+		RequestBodyMode:    policyv1alpha.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha.HeaderModeProcess,
+		ResponseBodyMode:   policyv1alpha.BodyModeBuffer,
 	}
 
 	if mode != expectedMode {
@@ -119,7 +119,7 @@ func TestLogMessagePolicy_Mode(t *testing.T) {
 }
 
 func TestGetPolicy(t *testing.T) {
-	policyInstance, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{})
+	policyInstance, err := GetPolicy(policyv1alpha.PolicyMetadata{}, map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
@@ -283,8 +283,8 @@ func TestGetRequestID(t *testing.T) {
 
 func TestOnRequest_NoRequestConfig_DoesNotLog(t *testing.T) {
 	p := &LogMessagePolicy{}
-	ctx := &policy.RequestContext{
-		Body: &policy.Body{Content: []byte(`{"hello":"world"}`), Present: true},
+	ctx := &policyv1alpha.RequestContext{
+		Body: &policyv1alpha.Body{Content: []byte(`{"hello":"world"}`), Present: true},
 		Headers: createTestHeaders(map[string]string{
 			"x-request-id": "req-001",
 		}),
@@ -296,7 +296,7 @@ func TestOnRequest_NoRequestConfig_DoesNotLog(t *testing.T) {
 		result := p.OnRequest(ctx, map[string]interface{}{
 			"response": map[string]interface{}{"payload": true},
 		})
-		if _, ok := result.(policy.UpstreamRequestModifications); !ok {
+		if _, ok := result.(policyv1alpha.UpstreamRequestModifications); !ok {
 			t.Fatalf("expected UpstreamRequestModifications, got %T", result)
 		}
 	})
@@ -308,8 +308,8 @@ func TestOnRequest_NoRequestConfig_DoesNotLog(t *testing.T) {
 
 func TestOnRequest_LogsPayloadAndHeaders(t *testing.T) {
 	p := &LogMessagePolicy{}
-	ctx := &policy.RequestContext{
-		Body: &policy.Body{Content: []byte(`{"action":"login"}`), Present: true},
+	ctx := &policyv1alpha.RequestContext{
+		Body: &policyv1alpha.Body{Content: []byte(`{"action":"login"}`), Present: true},
 		Headers: createTestHeaders(map[string]string{
 			"x-request-id":   "req-123",
 			"authorization":  "Bearer secret",
@@ -328,7 +328,7 @@ func TestOnRequest_LogsPayloadAndHeaders(t *testing.T) {
 				"excludeHeaders": toInterfaceSlice([]string{"x-api-key"}),
 			},
 		})
-		mods, ok := result.(policy.UpstreamRequestModifications)
+		mods, ok := result.(policyv1alpha.UpstreamRequestModifications)
 		if !ok {
 			t.Fatalf("expected UpstreamRequestModifications, got %T", result)
 		}
@@ -366,8 +366,8 @@ func TestOnRequest_LogsPayloadAndHeaders(t *testing.T) {
 
 func TestOnRequest_InvalidRequestConfigType_DoesNotLog(t *testing.T) {
 	p := &LogMessagePolicy{}
-	ctx := &policy.RequestContext{
-		Body:    &policy.Body{Content: []byte(`{"hello":"world"}`), Present: true},
+	ctx := &policyv1alpha.RequestContext{
+		Body:    &policyv1alpha.Body{Content: []byte(`{"hello":"world"}`), Present: true},
 		Headers: createTestHeaders(map[string]string{"x-request-id": "req-002"}),
 		Method:  "POST",
 		Path:    "/resource",
@@ -384,8 +384,8 @@ func TestOnRequest_InvalidRequestConfigType_DoesNotLog(t *testing.T) {
 
 func TestOnResponse_NoResponseConfig_DoesNotLog(t *testing.T) {
 	p := &LogMessagePolicy{}
-	ctx := &policy.ResponseContext{
-		ResponseBody:    &policy.Body{Content: []byte(`{"ok":true}`), Present: true},
+	ctx := &policyv1alpha.ResponseContext{
+		ResponseBody:    &policyv1alpha.Body{Content: []byte(`{"ok":true}`), Present: true},
 		ResponseHeaders: createTestHeaders(map[string]string{"x-request-id": "resp-001"}),
 		RequestMethod:   "GET",
 		RequestPath:     "/status",
@@ -395,7 +395,7 @@ func TestOnResponse_NoResponseConfig_DoesNotLog(t *testing.T) {
 		result := p.OnResponse(ctx, map[string]interface{}{
 			"request": map[string]interface{}{"payload": true},
 		})
-		if _, ok := result.(policy.UpstreamResponseModifications); !ok {
+		if _, ok := result.(policyv1alpha.UpstreamResponseModifications); !ok {
 			t.Fatalf("expected UpstreamResponseModifications, got %T", result)
 		}
 	})
@@ -407,8 +407,8 @@ func TestOnResponse_NoResponseConfig_DoesNotLog(t *testing.T) {
 
 func TestOnResponse_LogsPayloadAndHeaders(t *testing.T) {
 	p := &LogMessagePolicy{}
-	ctx := &policy.ResponseContext{
-		ResponseBody: &policy.Body{Content: []byte(`{"status":"success"}`), Present: true},
+	ctx := &policyv1alpha.ResponseContext{
+		ResponseBody: &policyv1alpha.Body{Content: []byte(`{"status":"success"}`), Present: true},
 		ResponseHeaders: createTestHeaders(map[string]string{
 			"x-request-id":     "resp-123",
 			"set-cookie":       "session=abc",
@@ -426,7 +426,7 @@ func TestOnResponse_LogsPayloadAndHeaders(t *testing.T) {
 				"excludeHeaders": toInterfaceSlice([]string{"set-cookie"}),
 			},
 		})
-		mods, ok := result.(policy.UpstreamResponseModifications)
+		mods, ok := result.(policyv1alpha.UpstreamResponseModifications)
 		if !ok {
 			t.Fatalf("expected UpstreamResponseModifications, got %T", result)
 		}
@@ -460,8 +460,8 @@ func TestOnResponse_LogsPayloadAndHeaders(t *testing.T) {
 
 func TestOnResponse_InvalidResponseConfigType_DoesNotLog(t *testing.T) {
 	p := &LogMessagePolicy{}
-	ctx := &policy.ResponseContext{
-		ResponseBody:    &policy.Body{Content: []byte(`{"ok":true}`), Present: true},
+	ctx := &policyv1alpha.ResponseContext{
+		ResponseBody:    &policyv1alpha.Body{Content: []byte(`{"ok":true}`), Present: true},
 		ResponseHeaders: createTestHeaders(map[string]string{"x-request-id": "resp-002"}),
 		RequestMethod:   "GET",
 		RequestPath:     "/status",
@@ -478,8 +478,8 @@ func TestOnResponse_InvalidResponseConfigType_DoesNotLog(t *testing.T) {
 
 func TestOnResponse_LogsWithMissingRequestID(t *testing.T) {
 	p := &LogMessagePolicy{}
-	ctx := &policy.ResponseContext{
-		ResponseBody:    &policy.Body{Content: []byte(`{"ok":true}`), Present: true},
+	ctx := &policyv1alpha.ResponseContext{
+		ResponseBody:    &policyv1alpha.Body{Content: []byte(`{"ok":true}`), Present: true},
 		ResponseHeaders: createTestHeaders(map[string]string{"content-type": "application/json"}),
 		RequestMethod:   "GET",
 		RequestPath:     "/status",

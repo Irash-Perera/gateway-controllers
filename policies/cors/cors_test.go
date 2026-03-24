@@ -5,17 +5,17 @@ import (
 	"strings"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 func TestCorsPolicy_Mode(t *testing.T) {
 	p := &CorsPolicy{}
 	got := p.Mode()
-	want := policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess,
-		RequestBodyMode:    policy.BodyModeSkip,
-		ResponseHeaderMode: policy.HeaderModeProcess,
-		ResponseBodyMode:   policy.BodyModeSkip,
+	want := policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeProcess,
+		RequestBodyMode:    policyv1alpha.BodyModeSkip,
+		ResponseHeaderMode: policyv1alpha.HeaderModeProcess,
+		ResponseBodyMode:   policyv1alpha.BodyModeSkip,
 	}
 
 	if got != want {
@@ -114,7 +114,7 @@ func TestCorsPolicy_GetPolicy_AllowCredentialsWildcardRejections(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := GetPolicy(policy.PolicyMetadata{}, tt.params)
+			_, err := GetPolicy(policyv1alpha.PolicyMetadata{}, tt.params)
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}
@@ -126,7 +126,7 @@ func TestCorsPolicy_GetPolicy_AllowCredentialsWildcardRejections(t *testing.T) {
 }
 
 func TestCorsPolicy_GetPolicy_InvalidOriginRegex(t *testing.T) {
-	_, err := GetPolicy(policy.PolicyMetadata{}, map[string]any{
+	_, err := GetPolicy(policyv1alpha.PolicyMetadata{}, map[string]any{
 		"allowedOrigins": []any{"[invalid-regex"},
 	})
 	if err == nil {
@@ -167,7 +167,7 @@ func TestCorsPolicy_OnRequest_PreflightSuccess(t *testing.T) {
 	})
 
 	action := p.OnRequest(ctx, nil)
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -207,7 +207,7 @@ func TestCorsPolicy_OnRequest_PreflightFailure_NotForwarded(t *testing.T) {
 	})
 
 	action := p.OnRequest(ctx, nil)
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -236,7 +236,7 @@ func TestCorsPolicy_OnRequest_PreflightFailure_Forwarded(t *testing.T) {
 	})
 
 	action := p.OnRequest(ctx, nil)
-	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := action.(policyv1alpha.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
 }
@@ -314,8 +314,8 @@ func TestCorsPolicy_OnRequest_NonPreflightWithoutOriginNoStrip(t *testing.T) {
 
 func TestCorsPolicy_OnResponse_FromCorsHeadersMetadata(t *testing.T) {
 	p := &CorsPolicy{}
-	ctx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-1",
 			Metadata: map[string]interface{}{
 				"cors_headers": map[string]string{
@@ -326,7 +326,7 @@ func TestCorsPolicy_OnResponse_FromCorsHeadersMetadata(t *testing.T) {
 	}
 
 	action := p.OnResponse(ctx, nil)
-	mods, ok := action.(policy.UpstreamResponseModifications)
+	mods, ok := action.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", action)
 	}
@@ -337,8 +337,8 @@ func TestCorsPolicy_OnResponse_FromCorsHeadersMetadata(t *testing.T) {
 
 func TestCorsPolicy_OnResponse_FromCorsStripMetadata(t *testing.T) {
 	p := &CorsPolicy{}
-	ctx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-1",
 			Metadata: map[string]interface{}{
 				"cors_strip": true,
@@ -347,7 +347,7 @@ func TestCorsPolicy_OnResponse_FromCorsStripMetadata(t *testing.T) {
 	}
 
 	action := p.OnResponse(ctx, nil)
-	mods, ok := action.(policy.UpstreamResponseModifications)
+	mods, ok := action.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", action)
 	}
@@ -363,8 +363,8 @@ func TestCorsPolicy_OnResponse_FromCorsStripMetadata(t *testing.T) {
 
 func TestCorsPolicy_OnResponse_NoMetadata(t *testing.T) {
 	p := &CorsPolicy{}
-	ctx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -392,7 +392,7 @@ func TestCorsPolicy_OnRequest_PreflightSpecificAllowedHeadersCaseInsensitive(t *
 	})
 
 	action := p.OnRequest(ctx, nil)
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -403,7 +403,7 @@ func TestCorsPolicy_OnRequest_PreflightSpecificAllowedHeadersCaseInsensitive(t *
 
 func mustGetCorsPolicy(t *testing.T, params map[string]any) *CorsPolicy {
 	t.Helper()
-	p, err := GetPolicy(policy.PolicyMetadata{}, params)
+	p, err := GetPolicy(policyv1alpha.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
@@ -414,16 +414,16 @@ func mustGetCorsPolicy(t *testing.T, params map[string]any) *CorsPolicy {
 	return cp
 }
 
-func newCorsRequestContext(method string, headers map[string][]string) *policy.RequestContext {
+func newCorsRequestContext(method string, headers map[string][]string) *policyv1alpha.RequestContext {
 	if headers == nil {
 		headers = map[string][]string{}
 	}
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+	return &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
-		Headers: policy.NewHeaders(headers),
+		Headers: policyv1alpha.NewHeaders(headers),
 		Method:  method,
 	}
 }

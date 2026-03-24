@@ -1,2 +1,4 @@
-github.com/Thushani-Jayasekera/api-platform/sdk v0.5.1 h1:6eRcwi1Er6gP8oTvcchcl02RlfUfqkHGclvGTQntYaw=
-github.com/Thushani-Jayasekera/api-platform/sdk v0.5.1/go.mod h1:raemTPdhzGtXh5RUdmRwHZt7INToC6WuM63NHfr8o/s=
+github.com/wso2/api-platform/sdk v0.4.5 h1:1T5bY4W0No8SKZiydg8dt/x0iFKWiRTgquzoQd7EXU4=
+github.com/wso2/api-platform/sdk v0.4.5/go.mod h1:Zoaj0dOuHmI96K9rY9w2qunjjT4Lcvlq9AYezL4a3/0=
+github.com/wso2/api-platform/sdk/core v0.0.1 h1:tqaEbew5Zju1rW+NaC+b7OqLeBSojbrgEfoM6vXogEQ=
+github.com/wso2/api-platform/sdk/core v0.0.1/go.mod h1:R114dV8/EAl843+16zi97Cbd5+iPPYjHKdN7Nik3EUw=

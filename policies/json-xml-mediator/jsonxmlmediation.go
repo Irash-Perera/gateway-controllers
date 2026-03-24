@@ -19,25 +19,25 @@
 //
 // ─── Design Notes ─────────────────────────────────────────────────────────────
 //
-// 1. BUFFERED CONVERSION
-//    JSON↔XML conversion requires the complete body before it can produce valid
-//    output. This policy always buffers the full request or response body before
-//    converting.
+//  1. BUFFERED CONVERSION
+//     JSON↔XML conversion requires the complete body before it can produce valid
+//     output. This policy always buffers the full request or response body before
+//     converting.
 //
-// 2. STREAMING / SSE RESPONSES
-//    SSE responses (stream: true) are passed through unchanged and a warning is
-//    logged. When an LLM streams, the buffered body consists of
-//    chat.completion.chunk events whose delta-based structure cannot be
-//    losslessly reconstructed into the full chat.completion JSON that a
-//    non-streaming call returns. To use this policy for JSON↔XML conversion,
-//    call the upstream with stream: false so that a single, complete JSON
-//    document is returned.
+//  2. STREAMING / SSE RESPONSES
+//     SSE responses (stream: true) are passed through unchanged and a warning is
+//     logged. When an LLM streams, the buffered body consists of
+//     chat.completion.chunk events whose delta-based structure cannot be
+//     losslessly reconstructed into the full chat.completion JSON that a
+//     non-streaming call returns. To use this policy for JSON↔XML conversion,
+//     call the upstream with stream: false so that a single, complete JSON
+//     document is returned.
 //
-// 3. INTERFACE LAYOUT
-//    v1alpha.Policy (monolithic): Mode / OnRequest / OnResponse
-//    v1alpha.RequestPolicy:       OnRequestBody(ctx) — convert request body
-//    v1alpha.ResponsePolicy:      OnResponseBody(ctx) — convert response body;
-//                                 passes SSE bodies through with a warning
+//  3. INTERFACE LAYOUT
+//     v1alpha.Policy (monolithic): Mode / OnRequest / OnResponse
+//     v1alpha.RequestPolicy:       OnRequestBody(ctx) — convert request body
+//     v1alpha.ResponsePolicy:      OnResponseBody(ctx) — convert response body;
+//     passes SSE bodies through with a warning
 package jsonxmlmediation
 
 import (
@@ -49,7 +49,8 @@ import (
 	"strings"
 	"unicode"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 const (
@@ -68,9 +69,9 @@ type JSONXMLMediationPolicy struct {
 }
 
 func GetPolicy(
-	metadata policy.PolicyMetadata,
+	metadata policyv1alpha.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha.Policy, error) {
 	upstreamPayloadFormat, err := getUpstreamPayloadFormat(params)
 	if err != nil {
 		return nil, err
@@ -93,35 +94,133 @@ func GetPolicy(
 // ─── v1alpha.Policy (monolithic) ─────────────────────────────────────────────
 
 // Mode declares that this policy requires both request and response body buffering.
-func (p *JSONXMLMediationPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestBodyMode:  policy.BodyModeBuffer,
-		ResponseBodyMode: policy.BodyModeBuffer,
+func (p *JSONXMLMediationPolicy) Mode() policyv1alpha.ProcessingMode {
+	return policyv1alpha.ProcessingMode{
+		RequestBodyMode:  policyv1alpha.BodyModeBuffer,
+		ResponseBodyMode: policyv1alpha.BodyModeBuffer,
 	}
 }
 
 // OnRequest delegates to OnRequestBody for v1alpha engine compatibility.
-func (p *JSONXMLMediationPolicy) OnRequest(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
-	return p.OnRequestBody(ctx)
-}
-
-// OnResponse delegates to OnResponseBody for v1alpha engine compatibility.
-func (p *JSONXMLMediationPolicy) OnResponse(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
-	return p.OnResponseBody(ctx)
-}
-
-// ─── v1alpha.RequestPolicy ────────────────────────────────────────────────────
-
-// OnRequestBody converts the request body from the downstream payload format to
+// OnRequest converts the request body from the downstream payload format to
 // the upstream payload format before forwarding to the upstream service.
-func (p *JSONXMLMediationPolicy) OnRequestBody(ctx *policy.RequestContext) policy.RequestAction {
+func (p *JSONXMLMediationPolicy) OnRequest(ctx *policyv1alpha.RequestContext, _ map[string]interface{}) policyv1alpha.RequestAction {
 	if ctx.Body == nil || !ctx.Body.Present || len(ctx.Body.Content) == 0 {
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	contentType := getFirstHeader(ctx.Headers, "content-type")
+
 	if !matchesContentType(contentType, p.downstreamPayloadFormat) {
 		return p.handleInternalServerError(fmt.Sprintf(
+			"Content-Type must be %s for downstream payload format %s",
+			expectedContentTypeMessage(p.downstreamPayloadFormat),
+			p.downstreamPayloadFormat,
+		))
+	}
+
+	if p.downstreamPayloadFormat == p.upstreamPayloadFormat {
+		return policyv1alpha.UpstreamRequestModifications{}
+	}
+
+	convertedBody, convertedContentType, convErr := p.convertBetweenFormats(
+		ctx.Body.Content,
+		p.downstreamPayloadFormat,
+		p.upstreamPayloadFormat,
+	)
+	if convErr != nil {
+		return p.handleInternalServerError(convErr.Error())
+	}
+
+	return policyv1alpha.UpstreamRequestModifications{
+		Body: convertedBody,
+		SetHeaders: map[string]string{
+			"content-type":   convertedContentType,
+			"content-length": fmt.Sprintf("%d", len(convertedBody)),
+		},
+	}
+}
+
+// OnResponse delegates to processResponseBody for v1alpha engine compatibility.
+func (p *JSONXMLMediationPolicy) OnResponse(ctx *policyv1alpha.ResponseContext, _ map[string]interface{}) policyv1alpha.ResponseAction {
+	if ctx.ResponseBody == nil || !ctx.ResponseBody.Present || len(ctx.ResponseBody.Content) == 0 {
+		return policyv1alpha.UpstreamResponseModifications{}
+	}
+
+	contentType := getFirstHeader(ctx.ResponseHeaders, "content-type")
+
+	if !matchesContentType(contentType, p.upstreamPayloadFormat) {
+		return p.handleInternalServerErrorResponse(fmt.Sprintf(
+			"Content-Type must be %s in response for upstream payload format %s",
+			expectedContentTypeMessage(p.upstreamPayloadFormat),
+			p.upstreamPayloadFormat,
+		))
+	}
+
+	if p.upstreamPayloadFormat == p.downstreamPayloadFormat {
+		return policyv1alpha.UpstreamResponseModifications{}
+	}
+
+	convertedBody, convertedContentType, convErr := p.convertBetweenFormats(
+		ctx.ResponseBody.Content,
+		p.upstreamPayloadFormat,
+		p.downstreamPayloadFormat,
+	)
+	if convErr != nil {
+		return p.handleInternalServerErrorResponse(convErr.Error())
+	}
+
+	return policyv1alpha.UpstreamResponseModifications{
+		Body: convertedBody,
+		SetHeaders: map[string]string{
+			"content-type":   convertedContentType,
+			"content-length": fmt.Sprintf("%d", len(convertedBody)),
+		},
+	}
+}
+
+// ─── v1alpha2 body methods ────────────────────────────────────────────────────
+
+// OnRequestBody converts the request body from the downstream payload format to
+// the upstream payload format before forwarding to the upstream service.
+func (p *JSONXMLMediationPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ map[string]interface{}) policyv1alpha2.RequestAction {
+	return p.processRequestBody(ctx)
+}
+
+// OnResponseBody converts the upstream response body to the downstream payload format.
+func (p *JSONXMLMediationPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseContext, _ map[string]interface{}) policyv1alpha2.ResponseAction {
+	var v1ResponseBody *policyv1alpha.Body
+	if ctx.ResponseBody != nil {
+		v1ResponseBody = &policyv1alpha.Body{Content: ctx.ResponseBody.Content, Present: ctx.ResponseBody.Present, EndOfStream: ctx.ResponseBody.EndOfStream}
+	}
+	var v1ResponseHeaders *policyv1alpha.Headers
+	if ctx.ResponseHeaders != nil {
+		v1ResponseHeaders = policyv1alpha.NewHeaders(ctx.ResponseHeaders.GetAll())
+	}
+	v1ctx := &policyv1alpha.ResponseContext{ResponseBody: v1ResponseBody, ResponseHeaders: v1ResponseHeaders}
+	result := p.processResponseBody(v1ctx)
+	switch r := result.(type) {
+	case policyv1alpha.UpstreamResponseModifications:
+		return policyv1alpha2.DownstreamResponseModifications{
+			DownstreamResponseHeaderModifications: policyv1alpha2.DownstreamResponseHeaderModifications{
+				HeadersToSet: r.SetHeaders,
+			},
+			Body:       r.Body,
+			StatusCode: r.StatusCode,
+		}
+	default:
+		return policyv1alpha2.DownstreamResponseModifications{}
+	}
+}
+
+func (p *JSONXMLMediationPolicy) processRequestBody(ctx *policyv1alpha2.RequestContext) policyv1alpha2.RequestAction {
+	if ctx.Body == nil || !ctx.Body.Present || len(ctx.Body.Content) == 0 {
+		return policyv1alpha2.UpstreamRequestModifications{}
+	}
+
+	contentType := getFirstHeaderV2(ctx.Headers, "content-type")
+	if !matchesContentType(contentType, p.downstreamPayloadFormat) {
+		return p.handleInternalServerErrorV2(fmt.Sprintf(
 			"Content-Type must be %s for downstream payload format %s",
 			expectedContentTypeMessage(p.downstreamPayloadFormat),
 			p.downstreamPayloadFormat,
@@ -134,29 +233,31 @@ func (p *JSONXMLMediationPolicy) OnRequestBody(ctx *policy.RequestContext) polic
 		p.upstreamPayloadFormat,
 	)
 	if convErr != nil {
-		return p.handleInternalServerError(convErr.Error())
+		return p.handleInternalServerErrorV2(convErr.Error())
 	}
 
-	return policy.UpstreamRequestModifications{
+	return policyv1alpha2.UpstreamRequestModifications{
 		Body: convertedBody,
-		SetHeaders: map[string]string{
-			"content-type":   convertedContentType,
-			"content-length": fmt.Sprintf("%d", len(convertedBody)),
+		UpstreamRequestHeaderModifications: policyv1alpha2.UpstreamRequestHeaderModifications{
+			HeadersToSet: map[string]string{
+				"content-type":   convertedContentType,
+				"content-length": fmt.Sprintf("%d", len(convertedBody)),
+			},
 		},
 	}
 }
 
-// ─── v1alpha.ResponsePolicy ───────────────────────────────────────────────────
+// ─── v1alpha helpers ──────────────────────────────────────────────────────────
 
-// OnResponseBody converts the upstream response body to the downstream payload
+// processResponseBody converts the upstream response body to the downstream payload
 // format.
 //
 // SSE (streaming) responses are passed through unchanged with a warning.
 // Conversion requires a complete, non-streaming JSON or XML document — use
 // stream: false on the upstream request to ensure a full body is returned.
-func (p *JSONXMLMediationPolicy) OnResponseBody(ctx *policy.ResponseContext) policy.ResponseAction {
+func (p *JSONXMLMediationPolicy) processResponseBody(ctx *policyv1alpha.ResponseContext) policyv1alpha.ResponseAction {
 	if ctx.ResponseBody == nil || !ctx.ResponseBody.Present || len(ctx.ResponseBody.Content) == 0 {
-		return policy.UpstreamResponseModifications{}
+		return policyv1alpha.UpstreamResponseModifications{}
 	}
 
 	// SSE (streaming) responses cannot be converted: the buffered body contains
@@ -167,7 +268,7 @@ func (p *JSONXMLMediationPolicy) OnResponseBody(ctx *policy.ResponseContext) pol
 	if isSSEResponse(string(ctx.ResponseBody.Content)) {
 		slog.Warn("json-xml-mediator: SSE response detected — passing through without conversion. " +
 			"Set stream: false on the upstream request to enable JSON↔XML mediation.")
-		return policy.UpstreamResponseModifications{}
+		return policyv1alpha.UpstreamResponseModifications{}
 	}
 
 	contentType := getFirstHeader(ctx.ResponseHeaders, "content-type")
@@ -188,7 +289,7 @@ func (p *JSONXMLMediationPolicy) OnResponseBody(ctx *policy.ResponseContext) pol
 		return p.handleInternalServerErrorResponse(convErr.Error())
 	}
 
-	return policy.UpstreamResponseModifications{
+	return policyv1alpha.UpstreamResponseModifications{
 		Body: convertedBody,
 		SetHeaders: map[string]string{
 			"content-type":   convertedContentType,
@@ -231,14 +332,14 @@ func (p *JSONXMLMediationPolicy) convertBetweenFormats(body []byte, sourceFormat
 	}
 }
 
-func (p *JSONXMLMediationPolicy) handleInternalServerError(message string) policy.RequestAction {
+func (p *JSONXMLMediationPolicy) handleInternalServerError(message string) policyv1alpha.RequestAction {
 	errorResponse := map[string]interface{}{
 		"error":   "Internal Server Error",
 		"message": message,
 	}
 	bodyBytes, _ := json.Marshal(errorResponse)
 
-	return policy.ImmediateResponse{
+	return policyv1alpha.ImmediateResponse{
 		StatusCode: 500,
 		Headers: map[string]string{
 			"content-type":   "application/json",
@@ -248,7 +349,24 @@ func (p *JSONXMLMediationPolicy) handleInternalServerError(message string) polic
 	}
 }
 
-func (p *JSONXMLMediationPolicy) handleInternalServerErrorResponse(message string) policy.ResponseAction {
+func (p *JSONXMLMediationPolicy) handleInternalServerErrorV2(message string) policyv1alpha2.RequestAction {
+	errorResponse := map[string]interface{}{
+		"error":   "Internal Server Error",
+		"message": message,
+	}
+	bodyBytes, _ := json.Marshal(errorResponse)
+
+	return policyv1alpha2.ImmediateResponse{
+		StatusCode: 500,
+		Headers: map[string]string{
+			"content-type":   "application/json",
+			"content-length": fmt.Sprintf("%d", len(bodyBytes)),
+		},
+		Body: bodyBytes,
+	}
+}
+
+func (p *JSONXMLMediationPolicy) handleInternalServerErrorResponse(message string) policyv1alpha.ResponseAction {
 	errorResponse := map[string]interface{}{
 		"error":   "Internal Server Error",
 		"message": message,
@@ -256,7 +374,7 @@ func (p *JSONXMLMediationPolicy) handleInternalServerErrorResponse(message strin
 	bodyBytes, _ := json.Marshal(errorResponse)
 
 	statusCode := 500
-	return policy.UpstreamResponseModifications{
+	return policyv1alpha.UpstreamResponseModifications{
 		StatusCode: &statusCode,
 		Body:       bodyBytes,
 		SetHeaders: map[string]string{
@@ -309,7 +427,18 @@ func getPayloadFormat(params map[string]interface{}, key string, required bool) 
 
 // ─── Header helpers ───────────────────────────────────────────────────────────
 
-func getFirstHeader(headers *policy.Headers, key string) string {
+func getFirstHeader(headers *policyv1alpha.Headers, key string) string {
+	if headers == nil {
+		return ""
+	}
+	vals := headers.Get(key)
+	if len(vals) == 0 {
+		return ""
+	}
+	return strings.ToLower(vals[0])
+}
+
+func getFirstHeaderV2(headers *policyv1alpha2.Headers, key string) string {
 	if headers == nil {
 		return ""
 	}

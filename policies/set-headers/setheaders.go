@@ -21,7 +21,8 @@ import (
 	"fmt"
 	"strings"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 // HeaderEntry represents a single header to be set
@@ -36,19 +37,19 @@ type SetHeadersPolicy struct{}
 var ins = &SetHeadersPolicy{}
 
 func GetPolicy(
-	metadata policy.PolicyMetadata,
+	metadata policyv1alpha.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha.Policy, error) {
 	return ins, nil
 }
 
 // Mode returns the processing mode for this policy
-func (p *SetHeadersPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess, // Can set request headers
-		RequestBodyMode:    policy.BodyModeSkip,      // Don't need request body
-		ResponseHeaderMode: policy.HeaderModeProcess, // Can set response headers
-		ResponseBodyMode:   policy.BodyModeSkip,      // Don't need response body
+func (p *SetHeadersPolicy) Mode() policyv1alpha.ProcessingMode {
+	return policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeProcess, // Can set request headers
+		RequestBodyMode:    policyv1alpha.BodyModeSkip,      // Don't need request body
+		ResponseHeaderMode: policyv1alpha.HeaderModeProcess, // Can set response headers
+		ResponseBodyMode:   policyv1alpha.BodyModeSkip,      // Don't need response body
 	}
 }
 
@@ -221,29 +222,61 @@ func (p *SetHeadersPolicy) buildResponseHeaders(params map[string]interface{}) m
 }
 
 // OnRequest sets headers on the request (v1alpha.Policy).
-func (p *SetHeadersPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
-	return policy.UpstreamRequestModifications{
-		SetHeaders: p.buildRequestHeaders(params),
+func (p *SetHeadersPolicy) OnRequest(ctx *policyv1alpha.RequestContext, params map[string]interface{}) policyv1alpha.RequestAction {
+	// Check if request headers are configured.
+	requestHeadersRaw, ok, err := p.getPhaseHeaders(params, "request", "requestHeaders")
+	if err != nil || !ok {
+		// No request headers to set, pass through
+		return policyv1alpha.UpstreamRequestModifications{}
+	}
+
+	// Parse header entries
+	entries := p.parseHeaderEntries(requestHeadersRaw)
+	if len(entries) == 0 {
+		return policyv1alpha.UpstreamRequestModifications{}
+	}
+
+	// Convert to set header map - this will overwrite existing headers
+	setHeaders := p.convertToSetHeaderMap(entries)
+
+	return policyv1alpha.UpstreamRequestModifications{
+		SetHeaders: setHeaders,
 	}
 }
 
 // OnRequestHeaders sets headers on the request (v2alpha.RequestHeaderPolicy).
-func (p *SetHeadersPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
-	return policy.UpstreamRequestHeaderModifications{
-		Set: p.buildRequestHeaders(params),
+func (p *SetHeadersPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, params map[string]interface{}) policyv1alpha2.RequestHeaderAction {
+	return policyv1alpha2.UpstreamRequestHeaderModifications{
+		HeadersToSet: p.buildRequestHeaders(params),
 	}
 }
 
 // OnResponse sets headers on the response (v1alpha.Policy).
-func (p *SetHeadersPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
-	return policy.UpstreamResponseModifications{
-		SetHeaders: p.buildResponseHeaders(params),
+func (p *SetHeadersPolicy) OnResponse(ctx *policyv1alpha.ResponseContext, params map[string]interface{}) policyv1alpha.ResponseAction {
+	// Check if response headers are configured.
+	responseHeadersRaw, ok, err := p.getPhaseHeaders(params, "response", "responseHeaders")
+	if err != nil || !ok {
+		// No response headers to set, pass through
+		return policyv1alpha.UpstreamResponseModifications{}
+	}
+
+	// Parse header entries
+	entries := p.parseHeaderEntries(responseHeadersRaw)
+	if len(entries) == 0 {
+		return policyv1alpha.UpstreamResponseModifications{}
+	}
+
+	// Convert to set header map - this will overwrite existing headers
+	setHeaders := p.convertToSetHeaderMap(entries)
+
+	return policyv1alpha.UpstreamResponseModifications{
+		SetHeaders: setHeaders,
 	}
 }
 
 // OnResponseHeaders sets headers on the response (v2alpha.ResponseHeaderPolicy).
-func (p *SetHeadersPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
-	return policy.DownstreamResponseHeaderModifications{
-		Set: p.buildResponseHeaders(params),
+func (p *SetHeadersPolicy) OnResponseHeaders(ctx *policyv1alpha2.ResponseHeaderContext, params map[string]interface{}) policyv1alpha2.ResponseHeaderAction {
+	return policyv1alpha2.DownstreamResponseHeaderModifications{
+		HeadersToSet: p.buildResponseHeaders(params),
 	}
 }

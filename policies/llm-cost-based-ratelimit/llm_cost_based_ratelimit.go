@@ -29,7 +29,7 @@ import (
 	"sync"
 	"time"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 	ratelimit "github.com/wso2/gateway-controllers/policies/advanced-ratelimit"
 )
 
@@ -48,42 +48,42 @@ const (
 // delegateEntry holds a delegate and its cache key for atomic storage
 type delegateEntry struct {
 	cacheKey string
-	delegate policy.Policy
+	delegate policyv1alpha.Policy
 }
 
 // LLMCostRateLimitPolicy delegates LLM cost-based rate limiting to advanced-ratelimit
 // by reading the pre-calculated cost from SharedContext.Metadata (set by the llm-cost system policy)
 // and applying user-defined monetary budgets.
 type LLMCostRateLimitPolicy struct {
-	metadata  policy.PolicyMetadata
+	metadata  policyv1alpha.PolicyMetadata
 	delegates sync.Map // map[string]*delegateEntry (providerName -> delegate entry)
 }
 
-// GetPolicy creates and initializes the LLM cost-based rate limit policy.
+// GetPolicy creates and initializes the LLM cost-based rate limit policyv1alpha.
 func GetPolicy(
-	metadata policy.PolicyMetadata,
+	metadata policyv1alpha.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha.Policy, error) {
 	return &LLMCostRateLimitPolicy{
 		metadata: metadata,
 	}, nil
 }
 
-// Mode returns the processing mode for this policy.
-func (p *LLMCostRateLimitPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess,
-		RequestBodyMode:    policy.BodyModeSkip,
-		ResponseHeaderMode: policy.HeaderModeProcess,
-		ResponseBodyMode:   policy.BodyModeSkip,
+// Mode returns the processing mode for this policyv1alpha.
+func (p *LLMCostRateLimitPolicy) Mode() policyv1alpha.ProcessingMode {
+	return policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeProcess,
+		RequestBodyMode:    policyv1alpha.BodyModeSkip,
+		ResponseHeaderMode: policyv1alpha.HeaderModeProcess,
+		ResponseBodyMode:   policyv1alpha.BodyModeSkip,
 	}
 }
 
 // OnRequest processes the request phase by delegating to a provider-specific ratelimit instance.
 func (p *LLMCostRateLimitPolicy) OnRequest(
-	ctx *policy.RequestContext,
+	ctx *policyv1alpha.RequestContext,
 	params map[string]interface{},
-) policy.RequestAction {
+) policyv1alpha.RequestAction {
 	slog.Debug("OnRequest: processing LLM cost-based rate limit",
 		"route", p.metadata.RouteName,
 		"params", params)
@@ -134,16 +134,16 @@ func (p *LLMCostRateLimitPolicy) OnRequest(
 // Uses the delegate pinned during OnRequest to ensure consistency even if template changes.
 // After delegation, it adds custom headers that show cost values in dollars.
 func (p *LLMCostRateLimitPolicy) OnResponse(
-	ctx *policy.ResponseContext,
+	ctx *policyv1alpha.ResponseContext,
 	params map[string]interface{},
-) policy.ResponseAction {
+) policyv1alpha.ResponseAction {
 	slog.Debug("OnResponse: processing LLM cost-based rate limit",
 		"route", p.metadata.RouteName)
 
-	var delegateAction policy.ResponseAction
+	var delegateAction policyv1alpha.ResponseAction
 
 	// First, try to use the delegate pinned during OnRequest (ensures consistency)
-	if delegate, ok := ctx.SharedContext.Metadata[MetadataKeyDelegate].(policy.Policy); ok {
+	if delegate, ok := ctx.SharedContext.Metadata[MetadataKeyDelegate].(policyv1alpha.Policy); ok {
 		slog.Debug("OnResponse: using pinned delegate from request phase",
 			"route", p.metadata.RouteName)
 		delegateAction = delegate.OnResponse(ctx, params)
@@ -190,13 +190,13 @@ func (p *LLMCostRateLimitPolicy) OnResponse(
 
 // addDollarHeaders transforms the delegate's response action to include
 // human-readable dollar-denominated headers alongside the scaled values.
-func (p *LLMCostRateLimitPolicy) addDollarHeaders(action policy.ResponseAction, costScaleFactor int) policy.ResponseAction {
+func (p *LLMCostRateLimitPolicy) addDollarHeaders(action policyv1alpha.ResponseAction, costScaleFactor int) policyv1alpha.ResponseAction {
 	if action == nil {
 		return nil
 	}
 
 	// Only handle UpstreamResponseModifications
-	modifications, ok := action.(policy.UpstreamResponseModifications)
+	modifications, ok := action.(policyv1alpha.UpstreamResponseModifications)
 	if !ok {
 		return action
 	}
@@ -260,7 +260,7 @@ func addScaledHeader(headers map[string]string, sourceKey, targetKey string, cos
 // resolveDelegate ensures an advanced-ratelimit instance exists for the given provider.
 // The delegate is cached per provider and invalidated when the effective params change.
 // This method is thread-safe using sync.Map with atomic delegateEntry storage.
-func (p *LLMCostRateLimitPolicy) resolveDelegate(providerName string, params map[string]interface{}) (policy.Policy, error) {
+func (p *LLMCostRateLimitPolicy) resolveDelegate(providerName string, params map[string]interface{}) (policyv1alpha.Policy, error) {
 	slog.Debug("resolveDelegate: checking for existing delegate",
 		"route", p.metadata.RouteName,
 		"provider", providerName)
@@ -424,7 +424,7 @@ func transformToRatelimitParams(params map[string]interface{}) map[string]interf
 	}
 
 	// Read the pre-calculated dollar cost from SharedContext.Metadata,
-	// set by the LLM cost system policy. Scale to int64-compatible units.
+	// set by the LLM cost system policyv1alpha. Scale to int64-compatible units.
 	sources := []interface{}{
 		map[string]interface{}{
 			"type":       "response_metadata",

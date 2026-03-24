@@ -1,15 +1,14 @@
-module github.com/Thushani-Jayasekera/gateway-controllers/policies/json-schema-guardrail
+module github.com/wso2/gateway-controllers/policies/json-schema-guardrail
 
 go 1.25.1
 
 require (
-	github.com/wso2/api-platform/sdk v0.5.0
+	github.com/wso2/api-platform/sdk v0.4.5
 	github.com/xeipuuv/gojsonschema v1.2.0
 )
 
 require (
+	github.com/wso2/api-platform/sdk/core v0.0.1 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 )
-
-replace github.com/wso2/api-platform/sdk => github.com/Thushani-Jayasekera/api-platform/sdk v0.5.0

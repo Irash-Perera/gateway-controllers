@@ -6,17 +6,17 @@ import (
 	"testing"
 	"time"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 func TestModelRoundRobinPolicy_Mode(t *testing.T) {
 	p := &ModelRoundRobinPolicy{}
 	got := p.Mode()
-	want := policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeProcess,
-		ResponseBodyMode:   policy.BodyModeBuffer,
+	want := policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeProcess,
+		RequestBodyMode:    policyv1alpha.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha.HeaderModeProcess,
+		ResponseBodyMode:   policyv1alpha.BodyModeBuffer,
 	}
 	if got != want {
 		t.Fatalf("unexpected mode: got %+v, want %+v", got, want)
@@ -155,7 +155,7 @@ func TestModelRoundRobinPolicy_GetPolicy_ParseErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := GetPolicy(policy.PolicyMetadata{}, tt.params)
+			_, err := GetPolicy(policyv1alpha.PolicyMetadata{}, tt.params)
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}
@@ -259,7 +259,7 @@ func TestModelRoundRobinPolicy_OnRequest_AllModelsSuspended(t *testing.T) {
 	p.suspendedModels["gpt-35"] = until
 
 	action := p.OnRequest(rrRequestContextWithHeaders(map[string][]string{"x-model": {"orig"}}), nil)
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse when all models suspended, got %T", action)
 	}
@@ -278,8 +278,8 @@ func TestModelRoundRobinPolicy_OnResponse_SuspendsModelOnError(t *testing.T) {
 		},
 	})
 
-	ctx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "test-id",
 			Metadata: map[string]interface{}{
 				MetadataKeySelectedModel: "gpt-4",
@@ -289,7 +289,7 @@ func TestModelRoundRobinPolicy_OnResponse_SuspendsModelOnError(t *testing.T) {
 	}
 
 	action := p.OnResponse(ctx, nil)
-	if _, ok := action.(policy.UpstreamResponseModifications); !ok {
+	if _, ok := action.(policyv1alpha.UpstreamResponseModifications); !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", action)
 	}
 	until, exists := p.suspendedModels["gpt-4"]
@@ -334,7 +334,7 @@ func TestModelRoundRobinPolicy_ExtractInt(t *testing.T) {
 
 func mustGetRRPolicy(t *testing.T, params map[string]interface{}) *ModelRoundRobinPolicy {
 	t.Helper()
-	p, err := GetPolicy(policy.PolicyMetadata{}, params)
+	p, err := GetPolicy(policyv1alpha.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("failed to create policy: %v", err)
 	}
@@ -345,9 +345,9 @@ func mustGetRRPolicy(t *testing.T, params map[string]interface{}) *ModelRoundRob
 	return rp
 }
 
-func mustRRRequestMods(t *testing.T, action policy.RequestAction) policy.UpstreamRequestModifications {
+func mustRRRequestMods(t *testing.T, action policyv1alpha.RequestAction) policyv1alpha.UpstreamRequestModifications {
 	t.Helper()
-	mods, ok := action.(policy.UpstreamRequestModifications)
+	mods, ok := action.(policyv1alpha.UpstreamRequestModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
@@ -363,22 +363,22 @@ func decodeJSONMapRR(t *testing.T, body []byte) map[string]interface{} {
 	return m
 }
 
-func rrRequestContextWithBody(body string) *policy.RequestContext {
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+func rrRequestContextWithBody(body string) *policyv1alpha.RequestContext {
+	return &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-id",
 			Metadata:  map[string]interface{}{},
 		},
-		Body: &policy.Body{
+		Body: &policyv1alpha.Body{
 			Content: []byte(body),
 			Present: body != "",
 		},
 	}
 }
 
-func rrRequestContextWithPath(path string) *policy.RequestContext {
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+func rrRequestContextWithPath(path string) *policyv1alpha.RequestContext {
+	return &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-id",
 			Metadata:  map[string]interface{}{},
 		},
@@ -386,13 +386,13 @@ func rrRequestContextWithPath(path string) *policy.RequestContext {
 	}
 }
 
-func rrRequestContextWithHeaders(headers map[string][]string) *policy.RequestContext {
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+func rrRequestContextWithHeaders(headers map[string][]string) *policyv1alpha.RequestContext {
+	return &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "req-id",
 			Metadata:  map[string]interface{}{},
 		},
-		Headers: policy.NewHeaders(headers),
+		Headers: policyv1alpha.NewHeaders(headers),
 	}
 }
 

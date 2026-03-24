@@ -22,7 +22,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 	utils "github.com/wso2/api-platform/sdk/utils"
 	"github.com/xeipuuv/gojsonschema"
 )
@@ -52,9 +53,9 @@ type JSONSchemaGuardrailPolicyParams struct {
 }
 
 func GetPolicy(
-	metadata policy.PolicyMetadata,
+	metadata policyv1alpha.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha.Policy, error) {
 	p := &JSONSchemaGuardrailPolicy{}
 
 	// Extract and parse request parameters if present
@@ -158,49 +159,71 @@ func parseParams(params map[string]interface{}, defaultJSONPath string, defaultE
 }
 
 // Mode returns the processing mode for this policy
-func (p *JSONSchemaGuardrailPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeBuffer,
+func (p *JSONSchemaGuardrailPolicy) Mode() policyv1alpha.ProcessingMode {
+	return policyv1alpha.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha.BodyModeBuffer,
 	}
 }
 
 // OnRequest delegates to OnRequestBody for v1alpha engine compatibility.
-func (p *JSONSchemaGuardrailPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
-	return p.OnRequestBody(ctx)
-}
-
-// OnRequestBody validates request body against JSON schema.
-func (p *JSONSchemaGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext) policy.RequestAction {
+// OnRequest validates request body against JSON schema.
+func (p *JSONSchemaGuardrailPolicy) OnRequest(ctx *policyv1alpha.RequestContext, params map[string]interface{}) policyv1alpha.RequestAction {
 	if !p.hasRequestParams || !p.requestParams.Enabled {
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha.UpstreamRequestModifications{}
 	}
 
 	content := []byte{}
 	if ctx.Body != nil {
 		content = ctx.Body.Content
 	}
-	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
+	return p.validatePayload(content, p.requestParams, false).(policyv1alpha.RequestAction)
 }
 
-// OnResponse delegates to OnResponseBody for v1alpha engine compatibility.
-func (p *JSONSchemaGuardrailPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
-	return p.OnResponseBody(ctx)
+// OnRequestBody validates request body against JSON schema.
+func (p *JSONSchemaGuardrailPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ map[string]interface{}) policyv1alpha2.RequestAction {
+	if !p.hasRequestParams || !p.requestParams.Enabled {
+		return policyv1alpha2.UpstreamRequestModifications{}
+	}
+
+	content := []byte{}
+	if ctx.Body != nil {
+		content = ctx.Body.Content
+	}
+	return p.validatePayloadV2(content, p.requestParams, false).(policyv1alpha2.RequestAction)
+}
+
+// OnResponse validates response body against JSON schema.
+func (p *JSONSchemaGuardrailPolicy) OnResponse(ctx *policyv1alpha.ResponseContext, params map[string]interface{}) policyv1alpha.ResponseAction {
+	return p.processResponseBody(ctx)
 }
 
 // OnResponseBody validates response body against JSON schema.
-func (p *JSONSchemaGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext) policy.ResponseAction {
+func (p *JSONSchemaGuardrailPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseContext, _ map[string]interface{}) policyv1alpha2.ResponseAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
-		return policy.UpstreamResponseModifications{}
+		return policyv1alpha2.DownstreamResponseModifications{}
 	}
 
 	content := []byte{}
 	if ctx.ResponseBody != nil {
 		content = ctx.ResponseBody.Content
 	}
-	return p.validatePayload(content, p.responseParams, true).(policy.ResponseAction)
+	return p.validatePayloadV2(content, p.responseParams, true).(policyv1alpha2.ResponseAction)
+}
+
+// processResponseBody validates response body against JSON schema (v1alpha).
+func (p *JSONSchemaGuardrailPolicy) processResponseBody(ctx *policyv1alpha.ResponseContext) policyv1alpha.ResponseAction {
+	if !p.hasResponseParams || !p.responseParams.Enabled {
+		return policyv1alpha.UpstreamResponseModifications{}
+	}
+
+	content := []byte{}
+	if ctx.ResponseBody != nil {
+		content = ctx.ResponseBody.Content
+	}
+	return p.validatePayload(content, p.responseParams, true).(policyv1alpha.ResponseAction)
 }
 
 // validatePayload validates payload against JSON schema
@@ -249,9 +272,9 @@ func (p *JSONSchemaGuardrailPolicy) validatePayload(payload []byte, params JSONS
 
 	slog.Debug("JSONSchemaGuardrail: Validation passed", "invert", params.Invert, "isResponse", isResponse)
 	if isResponse {
-		return policy.UpstreamResponseModifications{}
+		return policyv1alpha.UpstreamResponseModifications{}
 	}
-	return policy.UpstreamRequestModifications{}
+	return policyv1alpha.UpstreamRequestModifications{}
 }
 
 // extractValueFromJSONPathForSchema extracts a value from JSON using JSONPath and returns as JSON bytes
@@ -279,6 +302,53 @@ func extractValueFromJSONPathForSchema(payload []byte, jsonPath string) ([]byte,
 	return valueBytes, nil
 }
 
+// validatePayloadV2 validates payload against JSON schema, returning policyv1alpha2 actions.
+func (p *JSONSchemaGuardrailPolicy) validatePayloadV2(payload []byte, params JSONSchemaGuardrailPolicyParams, isResponse bool) interface{} {
+	schemaLoader := gojsonschema.NewStringLoader(params.Schema)
+
+	var documentLoader gojsonschema.JSONLoader
+	if params.JsonPath != "" {
+		extractedValue, err := extractValueFromJSONPathForSchema(payload, params.JsonPath)
+		if err != nil {
+			slog.Debug("JSONSchemaGuardrail: Error extracting value from JSONPath", "jsonPath", params.JsonPath, "error", err, "isResponse", isResponse)
+			return p.buildErrorResponseV2("Error extracting value from JSONPath", err, isResponse, params.ShowAssessment, nil)
+		}
+		documentLoader = gojsonschema.NewBytesLoader(extractedValue)
+	} else {
+		documentLoader = gojsonschema.NewBytesLoader(payload)
+	}
+
+	result, err := gojsonschema.Validate(schemaLoader, documentLoader)
+	if err != nil {
+		slog.Debug("JSONSchemaGuardrail: Error validating schema", "error", err, "isResponse", isResponse)
+		return p.buildErrorResponseV2("Error validating schema", err, isResponse, params.ShowAssessment, nil)
+	}
+
+	var validationPassed bool
+	if params.Invert {
+		validationPassed = !result.Valid()
+	} else {
+		validationPassed = result.Valid()
+	}
+
+	if !validationPassed {
+		slog.Debug("JSONSchemaGuardrail: Validation failed", "valid", result.Valid(), "invert", params.Invert, "errorCount", len(result.Errors()), "isResponse", isResponse)
+		var reason string
+		if params.Invert {
+			reason = "JSON schema validation passed but invert is enabled"
+		} else {
+			reason = "JSON schema validation failed"
+		}
+		return p.buildErrorResponseV2(reason, nil, isResponse, params.ShowAssessment, result.Errors())
+	}
+
+	slog.Debug("JSONSchemaGuardrail: Validation passed", "invert", params.Invert, "isResponse", isResponse)
+	if isResponse {
+		return policyv1alpha2.DownstreamResponseModifications{}
+	}
+	return policyv1alpha2.UpstreamRequestModifications{}
+}
+
 // buildErrorResponse builds an error response for both request and response phases
 func (p *JSONSchemaGuardrailPolicy) buildErrorResponse(reason string, validationError error, isResponse bool, showAssessment bool, errors []gojsonschema.ResultError) interface{} {
 	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, errors)
@@ -296,7 +366,7 @@ func (p *JSONSchemaGuardrailPolicy) buildErrorResponse(reason string, validation
 
 	if isResponse {
 		statusCode := GuardrailErrorCode
-		return policy.UpstreamResponseModifications{
+		return policyv1alpha.UpstreamResponseModifications{
 			StatusCode: &statusCode,
 			Body:       bodyBytes,
 			SetHeaders: map[string]string{
@@ -305,12 +375,44 @@ func (p *JSONSchemaGuardrailPolicy) buildErrorResponse(reason string, validation
 		}
 	}
 
-	return policy.ImmediateResponse{
+	return policyv1alpha.ImmediateResponse{
 		StatusCode: GuardrailErrorCode,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},
 		Body: bodyBytes,
+	}
+}
+
+// buildErrorResponseV2 builds a policyv1alpha2 error response for both request and response phases.
+func (p *JSONSchemaGuardrailPolicy) buildErrorResponseV2(reason string, validationError error, isResponse bool, showAssessment bool, errors []gojsonschema.ResultError) interface{} {
+	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, errors)
+
+	responseBody := map[string]interface{}{
+		"type":    "JSON_SCHEMA_GUARDRAIL",
+		"message": assessment,
+	}
+
+	bodyBytes, err := json.Marshal(responseBody)
+	if err != nil {
+		bodyBytes = []byte(`{"type":"JSON_SCHEMA_GUARDRAIL","message":"Internal error"}`)
+	}
+
+	if isResponse {
+		statusCode := GuardrailErrorCode
+		return policyv1alpha2.DownstreamResponseModifications{
+			StatusCode: &statusCode,
+			Body:       bodyBytes,
+			DownstreamResponseHeaderModifications: policyv1alpha2.DownstreamResponseHeaderModifications{
+				HeadersToSet: map[string]string{"Content-Type": "application/json"},
+			},
+		}
+	}
+
+	return policyv1alpha2.ImmediateResponse{
+		StatusCode: GuardrailErrorCode,
+		Headers:    map[string]string{"Content-Type": "application/json"},
+		Body:       bodyBytes,
 	}
 }
 

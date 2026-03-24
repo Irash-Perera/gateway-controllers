@@ -32,11 +32,11 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 func TestGetPolicy(t *testing.T) {
-	p, err := GetPolicy(policy.PolicyMetadata{}, nil)
+	p, err := GetPolicy(policyv1alpha.PolicyMetadata{}, nil)
 	if err != nil {
 		t.Errorf("GetPolicy returned error: %v", err)
 	}
@@ -48,10 +48,10 @@ func TestGetPolicy(t *testing.T) {
 func TestMode(t *testing.T) {
 	p := &McpAuthPolicy{}
 	mode := p.Mode()
-	if mode.RequestHeaderMode != policy.HeaderModeProcess {
+	if mode.RequestHeaderMode != policyv1alpha.HeaderModeProcess {
 		t.Errorf("Expected RequestHeaderMode to be HeaderModeProcess, got %v", mode.RequestHeaderMode)
 	}
-	if mode.RequestBodyMode != policy.BodyModeSkip {
+	if mode.RequestBodyMode != policyv1alpha.BodyModeSkip {
 		t.Errorf("Expected RequestBodyMode to be BodyModeSkip, got %v", mode.RequestBodyMode)
 	}
 }
@@ -76,7 +76,7 @@ func TestOnRequest_WellKnown_Success(t *testing.T) {
 
 	action := p.OnRequest(ctx, params)
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -117,7 +117,7 @@ func TestOnRequest_WellKnown_NoKeyManagers(t *testing.T) {
 	params := map[string]any{}
 
 	action := p.OnRequest(ctx, params)
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -135,7 +135,7 @@ func TestOnRequest_WellKnown_NoKeyManagers_WithForbiddenStatus(t *testing.T) {
 	action := p.OnRequest(ctx, map[string]any{
 		"onFailureStatusCode": 403,
 	})
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -166,7 +166,7 @@ func TestOnRequest_WellKnown_FilteredIssuers(t *testing.T) {
 
 	action := p.OnRequest(ctx, params)
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -203,7 +203,7 @@ func TestOnRequest_WellKnown_WithVhost(t *testing.T) {
 
 	action := p.OnRequest(ctx, params)
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -244,7 +244,7 @@ func TestOnRequest_WellKnown_WithVhost_StandardPort(t *testing.T) {
 
 	action := p.OnRequest(ctx, params)
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -282,7 +282,7 @@ func TestOnRequest_WellKnown_WithVhost_AndAPIContext(t *testing.T) {
 
 	action := p.OnRequest(ctx, params)
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -316,7 +316,7 @@ func TestOnRequest_Delegation_Failure(t *testing.T) {
 	action := p.OnRequest(ctx, params)
 
 	// We expect ImmediateResponse (failure from JWT Auth wrapped)
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		// If JWT Auth passes (which it shouldn't without token), it would return nil or RequestAction.
 		// But JWT Auth usually returns 401 if no token.
@@ -351,7 +351,7 @@ func TestOnRequest_InvalidOnFailureStatusCode(t *testing.T) {
 		"onFailureStatusCode": 200,
 	})
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -369,7 +369,7 @@ func TestOnRequest_InvalidErrorMessageFormat(t *testing.T) {
 		"errorMessageFormat": "xml",
 	})
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -393,7 +393,7 @@ func TestOnRequest_WellKnown_PathWithPrefix_Success(t *testing.T) {
 		},
 	})
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -410,7 +410,7 @@ func TestOnRequest_WellKnown_FalsePositivePathDoesNotMatch(t *testing.T) {
 
 	action := p.OnRequest(ctx, map[string]any{})
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -436,7 +436,7 @@ func TestOnRequest_WellKnown_MissingIssuerInKeyManagerConfig(t *testing.T) {
 		},
 	})
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -462,7 +462,7 @@ func TestOnRequest_InitializesNilMetadata(t *testing.T) {
 		},
 	})
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -494,7 +494,7 @@ func TestOnRequest_HandleAuthFailureWithNilMetadata(t *testing.T) {
 		"issuers": []any{"unknown-km"},
 	})
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -512,13 +512,13 @@ func TestOnRequest_HandleAuthFailureWithNilMetadata(t *testing.T) {
 	}
 }
 
-func createMockRequestContext(headers map[string][]string) *policy.RequestContext {
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+func createMockRequestContext(headers map[string][]string) *policyv1alpha.RequestContext {
+	return &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "test-request-id",
 			Metadata:  make(map[string]any),
 		},
-		Headers: policy.NewHeaders(headers),
+		Headers: policyv1alpha.NewHeaders(headers),
 		Body:    nil,
 		Path:    "/api/test",
 		Method:  "GET",
@@ -542,7 +542,7 @@ func TestOnRequest_Delegation_Failure_SetsAuthContext(t *testing.T) {
 	action := p.OnRequest(ctx, params)
 
 	// Should return ImmediateResponse (auth failure)
-	if _, ok := action.(policy.ImmediateResponse); !ok {
+	if _, ok := action.(policyv1alpha.ImmediateResponse); !ok {
 		t.Fatalf("Expected ImmediateResponse (auth failure), got %T", action)
 	}
 
@@ -564,7 +564,7 @@ func TestHandleAuthFailure_SetsAuthContext(t *testing.T) {
 
 	action := p.handleAuthFailure(ctx, 401, "json", "key managers not configured")
 
-	if _, ok := action.(policy.ImmediateResponse); !ok {
+	if _, ok := action.(policyv1alpha.ImmediateResponse); !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
 
@@ -581,7 +581,7 @@ func TestHandleAuthFailure_SetsAuthContext(t *testing.T) {
 
 func TestMcpAuth_AuthContext_PreviousPreserved_OnFailure(t *testing.T) {
 	p := &McpAuthPolicy{}
-	prior := &policy.AuthContext{Authenticated: true, AuthType: "other"}
+	prior := &policyv1alpha.AuthContext{Authenticated: true, AuthType: "other"}
 	ctx := createMockRequestContext(nil)
 	ctx.SharedContext.AuthContext = prior
 
@@ -635,7 +635,7 @@ func TestOnRequest_Delegation_Success_SetsAuthContextAuthType(t *testing.T) {
 	action := p.OnRequest(ctx, params)
 
 	// Should NOT be an ImmediateResponse — jwt-auth succeeded
-	if _, ok := action.(policy.ImmediateResponse); ok {
+	if _, ok := action.(policyv1alpha.ImmediateResponse); ok {
 		t.Fatalf("Expected successful action (not ImmediateResponse), but got auth failure")
 	}
 

@@ -23,20 +23,20 @@ import (
 	"strings"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	policyv1alpha "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 // createMockContext builds a RequestContext with a body and optional AuthContext,
 // simulating that an upstream auth policy (mcp-auth/jwt-auth) already ran.
-func createMockContext(method, path string, body []byte, authCtx *policy.AuthContext) *policy.RequestContext {
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+func createMockContext(method, path string, body []byte, authCtx *policyv1alpha.AuthContext) *policyv1alpha.RequestContext {
+	return &policyv1alpha.RequestContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID:   "test-request-id",
 			Metadata:    make(map[string]any),
 			AuthContext: authCtx,
 		},
-		Headers: policy.NewHeaders(nil),
-		Body: &policy.Body{
+		Headers: policyv1alpha.NewHeaders(nil),
+		Body: &policyv1alpha.Body{
 			Content: body,
 			Present: true,
 		},
@@ -46,8 +46,8 @@ func createMockContext(method, path string, body []byte, authCtx *policy.AuthCon
 	}
 }
 
-func authenticatedAuthCtx(scopes map[string]bool, subject, issuer string, audiences []string, props map[string]string) *policy.AuthContext {
-	return &policy.AuthContext{
+func authenticatedAuthCtx(scopes map[string]bool, subject, issuer string, audiences []string, props map[string]string) *policyv1alpha.AuthContext {
+	return &policyv1alpha.AuthContext{
 		Authenticated: true,
 		AuthType:      "jwt",
 		Subject:       subject,
@@ -79,7 +79,7 @@ func TestGetPolicy(t *testing.T) {
 			"requiredScopes": []any{"mcp:tools:read"},
 		},
 	})
-	p, err := GetPolicy(policy.PolicyMetadata{}, params)
+	p, err := GetPolicy(policyv1alpha.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("GetPolicy returned error: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestGetPolicy(t *testing.T) {
 }
 
 func TestGetPolicy_MissingRules(t *testing.T) {
-	_, err := GetPolicy(policy.PolicyMetadata{}, map[string]any{})
+	_, err := GetPolicy(policyv1alpha.PolicyMetadata{}, map[string]any{})
 	if err == nil {
 		t.Error("Expected error for missing rules param")
 	}
@@ -100,10 +100,10 @@ func TestGetPolicy_MissingRules(t *testing.T) {
 func TestMode(t *testing.T) {
 	p := &McpAuthzPolicy{}
 	mode := p.Mode()
-	if mode.RequestBodyMode != policy.BodyModeBuffer {
+	if mode.RequestBodyMode != policyv1alpha.BodyModeBuffer {
 		t.Errorf("Expected RequestBodyMode=BodyModeBuffer, got %v", mode.RequestBodyMode)
 	}
-	if mode.RequestHeaderMode != policy.HeaderModeSkip {
+	if mode.RequestHeaderMode != policyv1alpha.HeaderModeSkip {
 		t.Errorf("Expected RequestHeaderMode=HeaderModeSkip, got %v", mode.RequestHeaderMode)
 	}
 }
@@ -134,7 +134,7 @@ func TestOnRequest_NoAuthContext(t *testing.T) {
 	p := &McpAuthzPolicy{}
 	ctx := createMockContext("POST", "/mcp", toolCallBody("tool1"), nil)
 	action := p.OnRequest(ctx, map[string]any{})
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -145,10 +145,10 @@ func TestOnRequest_NoAuthContext(t *testing.T) {
 
 func TestOnRequest_NotAuthenticated(t *testing.T) {
 	p := &McpAuthzPolicy{}
-	authCtx := &policy.AuthContext{Authenticated: false, AuthType: "jwt"}
+	authCtx := &policyv1alpha.AuthContext{Authenticated: false, AuthType: "jwt"}
 	ctx := createMockContext("POST", "/mcp", toolCallBody("tool1"), authCtx)
 	action := p.OnRequest(ctx, map[string]any{})
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -164,7 +164,7 @@ func TestOnRequest_InvalidMCPBody(t *testing.T) {
 	authCtx := authenticatedAuthCtx(nil, "alice", "", nil, nil)
 	ctx := createMockContext("POST", "/mcp", []byte("not-json"), authCtx)
 	action := p.OnRequest(ctx, map[string]any{})
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -215,7 +215,7 @@ func TestOnRequest_ScopeCheckFails(t *testing.T) {
 	authCtx := authenticatedAuthCtx(map[string]bool{"mcp:tools:read": true}, "alice", "", nil, nil)
 	ctx := createMockContext("POST", "/mcp", toolCallBody("my-tool"), authCtx)
 	action := p.OnRequest(ctx, map[string]any{})
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse (forbidden), got %T", action)
 	}
@@ -254,7 +254,7 @@ func TestOnRequest_ClaimCheckFails(t *testing.T) {
 	authCtx := authenticatedAuthCtx(nil, "alice", "", nil, nil)
 	ctx := createMockContext("POST", "/mcp", toolCallBody("my-tool"), authCtx)
 	action := p.OnRequest(ctx, map[string]any{})
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse (forbidden), got %T", action)
 	}
@@ -287,9 +287,9 @@ func TestOnRequest_Success_SetsAuthorizedAndAuthType(t *testing.T) {
 			"requiredScopes": []any{"mcp:tools:read"},
 		},
 	})
-	p, _ := GetPolicy(policy.PolicyMetadata{}, params)
+	p, _ := GetPolicy(policyv1alpha.PolicyMetadata{}, params)
 
-	authCtx := &policy.AuthContext{
+	authCtx := &policyv1alpha.AuthContext{
 		Authenticated: true,
 		AuthType:      McpOAuthAuthType,
 		Scopes:        map[string]bool{"mcp:tools:read": true},
@@ -317,9 +317,9 @@ func TestOnRequest_Success_NonMcpOAuthAuthType_Unchanged(t *testing.T) {
 			"requiredScopes": []any{"mcp:tools:read"},
 		},
 	})
-	p, _ := GetPolicy(policy.PolicyMetadata{}, params)
+	p, _ := GetPolicy(policyv1alpha.PolicyMetadata{}, params)
 
-	authCtx := &policy.AuthContext{
+	authCtx := &policyv1alpha.AuthContext{
 		Authenticated: true,
 		AuthType:      "jwt",
 		Scopes:        map[string]bool{"mcp:tools:read": true},
@@ -345,8 +345,8 @@ func TestOnRequest_Success_NonMcpOAuthAuthType_Unchanged(t *testing.T) {
 
 func TestOnResponse_NoOp(t *testing.T) {
 	p := &McpAuthzPolicy{}
-	ctx := &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha.ResponseContext{
+		SharedContext: &policyv1alpha.SharedContext{
 			RequestID: "test-request-id",
 			Metadata:  make(map[string]any),
 		},

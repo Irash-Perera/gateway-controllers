@@ -1,4 +1,4 @@
-module github.com/Thushani-Jayasekera/gateway-controllers/policies/aws-bedrock-guardrail
+module github.com/wso2/gateway-controllers/policies/aws-bedrock-guardrail
 
 go 1.25.1
 
@@ -8,7 +8,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.16
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.13.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.28.10
-	github.com/wso2/api-platform/sdk v0.5.0
+	github.com/wso2/api-platform/sdk v0.4.5
+	github.com/wso2/api-platform/sdk/core v0.1.0
 )
 
 require (
@@ -23,5 +24,3 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.24.3 // indirect
 	github.com/aws/smithy-go v1.21.0 // indirect
 )
-
-replace github.com/wso2/api-platform/sdk => github.com/Thushani-Jayasekera/api-platform/sdk v0.5.0
