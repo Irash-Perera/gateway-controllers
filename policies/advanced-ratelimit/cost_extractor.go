@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"strings"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 	utils "github.com/wso2/api-platform/sdk/core/utils"
 )
 
@@ -75,10 +75,10 @@ func (e *CostExtractor) GetConfig() CostExtractionConfig {
 	return e.config
 }
 
-// ExtractRequestCostV2 extracts cost from request-phase sources only.
+// ExtractRequestCost extracts cost from request-phase sources only.
 // Returns (cost, extracted) where extracted indicates if any value was found.
 // When multiple sources succeed, their values are summed (with multipliers applied).
-func (e *CostExtractor) ExtractRequestCostV2(ctx *policyv1alpha2.RequestContext) (float64, bool) {
+func (e *CostExtractor) ExtractRequestCost(ctx *policy.RequestContext) (float64, bool) {
 	if !e.config.Enabled {
 		slog.Debug("Cost extraction disabled, returning default", "default", e.config.Default)
 		return e.config.Default, false
@@ -103,7 +103,7 @@ func (e *CostExtractor) ExtractRequestCostV2(ctx *policyv1alpha2.RequestContext)
 			"key", source.Key,
 			"jsonPath", source.JSONPath)
 
-		val, ok := e.extractFromRequestSourceV2(ctx, source)
+		val, ok := e.extractFromRequestSource(ctx, source)
 		if ok {
 			found = true
 			total += val * source.Multiplier
@@ -156,23 +156,23 @@ func isResponsePhaseSource(t CostSourceType) bool {
 	}
 }
 
-func (e *CostExtractor) extractFromRequestSourceV2(ctx *policyv1alpha2.RequestContext, source CostSource) (float64, bool) {
+func (e *CostExtractor) extractFromRequestSource(ctx *policy.RequestContext, source CostSource) (float64, bool) {
 	switch source.Type {
 	case CostSourceRequestHeader:
-		return e.extractFromRequestHeaderV2(ctx, source.Key)
+		return e.extractFromRequestHeader(ctx, source.Key)
 	case CostSourceRequestMetadata:
-		return e.extractFromRequestMetadataV2(ctx, source.Key)
+		return e.extractFromRequestMetadata(ctx, source.Key)
 	case CostSourceRequestBody:
-		return e.extractFromRequestBodyV2(ctx, source.JSONPath)
+		return e.extractFromRequestBody(ctx, source.JSONPath)
 	case CostSourceRequestCEL:
-		return e.extractFromRequestCELV2(ctx, source.Expression)
+		return e.extractFromRequestCEL(ctx, source.Expression)
 	default:
 		return 0, false
 	}
 }
 
-// extractFromRequestHeaderV2 extracts cost from a request header
-func (e *CostExtractor) extractFromRequestHeaderV2(ctx *policyv1alpha2.RequestContext, headerName string) (float64, bool) {
+// extractFromRequestHeader extracts cost from a request header
+func (e *CostExtractor) extractFromRequestHeader(ctx *policy.RequestContext, headerName string) (float64, bool) {
 	if ctx.Headers == nil {
 		return 0, false
 	}
@@ -194,13 +194,13 @@ func (e *CostExtractor) extractFromRequestHeaderV2(ctx *policyv1alpha2.RequestCo
 	return cost, true
 }
 
-// extractFromRequestMetadataV2 extracts cost from request metadata
-func (e *CostExtractor) extractFromRequestMetadataV2(ctx *policyv1alpha2.RequestContext, key string) (float64, bool) {
+// extractFromRequestMetadata extracts cost from request metadata
+func (e *CostExtractor) extractFromRequestMetadata(ctx *policy.RequestContext, key string) (float64, bool) {
 	return extractFromMetadataMap(ctx.Metadata, key)
 }
 
-// extractFromRequestBodyV2 extracts cost from request body using JSONPath
-func (e *CostExtractor) extractFromRequestBodyV2(ctx *policyv1alpha2.RequestContext, jsonPath string) (float64, bool) {
+// extractFromRequestBody extracts cost from request body using JSONPath
+func (e *CostExtractor) extractFromRequestBody(ctx *policy.RequestContext, jsonPath string) (float64, bool) {
 	if ctx.Body == nil || !ctx.Body.Present {
 		return 0, false
 	}
@@ -208,15 +208,15 @@ func (e *CostExtractor) extractFromRequestBodyV2(ctx *policyv1alpha2.RequestCont
 	return extractFromBodyBytes(ctx.Body.Content, jsonPath)
 }
 
-// extractFromRequestCELV2 extracts cost from request context using CEL expression
-func (e *CostExtractor) extractFromRequestCELV2(ctx *policyv1alpha2.RequestContext, expression string) (float64, bool) {
+// extractFromRequestCEL extracts cost from request context using CEL expression
+func (e *CostExtractor) extractFromRequestCEL(ctx *policy.RequestContext, expression string) (float64, bool) {
 	evaluator, err := GetCELEvaluator()
 	if err != nil {
 		slog.Error("Failed to get CEL evaluator for request cost extraction", "error", err)
 		return 0, false
 	}
 
-	cost, err := evaluator.EvaluateRequestCostExpressionV2(expression, ctx)
+	cost, err := evaluator.EvaluateRequestCostExpression(expression, ctx)
 	if err != nil {
 		slog.Debug("CEL request cost extraction failed",
 			"expression", expression,

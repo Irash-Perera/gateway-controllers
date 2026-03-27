@@ -24,7 +24,7 @@ import (
 	"log/slog"
 	"strings"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 const (
@@ -52,12 +52,12 @@ type sseEvent struct {
 	data   string
 }
 
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
+// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicy(
+	metadata policy.PolicyMetadata,
 	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
-	slog.Debug("MCP ACL List Policy: GetPolicyV2 called")
+) (policy.Policy, error) {
+	slog.Debug("MCP ACL List Policy: GetPolicy called")
 
 	ins := &McpAclListPolicy{}
 
@@ -157,12 +157,12 @@ func parseAclConfig(params map[string]any, capabilityType string) (AclConfig, er
 	return config, nil
 }
 
-func (p *McpAclListPolicy) Mode() policyv1alpha2.ProcessingMode {
-	return policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
-		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
-		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
-		ResponseBodyMode:   policyv1alpha2.BodyModeBuffer,
+func (p *McpAclListPolicy) Mode() policy.ProcessingMode {
+	return policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeSkip,
+		RequestBodyMode:    policy.BodyModeBuffer,
+		ResponseHeaderMode: policy.HeaderModeSkip,
+		ResponseBodyMode:   policy.BodyModeBuffer,
 	}
 }
 
@@ -368,20 +368,20 @@ func isMcpPostRequest(method, path string) bool {
 }
 
 // OnRequestBody enforces ACL rules on the MCP request body.
-func (p *McpAclListPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ map[string]any) policyv1alpha2.RequestAction {
+func (p *McpAclListPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]any) policy.RequestAction {
 	if !isMcpPostRequest(ctx.Method, ctx.OperationPath) {
-		return policyv1alpha2.UpstreamRequestModifications{}
+		return policy.UpstreamRequestModifications{}
 	}
 	slog.Debug("MCP ACL List Policy: OnRequest started")
 
 	if ctx.Body == nil || len(ctx.Body.Content) == 0 {
-		return policyv1alpha2.UpstreamRequestModifications{}
+		return policy.UpstreamRequestModifications{}
 	}
 
-	requestPayload, _, _, err := parseRequestPayload(ctx.Body.Content, isEventStreamV2(ctx.Headers))
+	requestPayload, _, _, err := parseRequestPayload(ctx.Body.Content, isEventStream(ctx.Headers))
 	if err != nil {
 		slog.Debug("MCP ACL List Policy: Failed to parse MCP request", "error", err, "path", ctx.Path)
-		return p.buildRequestErrorResponseV2(ctx.Headers, 400, -32700, "Invalid JSON", nil)
+		return p.buildRequestErrorResponse(ctx.Headers, 400, -32700, "Invalid JSON", nil)
 	}
 
 	requestID := requestPayload["id"]
@@ -389,7 +389,7 @@ func (p *McpAclListPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ m
 	method, _ := requestPayload["method"].(string)
 	capabilityType, action, ok := parseMcpMethod(method)
 	if !ok {
-		return policyv1alpha2.UpstreamRequestModifications{}
+		return policy.UpstreamRequestModifications{}
 	}
 
 	if ctx.Metadata == nil {
@@ -399,37 +399,37 @@ func (p *McpAclListPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ m
 	ctx.Metadata[metadataMcpAction] = action
 
 	if !isApplicableOnRequest(capabilityType, action) {
-		return policyv1alpha2.UpstreamRequestModifications{}
+		return policy.UpstreamRequestModifications{}
 	}
 
 	config := p.getAclConfig(capabilityType)
 	if !config.Enabled {
-		return policyv1alpha2.UpstreamRequestModifications{}
+		return policy.UpstreamRequestModifications{}
 	}
 
 	paramsRaw, ok := requestPayload["params"].(map[string]any)
 	if !ok {
 		slog.Debug("MCP ACL List Policy: Invalid request params", "capabilityType", capabilityType, "requestID", requestID, "error", "params not a map")
-		return p.buildRequestErrorResponseV2(ctx.Headers, 400, -32602, "Invalid MCP request params", requestID)
+		return p.buildRequestErrorResponse(ctx.Headers, 400, -32602, "Invalid MCP request params", requestID)
 	}
 
 	paramKey := getParamKey(capabilityType)
 	capabilityName, _ := paramsRaw[paramKey].(string)
 	if strings.TrimSpace(capabilityName) == "" {
 		slog.Debug("MCP ACL List Policy: Missing capability name", "capabilityType", capabilityType, "requestID", requestID, "paramKey", paramKey)
-		return p.buildRequestErrorResponseV2(ctx.Headers, 400, -32602, fmt.Sprintf("Missing MCP %s name", capabilityType), requestID)
+		return p.buildRequestErrorResponse(ctx.Headers, 400, -32602, fmt.Sprintf("Missing MCP %s name", capabilityType), requestID)
 	}
 
 	if !isAllowedByAcl(config, capabilityName) {
 		slog.Debug("MCP ACL List Policy: Capability denied by policy", "capabilityType", capabilityType, "capabilityName", capabilityName, "requestID", requestID)
-		return p.buildRequestErrorResponseV2(ctx.Headers, 400, -32000, "MCP capability not allowed", requestID)
+		return p.buildRequestErrorResponse(ctx.Headers, 400, -32000, "MCP capability not allowed", requestID)
 	}
 
-	return policyv1alpha2.UpstreamRequestModifications{}
+	return policy.UpstreamRequestModifications{}
 }
 
 // OnResponseBody enforces ACL rules on the MCP response body.
-func (p *McpAclListPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseContext, _ map[string]any) policyv1alpha2.ResponseAction {
+func (p *McpAclListPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]any) policy.ResponseAction {
 	if !isMcpPostRequest(ctx.RequestMethod, ctx.OperationPath) {
 		return nil
 	}
@@ -455,7 +455,7 @@ func (p *McpAclListPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseContext, _
 		return nil
 	}
 
-	if isEventStreamV2(ctx.ResponseHeaders) {
+	if isEventStream(ctx.ResponseHeaders) {
 		events := parseEventStream(ctx.ResponseBody.Content)
 		updated := false
 		for i, event := range events {
@@ -502,7 +502,7 @@ func (p *McpAclListPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseContext, _
 		if !updated {
 			return nil
 		}
-		return policyv1alpha2.DownstreamResponseModifications{
+		return policy.DownstreamResponseModifications{
 			Body: buildEventStream(events),
 		}
 	}
@@ -545,13 +545,13 @@ func (p *McpAclListPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseContext, _
 		return nil
 	}
 
-	return policyv1alpha2.DownstreamResponseModifications{
+	return policy.DownstreamResponseModifications{
 		Body: updatedPayload,
 	}
 }
 
-// getSessionIDV2 extracts the MCP session ID from v1alpha2 headers.
-func getSessionIDV2(headers *policyv1alpha2.Headers) string {
+// getSessionID extracts the MCP session ID from v1alpha2 headers.
+func getSessionID(headers *policy.Headers) string {
 	if headers == nil {
 		return ""
 	}
@@ -565,17 +565,17 @@ func getSessionIDV2(headers *policyv1alpha2.Headers) string {
 	return ""
 }
 
-// buildRequestErrorResponseV2 builds a v1alpha2 error response for a request.
-func (p *McpAclListPolicy) buildRequestErrorResponseV2(headers *policyv1alpha2.Headers, statusCode int, jsonRpcCode int, reason string, requestID any) policyv1alpha2.RequestAction {
-	sessionID := getSessionIDV2(headers)
-	if isEventStreamV2(headers) {
-		return p.buildEventStreamErrorResponseV2(statusCode, jsonRpcCode, reason, requestID, sessionID)
+// buildRequestErrorResponse builds a v1alpha2 error response for a request.
+func (p *McpAclListPolicy) buildRequestErrorResponse(headers *policy.Headers, statusCode int, jsonRpcCode int, reason string, requestID any) policy.RequestAction {
+	sessionID := getSessionID(headers)
+	if isEventStream(headers) {
+		return p.buildEventStreamErrorResponse(statusCode, jsonRpcCode, reason, requestID, sessionID)
 	}
-	return p.buildErrorResponseV2(statusCode, jsonRpcCode, reason, requestID, sessionID)
+	return p.buildErrorResponse(statusCode, jsonRpcCode, reason, requestID, sessionID)
 }
 
-// buildEventStreamErrorResponseV2 builds a v1alpha2 SSE error response.
-func (p *McpAclListPolicy) buildEventStreamErrorResponseV2(statusCode int, jsonRpcCode int, reason string, requestID any, sessionID string) policyv1alpha2.RequestAction {
+// buildEventStreamErrorResponse builds a v1alpha2 SSE error response.
+func (p *McpAclListPolicy) buildEventStreamErrorResponse(statusCode int, jsonRpcCode int, reason string, requestID any, sessionID string) policy.RequestAction {
 	responseBody := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      requestID,
@@ -604,15 +604,15 @@ func (p *McpAclListPolicy) buildEventStreamErrorResponseV2(statusCode int, jsonR
 		headers[mcpSessionHeader] = sessionID
 	}
 
-	return policyv1alpha2.ImmediateResponse{
+	return policy.ImmediateResponse{
 		StatusCode: statusCode,
 		Headers:    headers,
 		Body:       streamBody,
 	}
 }
 
-// buildErrorResponseV2 builds a v1alpha2 JSON error response.
-func (p *McpAclListPolicy) buildErrorResponseV2(statusCode int, jsonRpcCode int, reason string, requestID any, sessionID string) policyv1alpha2.RequestAction {
+// buildErrorResponse builds a v1alpha2 JSON error response.
+func (p *McpAclListPolicy) buildErrorResponse(statusCode int, jsonRpcCode int, reason string, requestID any, sessionID string) policy.RequestAction {
 	responseBody := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      requestID,
@@ -638,15 +638,15 @@ func (p *McpAclListPolicy) buildErrorResponseV2(statusCode int, jsonRpcCode int,
 		headers[mcpSessionHeader] = sessionID
 	}
 
-	return policyv1alpha2.ImmediateResponse{
+	return policy.ImmediateResponse{
 		StatusCode: statusCode,
 		Headers:    headers,
 		Body:       body,
 	}
 }
 
-// isEventStreamV2 reports whether v1alpha2 headers indicate an SSE payload.
-func isEventStreamV2(headers *policyv1alpha2.Headers) bool {
+// isEventStream reports whether v1alpha2 headers indicate an SSE payload.
+func isEventStream(headers *policy.Headers) bool {
 	if headers == nil {
 		return false
 	}

@@ -25,7 +25,7 @@ import (
 	"slices"
 	"strings"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 type CorsPolicy struct {
@@ -39,12 +39,12 @@ type CorsPolicy struct {
 	ForwardPreflight       bool
 }
 
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
+// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicy(
+	metadata policy.PolicyMetadata,
 	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
-	slog.Debug("Cors Policy: GetPolicyV2 called")
+) (policy.Policy, error) {
+	slog.Debug("Cors Policy: GetPolicy called")
 	p := &CorsPolicy{}
 	p.AllowedOrigins = getStringArrayParam(params, "allowedOrigins", []string{"*"})
 	if slices.Contains(p.AllowedOrigins, "*") {
@@ -117,12 +117,12 @@ func GetPolicyV2(
 	return p, nil
 }
 
-func (p *CorsPolicy) Mode() policyv1alpha2.ProcessingMode {
-	return policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess,
-		RequestBodyMode:    policyv1alpha2.BodyModeSkip,
-		ResponseHeaderMode: policyv1alpha2.HeaderModeProcess,
-		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,
+func (p *CorsPolicy) Mode() policy.ProcessingMode {
+	return policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeProcess,
+		RequestBodyMode:    policy.BodyModeSkip,
+		ResponseHeaderMode: policy.HeaderModeProcess,
+		ResponseBodyMode:   policy.BodyModeSkip,
 	}
 }
 
@@ -144,7 +144,7 @@ func getStringArrayParam(params map[string]any, key string, defaultValue []strin
 }
 
 // OnRequestHeaders handles CORS in the request header phase.
-func (p *CorsPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, params map[string]any) policyv1alpha2.RequestHeaderAction {
+func (p *CorsPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]any) policy.RequestHeaderAction {
 	if strings.EqualFold(ctx.Method, "options") {
 		slog.Debug("CORS: Preflight request detected in header phase; handling preflight")
 		return p.handlePreflightHeaders(ctx.Headers)
@@ -159,21 +159,21 @@ func (p *CorsPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, 
 			ctx.Metadata["cors_strip"] = true
 		}
 	}
-	return policyv1alpha2.UpstreamRequestHeaderModifications{}
+	return policy.UpstreamRequestHeaderModifications{}
 }
 
 // OnResponseHeaders sets CORS headers on the response in the header phase.
-func (p *CorsPolicy) OnResponseHeaders(ctx *policyv1alpha2.ResponseHeaderContext, params map[string]any) policyv1alpha2.ResponseHeaderAction {
+func (p *CorsPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, params map[string]any) policy.ResponseHeaderAction {
 	corsHeaders, ok := ctx.Metadata["cors_headers"].(map[string]string)
 	if ok {
 		slog.Debug("CORS: Adding CORS headers to response in header phase")
-		return policyv1alpha2.DownstreamResponseHeaderModifications{
+		return policy.DownstreamResponseHeaderModifications{
 			HeadersToSet: corsHeaders,
 		}
 	}
 	if _, strip := ctx.Metadata["cors_strip"]; strip {
 		slog.Debug("CORS: Stripping upstream CORS headers for disallowed origin in header phase")
-		return policyv1alpha2.DownstreamResponseHeaderModifications{
+		return policy.DownstreamResponseHeaderModifications{
 			HeadersToRemove: []string{
 				"Access-Control-Allow-Origin",
 				"Access-Control-Allow-Credentials",
@@ -182,11 +182,11 @@ func (p *CorsPolicy) OnResponseHeaders(ctx *policyv1alpha2.ResponseHeaderContext
 		}
 	}
 	slog.Debug("CORS: No CORS headers to add to response in header phase")
-	return policyv1alpha2.DownstreamResponseHeaderModifications{}
+	return policy.DownstreamResponseHeaderModifications{}
 }
 
 // handlePreflightHeaders processes CORS preflight (OPTIONS) requests using raw headers.
-func (p *CorsPolicy) handlePreflightHeaders(requestHeaders *policyv1alpha2.Headers) policyv1alpha2.RequestHeaderAction {
+func (p *CorsPolicy) handlePreflightHeaders(requestHeaders *policy.Headers) policy.RequestHeaderAction {
 	origin := requestHeaders.Get("Origin")
 
 	isCorsFailure := false
@@ -271,11 +271,11 @@ func (p *CorsPolicy) handlePreflightHeaders(requestHeaders *policyv1alpha2.Heade
 	if isCorsFailure {
 		headers = make(map[string]string)
 		if p.ForwardPreflight {
-			return policyv1alpha2.UpstreamRequestHeaderModifications{}
+			return policy.UpstreamRequestHeaderModifications{}
 		}
 	}
 
-	return policyv1alpha2.ImmediateResponse{
+	return policy.ImmediateResponse{
 		StatusCode: 204,
 		Headers:    headers,
 		Body:       nil,
@@ -283,7 +283,7 @@ func (p *CorsPolicy) handlePreflightHeaders(requestHeaders *policyv1alpha2.Heade
 }
 
 // handleNonPreflightHeaders adds CORS headers for actual (non-preflight) requests using raw headers.
-func (p *CorsPolicy) handleNonPreflightHeaders(requestHeaders *policyv1alpha2.Headers) (map[string]string, bool) {
+func (p *CorsPolicy) handleNonPreflightHeaders(requestHeaders *policy.Headers) (map[string]string, bool) {
 	headersToInclude := make(map[string]string)
 
 	origin := requestHeaders.Get("Origin")

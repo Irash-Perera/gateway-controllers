@@ -5,19 +5,19 @@ import (
 	"strings"
 	"testing"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
-func mustImmediateResponse(t *testing.T, action policyv1alpha2.RequestHeaderAction) policyv1alpha2.ImmediateResponse {
+func mustImmediateResponse(t *testing.T, action policy.RequestHeaderAction) policy.ImmediateResponse {
 	t.Helper()
-	resp, ok := action.(policyv1alpha2.ImmediateResponse)
+	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
 	return resp
 }
 
-func assertConfigError(t *testing.T, resp policyv1alpha2.ImmediateResponse) {
+func assertConfigError(t *testing.T, resp policy.ImmediateResponse) {
 	t.Helper()
 	if resp.StatusCode != 500 {
 		t.Fatalf("expected status code 500, got %d", resp.StatusCode)
@@ -39,13 +39,13 @@ func assertConfigError(t *testing.T, resp policyv1alpha2.ImmediateResponse) {
 }
 
 func TestGetPolicyReturnsSingleton(t *testing.T) {
-	first, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, map[string]interface{}{})
+	first, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{})
 	if err != nil {
-		t.Fatalf("GetPolicyV2 failed: %v", err)
+		t.Fatalf("GetPolicy failed: %v", err)
 	}
-	second, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, map[string]interface{}{})
+	second, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{})
 	if err != nil {
-		t.Fatalf("GetPolicyV2 failed: %v", err)
+		t.Fatalf("GetPolicy failed: %v", err)
 	}
 	if first != second {
 		t.Fatalf("expected singleton policy instance")
@@ -55,23 +55,23 @@ func TestGetPolicyReturnsSingleton(t *testing.T) {
 func TestMode(t *testing.T) {
 	p := &RespondPolicy{}
 	mode := p.Mode()
-	if mode.RequestHeaderMode != policyv1alpha2.HeaderModeProcess {
+	if mode.RequestHeaderMode != policy.HeaderModeProcess {
 		t.Fatalf("unexpected request header mode: %v", mode.RequestHeaderMode)
 	}
-	if mode.RequestBodyMode != policyv1alpha2.BodyModeSkip {
+	if mode.RequestBodyMode != policy.BodyModeSkip {
 		t.Fatalf("unexpected request body mode: %v", mode.RequestBodyMode)
 	}
-	if mode.ResponseHeaderMode != policyv1alpha2.HeaderModeSkip {
+	if mode.ResponseHeaderMode != policy.HeaderModeSkip {
 		t.Fatalf("unexpected response header mode: %v", mode.ResponseHeaderMode)
 	}
-	if mode.ResponseBodyMode != policyv1alpha2.BodyModeSkip {
+	if mode.ResponseBodyMode != policy.BodyModeSkip {
 		t.Fatalf("unexpected response body mode: %v", mode.ResponseBodyMode)
 	}
 }
 
 func TestOnRequestHeadersDefaults(t *testing.T) {
 	p := &RespondPolicy{}
-	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policyv1alpha2.RequestHeaderContext{}, map[string]interface{}{}))
+	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, map[string]interface{}{}))
 
 	if resp.StatusCode != 200 {
 		t.Fatalf("expected default status 200, got %d", resp.StatusCode)
@@ -86,7 +86,7 @@ func TestOnRequestHeadersDefaults(t *testing.T) {
 
 func TestOnRequestHeadersValidConfig(t *testing.T) {
 	p := &RespondPolicy{}
-	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policyv1alpha2.RequestHeaderContext{}, map[string]interface{}{
+	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, map[string]interface{}{
 		"statusCode": 201,
 		"body":       `{"ok":true}`,
 		"headers": []interface{}{
@@ -119,14 +119,14 @@ func TestOnRequestHeadersStatusCodeValidation(t *testing.T) {
 	}
 
 	for _, params := range tests {
-		resp := mustImmediateResponse(t, p.OnRequestHeaders(&policyv1alpha2.RequestHeaderContext{}, params))
+		resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, params))
 		assertConfigError(t, resp)
 	}
 }
 
 func TestOnRequestHeadersBodyTypeValidation(t *testing.T) {
 	p := &RespondPolicy{}
-	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policyv1alpha2.RequestHeaderContext{}, map[string]interface{}{
+	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, map[string]interface{}{
 		"body": 42,
 	}))
 	assertConfigError(t, resp)
@@ -134,7 +134,7 @@ func TestOnRequestHeadersBodyTypeValidation(t *testing.T) {
 
 func TestOnRequestHeadersHeadersTypeValidation(t *testing.T) {
 	p := &RespondPolicy{}
-	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policyv1alpha2.RequestHeaderContext{}, map[string]interface{}{
+	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, map[string]interface{}{
 		"headers": "not-an-array",
 	}))
 	assertConfigError(t, resp)
@@ -179,7 +179,7 @@ func TestOnRequestHeadersHeaderObjectValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := mustImmediateResponse(t, p.OnRequestHeaders(&policyv1alpha2.RequestHeaderContext{}, map[string]interface{}{
+			resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, map[string]interface{}{
 				"headers": tt.headers,
 			}))
 			assertConfigError(t, resp)

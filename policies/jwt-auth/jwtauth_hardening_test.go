@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 func TestJWTAuthPolicy_HappyPath_RemoteJWKS_IssuerNameAudienceScope(t *testing.T) {
@@ -115,7 +115,7 @@ func TestJWTAuthPolicy_HappyPath_LocalCert_WithClaimMappings_AndUserIdClaim(t *t
 	ctx, action := executeOnRequestHeaders(t, params, authHeader("Authorization", "Bearer", token))
 	assertAuthSuccess(t, ctx, action)
 
-	mods, ok := action.(policyv1alpha2.UpstreamRequestHeaderModifications)
+	mods, ok := action.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamRequestHeaderModifications, got %T", action)
 	}
@@ -138,7 +138,7 @@ func TestJWTAuthPolicy_Negative_MissingAuthorizationHeader(t *testing.T) {
 	ctx, action := executeOnRequestHeaders(t, params, map[string][]string{})
 	assertAuthFailure(t, ctx, action, 403)
 
-	resp := action.(policyv1alpha2.ImmediateResponse)
+	resp := action.(policy.ImmediateResponse)
 	if string(resp.Body) != "missing auth" {
 		t.Fatalf("expected plain error body")
 	}
@@ -322,8 +322,8 @@ func TestJWTAuthPolicy_Edge_NegativeRetryCount_NoPanic(t *testing.T) {
 	params["jwksFetchRetryInterval"] = "1ms"
 
 	var (
-		ctx    *policyv1alpha2.RequestHeaderContext
-		action policyv1alpha2.RequestHeaderAction
+		ctx    *policy.RequestHeaderContext
+		action policy.RequestHeaderAction
 	)
 
 	defer func() {
@@ -644,7 +644,7 @@ func TestJWTAuthPolicy_Regression_ErrorFormats_JsonPlainMinimal(t *testing.T) {
 			ctx, action := executeOnRequestHeaders(t, params, map[string][]string{})
 			assertAuthFailure(t, ctx, action, 401)
 
-			resp := action.(policyv1alpha2.ImmediateResponse)
+			resp := action.(policy.ImmediateResponse)
 			if resp.Headers["content-type"] != tc.expectedType {
 				t.Fatalf("expected content-type %s, got %s", tc.expectedType, resp.Headers["content-type"])
 			}
@@ -717,16 +717,16 @@ func TestJWTAuthPolicy_Regression_ModeContract(t *testing.T) {
 	}
 
 	mode := jwtPolicy.Mode()
-	if mode.RequestHeaderMode != policyv1alpha2.HeaderModeProcess {
+	if mode.RequestHeaderMode != policy.HeaderModeProcess {
 		t.Fatalf("expected RequestHeaderMode to be process")
 	}
-	if mode.RequestBodyMode != policyv1alpha2.BodyModeSkip {
+	if mode.RequestBodyMode != policy.BodyModeSkip {
 		t.Fatalf("expected RequestBodyMode to be skip")
 	}
-	if mode.ResponseHeaderMode != policyv1alpha2.HeaderModeSkip {
+	if mode.ResponseHeaderMode != policy.HeaderModeSkip {
 		t.Fatalf("expected ResponseHeaderMode to be skip")
 	}
-	if mode.ResponseBodyMode != policyv1alpha2.BodyModeSkip {
+	if mode.ResponseBodyMode != policy.BodyModeSkip {
 		t.Fatalf("expected ResponseBodyMode to be skip")
 	}
 }
@@ -862,18 +862,18 @@ func resetJWTAuthSingletonCache(t *testing.T) {
 	})
 }
 
-func executeOnRequestHeaders(t *testing.T, params map[string]interface{}, headers map[string][]string) (*policyv1alpha2.RequestHeaderContext, policyv1alpha2.RequestHeaderAction) {
+func executeOnRequestHeaders(t *testing.T, params map[string]interface{}, headers map[string][]string) (*policy.RequestHeaderContext, policy.RequestHeaderAction) {
 	t.Helper()
 	p := mustGetPolicy(t, params)
 	ctx := createMockRequestHeaderContext(headers)
 	return ctx, p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
 }
 
-func mustGetPolicy(t *testing.T, params map[string]interface{}) policyv1alpha2.Policy {
+func mustGetPolicy(t *testing.T, params map[string]interface{}) policy.Policy {
 	t.Helper()
-	p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, params)
+	p, err := GetPolicy(policy.PolicyMetadata{}, params)
 	if err != nil {
-		t.Fatalf("GetPolicyV2 failed: %v", err)
+		t.Fatalf("GetPolicy failed: %v", err)
 	}
 	return p
 }
@@ -913,7 +913,7 @@ func authHeader(headerName, scheme, token string) map[string][]string {
 	}
 }
 
-func assertAuthSuccess(t *testing.T, ctx *policyv1alpha2.RequestHeaderContext, action policyv1alpha2.RequestHeaderAction) {
+func assertAuthSuccess(t *testing.T, ctx *policy.RequestHeaderContext, action policy.RequestHeaderAction) {
 	t.Helper()
 
 	if ctx == nil {
@@ -922,12 +922,12 @@ func assertAuthSuccess(t *testing.T, ctx *policyv1alpha2.RequestHeaderContext, a
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
 		t.Fatalf("expected auth success, got unauthenticated context")
 	}
-	if _, ok := action.(policyv1alpha2.UpstreamRequestHeaderModifications); !ok {
+	if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
 		t.Fatalf("expected UpstreamRequestHeaderModifications, got %T", action)
 	}
 }
 
-func assertAuthFailure(t *testing.T, ctx *policyv1alpha2.RequestHeaderContext, action policyv1alpha2.RequestHeaderAction, statusCode int) {
+func assertAuthFailure(t *testing.T, ctx *policy.RequestHeaderContext, action policy.RequestHeaderAction, statusCode int) {
 	t.Helper()
 
 	if ctx == nil {
@@ -937,7 +937,7 @@ func assertAuthFailure(t *testing.T, ctx *policyv1alpha2.RequestHeaderContext, a
 		t.Fatalf("expected auth failure, got authenticated context")
 	}
 
-	resp, ok := action.(policyv1alpha2.ImmediateResponse)
+	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}

@@ -23,7 +23,7 @@ import (
 	"strings"
 	"testing"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 func TestParseAclConfig_ValidationCases(t *testing.T) {
@@ -199,7 +199,7 @@ func TestGetPolicy_ValidationCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, tt.params)
+			p, err := GetPolicy(policy.PolicyMetadata{}, tt.params)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("Expected error containing %q, got nil", tt.wantErr)
@@ -253,7 +253,7 @@ func TestOnRequest_DenyWhenException(t *testing.T) {
 		},
 	}
 
-	p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, params)
+	p, err := GetPolicy(policy.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
@@ -271,10 +271,10 @@ func TestOnRequest_DenyWhenException(t *testing.T) {
 	ctx := createMockRequestContext(map[string][]string{})
 	ctx.Method = "POST"
 	ctx.OperationPath = "/mcp"
-	ctx.Body = &policyv1alpha2.Body{Content: body, Present: true}
+	ctx.Body = &policy.Body{Content: body, Present: true}
 
 	action := p.(*McpAclListPolicy).OnRequestBody(ctx, params)
-	if _, ok := action.(policyv1alpha2.ImmediateResponse); !ok {
+	if _, ok := action.(policy.ImmediateResponse); !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
 }
@@ -287,7 +287,7 @@ func TestOnRequest_AllowWhenNotException(t *testing.T) {
 		},
 	}
 
-	p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, params)
+	p, err := GetPolicy(policy.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
@@ -305,10 +305,10 @@ func TestOnRequest_AllowWhenNotException(t *testing.T) {
 	ctx := createMockRequestContext(map[string][]string{})
 	ctx.Method = "POST"
 	ctx.OperationPath = "/mcp"
-	ctx.Body = &policyv1alpha2.Body{Content: body, Present: true}
+	ctx.Body = &policy.Body{Content: body, Present: true}
 
 	action := p.(*McpAclListPolicy).OnRequestBody(ctx, params)
-	if _, ok := action.(policyv1alpha2.UpstreamRequestModifications); !ok {
+	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("Expected UpstreamRequestModifications (continue), got %T", action)
 	}
 }
@@ -321,7 +321,7 @@ func TestOnRequest_DenySSERequestWithSessionHeader(t *testing.T) {
 		},
 	}
 
-	p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, params)
+	p, err := GetPolicy(policy.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
@@ -343,10 +343,10 @@ func TestOnRequest_DenySSERequestWithSessionHeader(t *testing.T) {
 	})
 	ctx.Method = "POST"
 	ctx.OperationPath = "/mcp"
-	ctx.Body = &policyv1alpha2.Body{Content: streamBody, Present: true}
+	ctx.Body = &policy.Body{Content: streamBody, Present: true}
 
 	action := p.(*McpAclListPolicy).OnRequestBody(ctx, params)
-	resp, ok := action.(policyv1alpha2.ImmediateResponse)
+	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -390,7 +390,7 @@ func TestOnResponse_FilterList_DenyMode(t *testing.T) {
 		},
 	}
 
-	p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, params)
+	p, err := GetPolicy(policy.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
@@ -410,12 +410,12 @@ func TestOnResponse_FilterList_DenyMode(t *testing.T) {
 	ctx := createMockResponseContext(nil, nil)
 	ctx.RequestMethod = "POST"
 	ctx.OperationPath = "/mcp"
-	ctx.ResponseBody = &policyv1alpha2.Body{Content: body, Present: true}
+	ctx.ResponseBody = &policy.Body{Content: body, Present: true}
 	ctx.Metadata[metadataMcpCapabilityType] = "tools"
 	ctx.Metadata[metadataMcpAction] = "list"
 
 	action := p.(*McpAclListPolicy).OnResponseBody(ctx, params)
-	mods, ok := action.(policyv1alpha2.DownstreamResponseModifications)
+	mods, ok := action.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamResponseModifications, got %T", action)
 	}
@@ -443,7 +443,7 @@ func TestOnResponse_FilterList_ResourcesUri(t *testing.T) {
 		},
 	}
 
-	p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, params)
+	p, err := GetPolicy(policy.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
@@ -463,12 +463,12 @@ func TestOnResponse_FilterList_ResourcesUri(t *testing.T) {
 	ctx := createMockResponseContext(nil, nil)
 	ctx.RequestMethod = "POST"
 	ctx.OperationPath = "/mcp"
-	ctx.ResponseBody = &policyv1alpha2.Body{Content: body, Present: true}
+	ctx.ResponseBody = &policy.Body{Content: body, Present: true}
 	ctx.Metadata[metadataMcpCapabilityType] = "resources"
 	ctx.Metadata[metadataMcpAction] = "list"
 
 	action := p.(*McpAclListPolicy).OnResponseBody(ctx, params)
-	mods, ok := action.(policyv1alpha2.DownstreamResponseModifications)
+	mods, ok := action.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamResponseModifications, got %T", action)
 	}
@@ -496,7 +496,7 @@ func TestOnResponse_SSEFilterOnlyListEvents(t *testing.T) {
 		},
 	}
 
-	p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, params)
+	p, err := GetPolicy(policy.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
@@ -533,12 +533,12 @@ func TestOnResponse_SSEFilterOnlyListEvents(t *testing.T) {
 	})
 	ctx.RequestMethod = "POST"
 	ctx.OperationPath = "/mcp"
-	ctx.ResponseBody = &policyv1alpha2.Body{Content: streamBody, Present: true}
+	ctx.ResponseBody = &policy.Body{Content: streamBody, Present: true}
 	ctx.Metadata[metadataMcpCapabilityType] = "tools"
 	ctx.Metadata[metadataMcpAction] = "list"
 
 	action := p.(*McpAclListPolicy).OnResponseBody(ctx, params)
-	mods, ok := action.(policyv1alpha2.DownstreamResponseModifications)
+	mods, ok := action.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamResponseModifications, got %T", action)
 	}
@@ -569,13 +569,13 @@ func TestOnResponse_SSEFilterOnlyListEvents(t *testing.T) {
 	}
 }
 
-func createMockRequestContext(headers map[string][]string) *policyv1alpha2.RequestContext {
-	return &policyv1alpha2.RequestContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+func createMockRequestContext(headers map[string][]string) *policy.RequestContext {
+	return &policy.RequestContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "test-request-id",
 			Metadata:  make(map[string]any),
 		},
-		Headers: policyv1alpha2.NewHeaders(headers),
+		Headers: policy.NewHeaders(headers),
 		Body:    nil,
 		Path:    "/mcp",
 		Method:  "POST",
@@ -583,14 +583,14 @@ func createMockRequestContext(headers map[string][]string) *policyv1alpha2.Reque
 	}
 }
 
-func createMockResponseContext(requestHeaders, responseHeaders map[string][]string) *policyv1alpha2.ResponseContext {
-	return &policyv1alpha2.ResponseContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+func createMockResponseContext(requestHeaders, responseHeaders map[string][]string) *policy.ResponseContext {
+	return &policy.ResponseContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "test-request-id",
 			Metadata:  make(map[string]any),
 		},
-		RequestHeaders:  policyv1alpha2.NewHeaders(requestHeaders),
-		ResponseHeaders: policyv1alpha2.NewHeaders(responseHeaders),
+		RequestHeaders:  policy.NewHeaders(requestHeaders),
+		ResponseHeaders: policy.NewHeaders(responseHeaders),
 		RequestBody:     nil,
 		ResponseBody:    nil,
 	}

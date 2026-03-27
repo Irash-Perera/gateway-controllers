@@ -23,16 +23,16 @@ import (
 	"log/slog"
 	"strings"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 var ins = &AnalyticsHeaderFilterPolicy{}
 
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
+// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicy(
+	metadata policy.PolicyMetadata,
 	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
+) (policy.Policy, error) {
 	return ins, nil
 }
 
@@ -40,12 +40,12 @@ func GetPolicyV2(
 type AnalyticsHeaderFilterPolicy struct{}
 
 // Mode returns the processing mode for this policy
-func (p *AnalyticsHeaderFilterPolicy) Mode() policyv1alpha2.ProcessingMode {
-	return policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess, // Process request headers
-		RequestBodyMode:    policyv1alpha2.BodyModeSkip,      // Don't need request body
-		ResponseHeaderMode: policyv1alpha2.HeaderModeProcess, // Process response headers
-		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,      // Don't need response body
+func (p *AnalyticsHeaderFilterPolicy) Mode() policy.ProcessingMode {
+	return policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeProcess, // Process request headers
+		RequestBodyMode:    policy.BodyModeSkip,      // Don't need request body
+		ResponseHeaderMode: policy.HeaderModeProcess, // Process response headers
+		ResponseBodyMode:   policy.BodyModeSkip,      // Don't need response body
 	}
 }
 
@@ -123,24 +123,24 @@ func (p *AnalyticsHeaderFilterPolicy) parseHeaderFilterConfig(configRaw interfac
 }
 
 // OnRequestHeaders processes request headers for analytics filtering in the header phase.
-func (p *AnalyticsHeaderFilterPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, params map[string]interface{}) policyv1alpha2.RequestHeaderAction {
+func (p *AnalyticsHeaderFilterPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	requestConfigRaw, hasRequestConfig := params["request"]
 	if !hasRequestConfig || requestConfigRaw == nil {
-		return policyv1alpha2.UpstreamRequestHeaderModifications{}
+		return policy.UpstreamRequestHeaderModifications{}
 	}
 
 	mode, specifiedHeaders, err := p.parseHeaderFilterConfig(requestConfigRaw)
 	if err != nil {
 		slog.Warn("Analytics Header Filter Policy: Failed to parse request headers filter config", "error", err)
-		return policyv1alpha2.UpstreamRequestHeaderModifications{}
+		return policy.UpstreamRequestHeaderModifications{}
 	}
 
 	slog.Debug("Analytics Header Filter Policy: Parsed request config",
 		"mode", mode,
 		"headers", specifiedHeaders)
 
-	return policyv1alpha2.UpstreamRequestHeaderModifications{
-		AnalyticsHeaderFilter: policyv1alpha2.DropHeaderAction{
+	return policy.UpstreamRequestHeaderModifications{
+		AnalyticsHeaderFilter: policy.DropHeaderAction{
 			Action:  mode,
 			Headers: specifiedHeaders,
 		},
@@ -148,20 +148,20 @@ func (p *AnalyticsHeaderFilterPolicy) OnRequestHeaders(ctx *policyv1alpha2.Reque
 }
 
 // OnResponseHeaders processes response headers for analytics filtering in the header phase.
-func (p *AnalyticsHeaderFilterPolicy) OnResponseHeaders(ctx *policyv1alpha2.ResponseHeaderContext, params map[string]interface{}) policyv1alpha2.ResponseHeaderAction {
+func (p *AnalyticsHeaderFilterPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
 	responseConfigRaw, hasResponseConfig := params["response"]
 	if !hasResponseConfig || responseConfigRaw == nil {
-		return policyv1alpha2.DownstreamResponseHeaderModifications{}
+		return policy.DownstreamResponseHeaderModifications{}
 	}
 
 	mode, specifiedHeaders, err := p.parseHeaderFilterConfig(responseConfigRaw)
 	if err != nil {
 		slog.Warn("Analytics Header Filter Policy: Failed to parse response headers filter config", "error", err)
-		return policyv1alpha2.DownstreamResponseHeaderModifications{}
+		return policy.DownstreamResponseHeaderModifications{}
 	}
 
-	return policyv1alpha2.DownstreamResponseHeaderModifications{
-		AnalyticsHeaderFilter: policyv1alpha2.DropHeaderAction{
+	return policy.DownstreamResponseHeaderModifications{
+		AnalyticsHeaderFilter: policy.DropHeaderAction{
 			Action:  mode,
 			Headers: specifiedHeaders,
 		},

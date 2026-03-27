@@ -21,27 +21,27 @@ import (
 	"strings"
 	"testing"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 // Helper function to create test headers
-func createTestHeaders(headers map[string]string) *policyv1alpha2.Headers {
+func createTestHeaders(headers map[string]string) *policy.Headers {
 	headerMap := make(map[string][]string)
 	for k, v := range headers {
 		headerMap[k] = []string{v}
 	}
-	return policyv1alpha2.NewHeaders(headerMap)
+	return policy.NewHeaders(headerMap)
 }
 
 func TestRemoveHeadersPolicy_Mode(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
 	mode := p.Mode()
 
-	expectedMode := policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess,
-		RequestBodyMode:    policyv1alpha2.BodyModeSkip,
-		ResponseHeaderMode: policyv1alpha2.HeaderModeProcess,
-		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,
+	expectedMode := policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeProcess,
+		RequestBodyMode:    policy.BodyModeSkip,
+		ResponseHeaderMode: policy.HeaderModeProcess,
+		ResponseBodyMode:   policy.BodyModeSkip,
 	}
 
 	if mode != expectedMode {
@@ -50,10 +50,10 @@ func TestRemoveHeadersPolicy_Mode(t *testing.T) {
 }
 
 func TestGetPolicy(t *testing.T) {
-	metadata := policyv1alpha2.PolicyMetadata{}
+	metadata := policy.PolicyMetadata{}
 	params := map[string]interface{}{}
 
-	p, err := GetPolicyV2(metadata, params)
+	p, err := GetPolicy(metadata, params)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -69,8 +69,8 @@ func TestGetPolicy(t *testing.T) {
 
 func TestRemoveHeadersPolicy_OnRequestHeaders_NoHeaders(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.RequestHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -85,7 +85,7 @@ func TestRemoveHeadersPolicy_OnRequestHeaders_NoHeaders(t *testing.T) {
 	result := p.OnRequestHeaders(ctx, params)
 
 	// Should return empty modifications
-	mods, ok := result.(policyv1alpha2.UpstreamRequestHeaderModifications)
+	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", result)
 	}
@@ -97,8 +97,8 @@ func TestRemoveHeadersPolicy_OnRequestHeaders_NoHeaders(t *testing.T) {
 
 func TestRemoveHeadersPolicy_OnRequestHeaders_SingleHeader(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.RequestHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -119,7 +119,7 @@ func TestRemoveHeadersPolicy_OnRequestHeaders_SingleHeader(t *testing.T) {
 
 	result := p.OnRequestHeaders(ctx, params)
 
-	mods, ok := result.(policyv1alpha2.UpstreamRequestHeaderModifications)
+	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", result)
 	}
@@ -137,8 +137,8 @@ func TestRemoveHeadersPolicy_OnRequestHeaders_SingleHeader(t *testing.T) {
 
 func TestRemoveHeadersPolicy_OnRequestHeaders_MultipleHeaders(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.RequestHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -167,7 +167,7 @@ func TestRemoveHeadersPolicy_OnRequestHeaders_MultipleHeaders(t *testing.T) {
 
 	result := p.OnRequestHeaders(ctx, params)
 
-	mods, ok := result.(policyv1alpha2.UpstreamRequestHeaderModifications)
+	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", result)
 	}
@@ -196,8 +196,8 @@ func TestRemoveHeadersPolicy_OnRequestHeaders_MultipleHeaders(t *testing.T) {
 
 func TestRemoveHeadersPolicy_OnRequestHeaders_HeaderNameNormalization(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.RequestHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -216,7 +216,7 @@ func TestRemoveHeadersPolicy_OnRequestHeaders_HeaderNameNormalization(t *testing
 
 	result := p.OnRequestHeaders(ctx, params)
 
-	mods, ok := result.(policyv1alpha2.UpstreamRequestHeaderModifications)
+	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", result)
 	}
@@ -230,8 +230,8 @@ func TestRemoveHeadersPolicy_OnRequestHeaders_HeaderNameNormalization(t *testing
 
 func TestRemoveHeadersPolicy_OnResponseHeaders_NoHeaders(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.ResponseHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.ResponseHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -246,7 +246,7 @@ func TestRemoveHeadersPolicy_OnResponseHeaders_NoHeaders(t *testing.T) {
 	result := p.OnResponseHeaders(ctx, params)
 
 	// Should return empty modifications
-	mods, ok := result.(policyv1alpha2.DownstreamResponseHeaderModifications)
+	mods, ok := result.(policy.DownstreamResponseHeaderModifications)
 	if !ok {
 		t.Errorf("Expected DownstreamResponseHeaderModifications, got %T", result)
 	}
@@ -258,8 +258,8 @@ func TestRemoveHeadersPolicy_OnResponseHeaders_NoHeaders(t *testing.T) {
 
 func TestRemoveHeadersPolicy_OnResponseHeaders_SingleHeader(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.ResponseHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.ResponseHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -280,7 +280,7 @@ func TestRemoveHeadersPolicy_OnResponseHeaders_SingleHeader(t *testing.T) {
 
 	result := p.OnResponseHeaders(ctx, params)
 
-	mods, ok := result.(policyv1alpha2.DownstreamResponseHeaderModifications)
+	mods, ok := result.(policy.DownstreamResponseHeaderModifications)
 	if !ok {
 		t.Errorf("Expected DownstreamResponseHeaderModifications, got %T", result)
 	}
@@ -298,8 +298,8 @@ func TestRemoveHeadersPolicy_OnResponseHeaders_SingleHeader(t *testing.T) {
 
 func TestRemoveHeadersPolicy_OnResponseHeaders_MultipleHeaders(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.ResponseHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.ResponseHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -328,7 +328,7 @@ func TestRemoveHeadersPolicy_OnResponseHeaders_MultipleHeaders(t *testing.T) {
 
 	result := p.OnResponseHeaders(ctx, params)
 
-	mods, ok := result.(policyv1alpha2.DownstreamResponseHeaderModifications)
+	mods, ok := result.(policy.DownstreamResponseHeaderModifications)
 	if !ok {
 		t.Errorf("Expected DownstreamResponseHeaderModifications, got %T", result)
 	}
@@ -359,8 +359,8 @@ func TestRemoveHeadersPolicy_BothRequestAndResponse(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
 
 	// Test request phase
-	reqCtx := &policyv1alpha2.RequestHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	reqCtx := &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -383,7 +383,7 @@ func TestRemoveHeadersPolicy_BothRequestAndResponse(t *testing.T) {
 	}
 
 	reqResult := p.OnRequestHeaders(reqCtx, params)
-	reqMods, ok := reqResult.(policyv1alpha2.UpstreamRequestHeaderModifications)
+	reqMods, ok := reqResult.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", reqResult)
 	}
@@ -393,8 +393,8 @@ func TestRemoveHeadersPolicy_BothRequestAndResponse(t *testing.T) {
 	}
 
 	// Test response phase
-	respCtx := &policyv1alpha2.ResponseHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	respCtx := &policy.ResponseHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -404,7 +404,7 @@ func TestRemoveHeadersPolicy_BothRequestAndResponse(t *testing.T) {
 	}
 
 	respResult := p.OnResponseHeaders(respCtx, params)
-	respMods, ok := respResult.(policyv1alpha2.DownstreamResponseHeaderModifications)
+	respMods, ok := respResult.(policy.DownstreamResponseHeaderModifications)
 	if !ok {
 		t.Errorf("Expected DownstreamResponseHeaderModifications, got %T", respResult)
 	}
@@ -416,8 +416,8 @@ func TestRemoveHeadersPolicy_BothRequestAndResponse(t *testing.T) {
 
 func TestRemoveHeadersPolicy_EmptyHeadersList(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.RequestHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -430,7 +430,7 @@ func TestRemoveHeadersPolicy_EmptyHeadersList(t *testing.T) {
 
 	result := p.OnRequestHeaders(ctx, params)
 
-	mods, ok := result.(policyv1alpha2.UpstreamRequestHeaderModifications)
+	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", result)
 	}
@@ -442,8 +442,8 @@ func TestRemoveHeadersPolicy_EmptyHeadersList(t *testing.T) {
 
 func TestRemoveHeadersPolicy_InvalidHeadersType(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.RequestHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -456,7 +456,7 @@ func TestRemoveHeadersPolicy_InvalidHeadersType(t *testing.T) {
 
 	result := p.OnRequestHeaders(ctx, params)
 
-	mods, ok := result.(policyv1alpha2.UpstreamRequestHeaderModifications)
+	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", result)
 	}
@@ -468,8 +468,8 @@ func TestRemoveHeadersPolicy_InvalidHeadersType(t *testing.T) {
 
 func TestRemoveHeadersPolicy_InvalidHeaderEntry(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.RequestHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -487,7 +487,7 @@ func TestRemoveHeadersPolicy_InvalidHeaderEntry(t *testing.T) {
 
 	result := p.OnRequestHeaders(ctx, params)
 
-	mods, ok := result.(policyv1alpha2.UpstreamRequestHeaderModifications)
+	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", result)
 	}
@@ -504,8 +504,8 @@ func TestRemoveHeadersPolicy_InvalidHeaderEntry(t *testing.T) {
 
 func TestRemoveHeadersPolicy_DuplicateHeaders(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.RequestHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -528,7 +528,7 @@ func TestRemoveHeadersPolicy_DuplicateHeaders(t *testing.T) {
 
 	result := p.OnRequestHeaders(ctx, params)
 
-	mods, ok := result.(policyv1alpha2.UpstreamRequestHeaderModifications)
+	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", result)
 	}
@@ -697,8 +697,8 @@ func TestRemoveHeadersPolicy_Validate_MissingNameField(t *testing.T) {
 
 func TestRemoveHeadersPolicy_OnRequestHeaders_NestedHeaders(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.RequestHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -718,7 +718,7 @@ func TestRemoveHeadersPolicy_OnRequestHeaders_NestedHeaders(t *testing.T) {
 	}
 
 	result := p.OnRequestHeaders(ctx, params)
-	mods, ok := result.(policyv1alpha2.UpstreamRequestHeaderModifications)
+	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", result)
 	}
@@ -730,8 +730,8 @@ func TestRemoveHeadersPolicy_OnRequestHeaders_NestedHeaders(t *testing.T) {
 
 func TestRemoveHeadersPolicy_OnResponseHeaders_NestedHeaders(t *testing.T) {
 	p := &RemoveHeadersPolicy{}
-	ctx := &policyv1alpha2.ResponseHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+	ctx := &policy.ResponseHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-1",
 			Metadata:  map[string]interface{}{},
 		},
@@ -751,7 +751,7 @@ func TestRemoveHeadersPolicy_OnResponseHeaders_NestedHeaders(t *testing.T) {
 	}
 
 	result := p.OnResponseHeaders(ctx, params)
-	mods, ok := result.(policyv1alpha2.DownstreamResponseHeaderModifications)
+	mods, ok := result.(policy.DownstreamResponseHeaderModifications)
 	if !ok {
 		t.Errorf("Expected DownstreamResponseHeaderModifications, got %T", result)
 	}

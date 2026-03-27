@@ -21,19 +21,19 @@ package analyticsheaderfilter
 import (
 	"testing"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 func TestGetPolicy(t *testing.T) {
-	p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, nil)
+	p, err := GetPolicy(policy.PolicyMetadata{}, nil)
 	if err != nil {
-		t.Errorf("GetPolicyV2 returned error: %v", err)
+		t.Errorf("GetPolicy returned error: %v", err)
 	}
 	if p == nil {
-		t.Error("GetPolicyV2 returned nil policy")
+		t.Error("GetPolicy returned nil policy")
 	}
 	if _, ok := p.(*AnalyticsHeaderFilterPolicy); !ok {
-		t.Error("GetPolicyV2 returned wrong policy type")
+		t.Error("GetPolicy returned wrong policy type")
 	}
 }
 
@@ -41,16 +41,16 @@ func TestMode(t *testing.T) {
 	p := &AnalyticsHeaderFilterPolicy{}
 	mode := p.Mode()
 
-	if mode.RequestHeaderMode != policyv1alpha2.HeaderModeProcess {
+	if mode.RequestHeaderMode != policy.HeaderModeProcess {
 		t.Errorf("Expected RequestHeaderMode to be HeaderModeProcess, got %v", mode.RequestHeaderMode)
 	}
-	if mode.RequestBodyMode != policyv1alpha2.BodyModeSkip {
+	if mode.RequestBodyMode != policy.BodyModeSkip {
 		t.Errorf("Expected RequestBodyMode to be BodyModeSkip, got %v", mode.RequestBodyMode)
 	}
-	if mode.ResponseHeaderMode != policyv1alpha2.HeaderModeProcess {
+	if mode.ResponseHeaderMode != policy.HeaderModeProcess {
 		t.Errorf("Expected ResponseHeaderMode to be HeaderModeProcess, got %v", mode.ResponseHeaderMode)
 	}
-	if mode.ResponseBodyMode != policyv1alpha2.BodyModeSkip {
+	if mode.ResponseBodyMode != policy.BodyModeSkip {
 		t.Errorf("Expected ResponseBodyMode to be BodyModeSkip, got %v", mode.ResponseBodyMode)
 	}
 }
@@ -322,7 +322,7 @@ func TestOnRequestHeaders(t *testing.T) {
 	tests := []struct {
 		name                    string
 		params                  map[string]interface{}
-		expectedDropAction      *policyv1alpha2.DropHeaderAction
+		expectedDropAction      *policy.DropHeaderAction
 		expectDropActionPresent bool
 	}{
 		{
@@ -347,7 +347,7 @@ func TestOnRequestHeaders(t *testing.T) {
 					"headers": []interface{}{"Authorization", "Content-Type"},
 				},
 			},
-			expectedDropAction: &policyv1alpha2.DropHeaderAction{
+			expectedDropAction: &policy.DropHeaderAction{
 				Action:  "allow",
 				Headers: []string{"authorization", "content-type"},
 			},
@@ -361,7 +361,7 @@ func TestOnRequestHeaders(t *testing.T) {
 					"headers": []interface{}{"X-Debug", "X-Internal"},
 				},
 			},
-			expectedDropAction: &policyv1alpha2.DropHeaderAction{
+			expectedDropAction: &policy.DropHeaderAction{
 				Action:  "deny",
 				Headers: []string{"x-debug", "x-internal"},
 			},
@@ -390,7 +390,7 @@ func TestOnRequestHeaders(t *testing.T) {
 					"headers": []interface{}{"X-Debug"},
 				},
 			},
-			expectedDropAction: &policyv1alpha2.DropHeaderAction{
+			expectedDropAction: &policy.DropHeaderAction{
 				Action:  "allow",
 				Headers: []string{"authorization"},
 			},
@@ -403,7 +403,7 @@ func TestOnRequestHeaders(t *testing.T) {
 			ctx := createMockRequestHeaderContext(nil)
 			result := p.OnRequestHeaders(ctx, tt.params)
 
-			if modifications, ok := result.(policyv1alpha2.UpstreamRequestHeaderModifications); ok {
+			if modifications, ok := result.(policy.UpstreamRequestHeaderModifications); ok {
 				if tt.expectDropActionPresent {
 					if modifications.AnalyticsHeaderFilter.Action != tt.expectedDropAction.Action {
 						t.Errorf("Expected action %s, got %s", tt.expectedDropAction.Action, modifications.AnalyticsHeaderFilter.Action)
@@ -435,7 +435,7 @@ func TestOnResponseHeaders(t *testing.T) {
 	tests := []struct {
 		name                    string
 		params                  map[string]interface{}
-		expectedDropAction      *policyv1alpha2.DropHeaderAction
+		expectedDropAction      *policy.DropHeaderAction
 		expectDropActionPresent bool
 	}{
 		{
@@ -460,7 +460,7 @@ func TestOnResponseHeaders(t *testing.T) {
 					"headers": []interface{}{"Content-Type", "X-Custom"},
 				},
 			},
-			expectedDropAction: &policyv1alpha2.DropHeaderAction{
+			expectedDropAction: &policy.DropHeaderAction{
 				Action:  "allow",
 				Headers: []string{"content-type", "x-custom"},
 			},
@@ -474,7 +474,7 @@ func TestOnResponseHeaders(t *testing.T) {
 					"headers": []interface{}{"X-Debug", "X-Internal"},
 				},
 			},
-			expectedDropAction: &policyv1alpha2.DropHeaderAction{
+			expectedDropAction: &policy.DropHeaderAction{
 				Action:  "deny",
 				Headers: []string{"x-debug", "x-internal"},
 			},
@@ -503,7 +503,7 @@ func TestOnResponseHeaders(t *testing.T) {
 					"headers": []interface{}{"X-Debug"},
 				},
 			},
-			expectedDropAction: &policyv1alpha2.DropHeaderAction{
+			expectedDropAction: &policy.DropHeaderAction{
 				Action:  "deny",
 				Headers: []string{"x-debug"},
 			},
@@ -516,7 +516,7 @@ func TestOnResponseHeaders(t *testing.T) {
 			ctx := createMockResponseHeaderContext(nil)
 			result := p.OnResponseHeaders(ctx, tt.params)
 
-			if modifications, ok := result.(policyv1alpha2.DownstreamResponseHeaderModifications); ok {
+			if modifications, ok := result.(policy.DownstreamResponseHeaderModifications); ok {
 				if tt.expectDropActionPresent {
 					if modifications.AnalyticsHeaderFilter.Action != tt.expectedDropAction.Action {
 						t.Errorf("Expected action %s, got %s", tt.expectedDropAction.Action, modifications.AnalyticsHeaderFilter.Action)
@@ -542,24 +542,24 @@ func TestOnResponseHeaders(t *testing.T) {
 	}
 }
 
-func createMockRequestHeaderContext(headers map[string][]string) *policyv1alpha2.RequestHeaderContext {
-	return &policyv1alpha2.RequestHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+func createMockRequestHeaderContext(headers map[string][]string) *policy.RequestHeaderContext {
+	return &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "test-request-id",
 			Metadata:  make(map[string]any),
 		},
-		Headers: policyv1alpha2.NewHeaders(headers),
+		Headers: policy.NewHeaders(headers),
 		Path:    "/api/test",
 		Method:  "GET",
 	}
 }
 
-func createMockResponseHeaderContext(responseHeaders map[string][]string) *policyv1alpha2.ResponseHeaderContext {
-	return &policyv1alpha2.ResponseHeaderContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+func createMockResponseHeaderContext(responseHeaders map[string][]string) *policy.ResponseHeaderContext {
+	return &policy.ResponseHeaderContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "test-request-id",
 			Metadata:  make(map[string]any),
 		},
-		ResponseHeaders: policyv1alpha2.NewHeaders(responseHeaders),
+		ResponseHeaders: policy.NewHeaders(responseHeaders),
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 	embeddingproviders "github.com/wso2/api-platform/sdk/ai/embeddings"
 	vectordbproviders "github.com/wso2/api-platform/sdk/ai/vectordb"
 )
@@ -79,11 +79,11 @@ func (m *mockVectorDBProvider) Close() error {
 func TestSemanticCachePolicy_Mode(t *testing.T) {
 	p := &SemanticCachePolicy{}
 	got := p.Mode()
-	want := policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
-		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
-		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
-		ResponseBodyMode:   policyv1alpha2.BodyModeBuffer,
+	want := policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeSkip,
+		RequestBodyMode:    policy.BodyModeBuffer,
+		ResponseHeaderMode: policy.HeaderModeSkip,
+		ResponseBodyMode:   policy.BodyModeBuffer,
 	}
 	if got != want {
 		t.Fatalf("unexpected mode: got %+v, want %+v", got, want)
@@ -91,7 +91,7 @@ func TestSemanticCachePolicy_Mode(t *testing.T) {
 }
 
 func TestGetPolicy_InvalidParams(t *testing.T) {
-	_, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, map[string]interface{}{})
+	_, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{})
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -323,7 +323,7 @@ func TestSemanticCachePolicy_OnRequest(t *testing.T) {
 	tests := []struct {
 		name             string
 		policy           *SemanticCachePolicy
-		ctx              *policyv1alpha2.RequestContext
+		ctx              *policy.RequestContext
 		wantImmediate    bool
 		wantStatus       int
 		wantCacheStatus  string
@@ -336,9 +336,9 @@ func TestSemanticCachePolicy_OnRequest(t *testing.T) {
 				vectorStoreProvider: &mockVectorDBProvider{},
 				threshold:           0.5,
 			},
-			ctx: &policyv1alpha2.RequestContext{
-				SharedContext: &policyv1alpha2.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}},
-				Body:          &policyv1alpha2.Body{Content: nil, Present: false},
+			ctx: &policy.RequestContext{
+				SharedContext: &policy.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}},
+				Body:          &policy.Body{Content: nil, Present: false},
 			},
 			wantImmediate: false,
 		},
@@ -350,9 +350,9 @@ func TestSemanticCachePolicy_OnRequest(t *testing.T) {
 				jsonPath:            "$.missing",
 				threshold:           0.5,
 			},
-			ctx: &policyv1alpha2.RequestContext{
-				SharedContext: &policyv1alpha2.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}},
-				Body:          &policyv1alpha2.Body{Content: []byte(`{"prompt":"hello"}`), Present: true},
+			ctx: &policy.RequestContext{
+				SharedContext: &policy.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}},
+				Body:          &policy.Body{Content: []byte(`{"prompt":"hello"}`), Present: true},
 			},
 			wantImmediate: true,
 			wantStatus:    400,
@@ -366,9 +366,9 @@ func TestSemanticCachePolicy_OnRequest(t *testing.T) {
 				vectorStoreProvider: &mockVectorDBProvider{},
 				threshold:           0.5,
 			},
-			ctx: &policyv1alpha2.RequestContext{
-				SharedContext: &policyv1alpha2.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}},
-				Body:          &policyv1alpha2.Body{Content: []byte("hello"), Present: true},
+			ctx: &policy.RequestContext{
+				SharedContext: &policy.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}},
+				Body:          &policy.Body{Content: []byte("hello"), Present: true},
 			},
 			wantImmediate: false,
 		},
@@ -392,9 +392,9 @@ func TestSemanticCachePolicy_OnRequest(t *testing.T) {
 				}},
 				threshold: 0.7,
 			},
-			ctx: &policyv1alpha2.RequestContext{
-				SharedContext: &policyv1alpha2.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}, APIName: "Books", APIVersion: "v1"},
-				Body:          &policyv1alpha2.Body{Content: []byte("hello"), Present: true},
+			ctx: &policy.RequestContext{
+				SharedContext: &policy.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}, APIName: "Books", APIVersion: "v1"},
+				Body:          &policy.Body{Content: []byte("hello"), Present: true},
 			},
 			wantImmediate:    false,
 			wantMetadataSave: true,
@@ -410,9 +410,9 @@ func TestSemanticCachePolicy_OnRequest(t *testing.T) {
 				}},
 				threshold: 0.5,
 			},
-			ctx: &policyv1alpha2.RequestContext{
-				SharedContext: &policyv1alpha2.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}, APIName: "Books", APIVersion: "v1"},
-				Body:          &policyv1alpha2.Body{Content: []byte("hello"), Present: true},
+			ctx: &policy.RequestContext{
+				SharedContext: &policy.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}, APIName: "Books", APIVersion: "v1"},
+				Body:          &policy.Body{Content: []byte("hello"), Present: true},
 			},
 			wantImmediate:   true,
 			wantStatus:      200,
@@ -427,9 +427,9 @@ func TestSemanticCachePolicy_OnRequest(t *testing.T) {
 				}},
 				threshold: 0.5,
 			},
-			ctx: &policyv1alpha2.RequestContext{
-				SharedContext: &policyv1alpha2.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}, APIName: "Books", APIVersion: "v1"},
-				Body:          &policyv1alpha2.Body{Content: []byte("hello"), Present: true},
+			ctx: &policy.RequestContext{
+				SharedContext: &policy.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}, APIName: "Books", APIVersion: "v1"},
+				Body:          &policy.Body{Content: []byte("hello"), Present: true},
 			},
 			wantImmediate: false,
 		},
@@ -440,7 +440,7 @@ func TestSemanticCachePolicy_OnRequest(t *testing.T) {
 			action := tt.policy.OnRequestBody(tt.ctx, nil)
 
 			if !tt.wantImmediate {
-				if _, ok := action.(policyv1alpha2.UpstreamRequestModifications); !ok {
+				if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 					t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 				}
 				if tt.wantMetadataSave {
@@ -451,7 +451,7 @@ func TestSemanticCachePolicy_OnRequest(t *testing.T) {
 				return
 			}
 
-			resp, ok := action.(policyv1alpha2.ImmediateResponse)
+			resp, ok := action.(policy.ImmediateResponse)
 			if !ok {
 				t.Fatalf("expected ImmediateResponse, got %T", action)
 			}
@@ -478,8 +478,8 @@ func TestSemanticCachePolicy_OnResponse(t *testing.T) {
 	tests := []struct {
 		name      string
 		policy    *SemanticCachePolicy
-		ctx       *policyv1alpha2.ResponseContext
-		assertion func(t *testing.T, action policyv1alpha2.ResponseAction)
+		ctx       *policy.ResponseContext
+		assertion func(t *testing.T, action policy.ResponseAction)
 	}{
 		{
 			name: "non-200 response skipped",
@@ -556,10 +556,10 @@ func TestSemanticCachePolicy_OnResponse(t *testing.T) {
 					return nil
 				}},
 			},
-			ctx: &policyv1alpha2.ResponseContext{
-				SharedContext:  &policyv1alpha2.SharedContext{RequestID: "req-1", Metadata: map[string]interface{}{MetadataKeyEmbedding: "[0.1,0.2]"}},
+			ctx: &policy.ResponseContext{
+				SharedContext:  &policy.SharedContext{RequestID: "req-1", Metadata: map[string]interface{}{MetadataKeyEmbedding: "[0.1,0.2]"}},
 				ResponseStatus: 200,
-				ResponseBody:   &policyv1alpha2.Body{Content: []byte(`{"answer":"x"}`), Present: true},
+				ResponseBody:   &policy.Body{Content: []byte(`{"answer":"x"}`), Present: true},
 			},
 			assertion: assertUpstreamResponseMods,
 		},
@@ -573,10 +573,10 @@ func TestSemanticCachePolicy_OnResponse(t *testing.T) {
 					return nil
 				}},
 			},
-			ctx: &policyv1alpha2.ResponseContext{
-				SharedContext:  &policyv1alpha2.SharedContext{RequestID: "req-2", Metadata: map[string]interface{}{MetadataKeyEmbedding: "[0.1,0.2]"}, APIName: "Books", APIVersion: "v2"},
+			ctx: &policy.ResponseContext{
+				SharedContext:  &policy.SharedContext{RequestID: "req-2", Metadata: map[string]interface{}{MetadataKeyEmbedding: "[0.1,0.2]"}, APIName: "Books", APIVersion: "v2"},
 				ResponseStatus: 200,
-				ResponseBody:   &policyv1alpha2.Body{Content: []byte(`{"answer":"x"}`), Present: true},
+				ResponseBody:   &policy.Body{Content: []byte(`{"answer":"x"}`), Present: true},
 			},
 			assertion: assertUpstreamResponseMods,
 		},
@@ -590,10 +590,10 @@ func TestSemanticCachePolicy_OnResponse(t *testing.T) {
 	}
 }
 
-func TestBuildErrorResponseV2(t *testing.T) {
+func TestBuildErrorResponse(t *testing.T) {
 	p := &SemanticCachePolicy{}
-	action := p.buildErrorResponseV2("jsonpath failed", errors.New("bad path"))
-	resp, ok := action.(policyv1alpha2.ImmediateResponse)
+	action := p.buildErrorResponse("jsonpath failed", errors.New("bad path"))
+	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -628,20 +628,20 @@ func TestCreateProviderHelpers_UnsupportedTypes(t *testing.T) {
 	}
 }
 
-func newResponseContext(status int, body []byte, metadata map[string]interface{}) *policyv1alpha2.ResponseContext {
+func newResponseContext(status int, body []byte, metadata map[string]interface{}) *policy.ResponseContext {
 	if metadata == nil {
 		metadata = map[string]interface{}{}
 	}
-	return &policyv1alpha2.ResponseContext{
-		SharedContext:  &policyv1alpha2.SharedContext{RequestID: "req-1", Metadata: metadata, APIName: "Books", APIVersion: "v1"},
+	return &policy.ResponseContext{
+		SharedContext:  &policy.SharedContext{RequestID: "req-1", Metadata: metadata, APIName: "Books", APIVersion: "v1"},
 		ResponseStatus: status,
-		ResponseBody:   &policyv1alpha2.Body{Content: body, Present: len(body) > 0},
+		ResponseBody:   &policy.Body{Content: body, Present: len(body) > 0},
 	}
 }
 
-func assertUpstreamResponseMods(t *testing.T, action policyv1alpha2.ResponseAction) {
+func assertUpstreamResponseMods(t *testing.T, action policy.ResponseAction) {
 	t.Helper()
-	if _, ok := action.(policyv1alpha2.DownstreamResponseModifications); !ok {
+	if _, ok := action.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected DownstreamResponseModifications, got %T", action)
 	}
 }

@@ -25,7 +25,7 @@ import (
 	"regexp"
 	"strings"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 const (
@@ -49,12 +49,12 @@ var ins = &RequestRewritePolicy{}
 // RequestRewritePolicy implements request rewriting (path, query, method)
 type RequestRewritePolicy struct{}
 
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
+// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicy(
+	metadata policy.PolicyMetadata,
 	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
-	slog.Debug("[Request Rewrite]: GetPolicyV2 called",
+) (policy.Policy, error) {
+	slog.Debug("[Request Rewrite]: GetPolicy called",
 		"route", metadata.RouteName,
 		"api", metadata.APIName,
 		"version", metadata.APIVersion,
@@ -63,12 +63,12 @@ func GetPolicyV2(
 }
 
 // Mode returns the processing mode for this policy
-func (p *RequestRewritePolicy) Mode() policyv1alpha2.ProcessingMode {
-	return policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess, // Needs request headers for matching and rewriting
-		RequestBodyMode:    policyv1alpha2.BodyModeSkip,
-		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
-		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,
+func (p *RequestRewritePolicy) Mode() policy.ProcessingMode {
+	return policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeProcess, // Needs request headers for matching and rewriting
+		RequestBodyMode:    policy.BodyModeSkip,
+		ResponseHeaderMode: policy.HeaderModeSkip,
+		ResponseBodyMode:   policy.BodyModeSkip,
 	}
 }
 
@@ -329,7 +329,7 @@ func isAllowedMethod(method string) bool {
 }
 
 // OnRequestHeaders applies request transformations in the header phase for v2alpha engine compatibility.
-func (p *RequestRewritePolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, params map[string]interface{}) policyv1alpha2.RequestHeaderAction {
+func (p *RequestRewritePolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	newPath, newMethod, err := p.computeRewrite(ctx, params)
 	if err != nil {
 		slog.Error("[Request Rewrite]: Configuration error", "error", err)
@@ -337,13 +337,13 @@ func (p *RequestRewritePolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeade
 			"error":   "Configuration Error",
 			"message": err.Error(),
 		})
-		return policyv1alpha2.ImmediateResponse{
+		return policy.ImmediateResponse{
 			StatusCode: 500,
 			Headers:    map[string]string{"content-type": "application/json"},
 			Body:       body,
 		}
 	}
-	return policyv1alpha2.UpstreamRequestHeaderModifications{
+	return policy.UpstreamRequestHeaderModifications{
 		Path:   newPath,
 		Method: newMethod,
 	}
@@ -351,7 +351,7 @@ func (p *RequestRewritePolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeade
 
 // computeRewrite parses config and computes path/method rewrites from the provided request fields.
 // Called from both OnRequestHeaders and OnRequestBody to share logic without duplication.
-func (p *RequestRewritePolicy) computeRewrite(ctx *policyv1alpha2.RequestHeaderContext, params map[string]interface{}) (newPath *string, newMethod *string, err error) {
+func (p *RequestRewritePolicy) computeRewrite(ctx *policy.RequestHeaderContext, params map[string]interface{}) (newPath *string, newMethod *string, err error) {
 	cfg, parseErr := parseConfig(params)
 	if parseErr != nil {
 		return nil, nil, parseErr
@@ -362,7 +362,7 @@ func (p *RequestRewritePolicy) computeRewrite(ctx *policyv1alpha2.RequestHeaderC
 		return nil, nil, nil
 	}
 
-	if !matchesRequestV2(ctx, cfg.Match) {
+	if !matchesRequest(ctx, cfg.Match) {
 		slog.Debug("[Request Rewrite]: Match conditions not met, skipping transformations")
 		return nil, nil, nil
 	}
@@ -425,7 +425,7 @@ func (p *RequestRewritePolicy) computeRewrite(ctx *policyv1alpha2.RequestHeaderC
 	return newPath, newMethod, nil
 }
 
-func matchesRequestV2(ctx *policyv1alpha2.RequestHeaderContext, match *matchConfig) bool {
+func matchesRequest(ctx *policy.RequestHeaderContext, match *matchConfig) bool {
 	if match == nil {
 		return true
 	}
@@ -435,7 +435,7 @@ func matchesRequestV2(ctx *policyv1alpha2.RequestHeaderContext, match *matchConf
 	}
 
 	for _, matcher := range match.Headers {
-		if !matchHeaderV2(ctx, matcher) {
+		if !matchHeader(ctx, matcher) {
 			return false
 		}
 	}
@@ -452,7 +452,7 @@ func matchesRequestV2(ctx *policyv1alpha2.RequestHeaderContext, match *matchConf
 	return true
 }
 
-func matchHeaderV2(ctx *policyv1alpha2.RequestHeaderContext, matcher headerMatcher) bool {
+func matchHeader(ctx *policy.RequestHeaderContext, matcher headerMatcher) bool {
 	name := strings.TrimSpace(matcher.Name)
 	if name == "" {
 		return false

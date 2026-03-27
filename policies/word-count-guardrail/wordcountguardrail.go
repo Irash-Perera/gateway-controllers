@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"strings"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 	utils "github.com/wso2/api-platform/sdk/core/utils"
 )
 
@@ -68,11 +68,11 @@ type WordCountGuardrailPolicyParams struct {
 	ShowAssessment    bool
 }
 
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
+// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicy(
+	metadata policy.PolicyMetadata,
 	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
+) (policy.Policy, error) {
 	p := &WordCountGuardrailPolicy{}
 
 	requestParamsRaw, hasRequest, err := getFlowParams(params, "request")
@@ -253,12 +253,12 @@ func extractInt(value interface{}) (int, error) {
 }
 
 // Mode returns the processing mode for this policy.
-func (p *WordCountGuardrailPolicy) Mode() policyv1alpha2.ProcessingMode {
-	return policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
-		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
-		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
-		ResponseBodyMode:   policyv1alpha2.BodyModeStream,
+func (p *WordCountGuardrailPolicy) Mode() policy.ProcessingMode {
+	return policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeSkip,
+		RequestBodyMode:    policy.BodyModeBuffer,
+		ResponseHeaderMode: policy.HeaderModeSkip,
+		ResponseBodyMode:   policy.BodyModeStream,
 	}
 }
 
@@ -365,16 +365,16 @@ func (p *WordCountGuardrailPolicy) buildAssessmentObject(reason string, validati
 	return assessment
 }
 
-func (p *WordCountGuardrailPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ map[string]interface{}) policyv1alpha2.RequestAction {
+func (p *WordCountGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	if !p.hasRequestParams || !p.requestParams.Enabled {
-		return policyv1alpha2.UpstreamRequestModifications{}
+		return policy.UpstreamRequestModifications{}
 	}
 
 	var content []byte
 	if ctx.Body != nil {
 		content = ctx.Body.Content
 	}
-	return p.validatePayloadV2(content, p.requestParams, false).(policyv1alpha2.RequestAction)
+	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
 }
 
 // OnResponseBody validates the word count of the response body.
@@ -382,9 +382,9 @@ func (p *WordCountGuardrailPolicy) OnRequestBody(ctx *policyv1alpha2.RequestCont
 // SSE (stream: true) responses are also handled here
 // response headers are not yet committed, so a normal 422 error
 // response can still be returned (no SSE error-event workaround needed).
-func (p *WordCountGuardrailPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseContext, _ map[string]interface{}) policyv1alpha2.ResponseAction {
+func (p *WordCountGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
-		return policyv1alpha2.DownstreamResponseModifications{}
+		return policy.DownstreamResponseModifications{}
 	}
 
 	var content []byte
@@ -396,10 +396,10 @@ func (p *WordCountGuardrailPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseCo
 	// and count words on that, bypassing the JSONPath extraction (which targets
 	// the non-streaming response structure).
 	if text := extractSSEDeltaContent(string(content), p.responseParams.StreamingJsonPath); text != "" {
-		return p.validateWordCountV2(text, p.responseParams, true)
+		return p.validateWordCount(text, p.responseParams, true)
 	}
 
-	return p.validatePayloadV2(content, p.responseParams, true).(policyv1alpha2.ResponseAction)
+	return p.validatePayload(content, p.responseParams, true).(policy.ResponseAction)
 }
 
 // extractSSEDeltaContent extracts and concatenates content values from every
@@ -453,8 +453,8 @@ func joinSSEFragments(value interface{}) string {
 	}
 }
 
-// buildErrorResponseV2 builds a v1alpha2 error response for both request and response phases.
-func (p *WordCountGuardrailPolicy) buildErrorResponseV2(reason string, validationError error, isResponse bool, showAssessment bool, min, max int) interface{} {
+// buildErrorResponse builds a v1alpha2 error response for both request and response phases.
+func (p *WordCountGuardrailPolicy) buildErrorResponse(reason string, validationError error, isResponse bool, showAssessment bool, min, max int) interface{} {
 	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, min, max)
 
 	responseBody := map[string]interface{}{
@@ -469,10 +469,10 @@ func (p *WordCountGuardrailPolicy) buildErrorResponseV2(reason string, validatio
 
 	if isResponse {
 		statusCode := GuardrailErrorCode
-		return policyv1alpha2.DownstreamResponseModifications{
+		return policy.DownstreamResponseModifications{
 			StatusCode: &statusCode,
 			Body:       bodyBytes,
-			DownstreamResponseHeaderModifications: policyv1alpha2.DownstreamResponseHeaderModifications{
+			DownstreamResponseHeaderModifications: policy.DownstreamResponseHeaderModifications{
 				HeadersToSet: map[string]string{
 					"Content-Type": "application/json",
 				},
@@ -480,7 +480,7 @@ func (p *WordCountGuardrailPolicy) buildErrorResponseV2(reason string, validatio
 		}
 	}
 
-	return policyv1alpha2.ImmediateResponse{
+	return policy.ImmediateResponse{
 		StatusCode: GuardrailErrorCode,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
@@ -489,8 +489,8 @@ func (p *WordCountGuardrailPolicy) buildErrorResponseV2(reason string, validatio
 	}
 }
 
-// validateWordCountV2 counts words in text and validates against params, returning a v1alpha2 response action.
-func (p *WordCountGuardrailPolicy) validateWordCountV2(text string, params WordCountGuardrailPolicyParams, isResponse bool) policyv1alpha2.ResponseAction {
+// validateWordCount counts words in text and validates against params, returning a v1alpha2 response action.
+func (p *WordCountGuardrailPolicy) validateWordCount(text string, params WordCountGuardrailPolicyParams, isResponse bool) policy.ResponseAction {
 	text = textCleanRegexCompiled.ReplaceAllString(text, "")
 	text = strings.TrimSpace(text)
 
@@ -517,18 +517,18 @@ func (p *WordCountGuardrailPolicy) validateWordCountV2(text string, params WordC
 		}
 		slog.Debug("WordCountGuardrail: validation failed",
 			"wordCount", wordCount, "min", params.Min, "max", params.Max, "invert", params.Invert)
-		return p.buildErrorResponseV2(reason, nil, isResponse, params.ShowAssessment, params.Min, params.Max).(policyv1alpha2.ResponseAction)
+		return p.buildErrorResponse(reason, nil, isResponse, params.ShowAssessment, params.Min, params.Max).(policy.ResponseAction)
 	}
 
-	return policyv1alpha2.DownstreamResponseModifications{}
+	return policy.DownstreamResponseModifications{}
 }
 
-// validatePayloadV2 validates payload word count returning v1alpha2 actions.
-func (p *WordCountGuardrailPolicy) validatePayloadV2(payload []byte, params WordCountGuardrailPolicyParams, isResponse bool) interface{} {
+// validatePayload validates payload word count returning v1alpha2 actions.
+func (p *WordCountGuardrailPolicy) validatePayload(payload []byte, params WordCountGuardrailPolicyParams, isResponse bool) interface{} {
 	extractedValue, err := extractStringFromJSONPath(payload, params.JsonPath)
 	if err != nil {
 		slog.Debug("WordCountGuardrail: Error extracting value from JSONPath", "jsonPath", params.JsonPath, "error", err, "isResponse", isResponse)
-		return p.buildErrorResponseV2("Error extracting value from JSONPath", err, isResponse, params.ShowAssessment, params.Min, params.Max)
+		return p.buildErrorResponse("Error extracting value from JSONPath", err, isResponse, params.ShowAssessment, params.Min, params.Max)
 	}
 
 	extractedValue = textCleanRegexCompiled.ReplaceAllString(extractedValue, "")
@@ -559,12 +559,12 @@ func (p *WordCountGuardrailPolicy) validatePayloadV2(payload []byte, params Word
 		} else {
 			reason = fmt.Sprintf("word count %d is outside the allowed range %d-%d words", wordCount, params.Min, params.Max)
 		}
-		return p.buildErrorResponseV2(reason, nil, isResponse, params.ShowAssessment, params.Min, params.Max)
+		return p.buildErrorResponse(reason, nil, isResponse, params.ShowAssessment, params.Min, params.Max)
 	}
 
 	slog.Debug("WordCountGuardrail: Validation passed", "wordCount", wordCount, "min", params.Min, "max", params.Max, "isResponse", isResponse)
 	if isResponse {
-		return policyv1alpha2.DownstreamResponseModifications{}
+		return policy.DownstreamResponseModifications{}
 	}
-	return policyv1alpha2.UpstreamRequestModifications{}
+	return policy.UpstreamRequestModifications{}
 }

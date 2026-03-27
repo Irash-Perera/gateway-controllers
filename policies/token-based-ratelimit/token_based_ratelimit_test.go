@@ -23,7 +23,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 // TestTokenBasedRateLimitPolicy_Mode tests the processing mode
@@ -31,11 +31,11 @@ func TestTokenBasedRateLimitPolicy_Mode(t *testing.T) {
 	p := &TokenBasedRateLimitPolicy{}
 	mode := p.Mode()
 
-	expected := policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess,
-		RequestBodyMode:    policyv1alpha2.BodyModeSkip,
-		ResponseHeaderMode: policyv1alpha2.HeaderModeProcess,
-		ResponseBodyMode:   policyv1alpha2.BodyModeBuffer, // Need body for token extraction
+	expected := policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeProcess,
+		RequestBodyMode:    policy.BodyModeSkip,
+		ResponseHeaderMode: policy.HeaderModeProcess,
+		ResponseBodyMode:   policy.BodyModeBuffer, // Need body for token extraction
 	}
 
 	if mode != expected {
@@ -43,9 +43,9 @@ func TestTokenBasedRateLimitPolicy_Mode(t *testing.T) {
 	}
 }
 
-// TestTokenBasedRateLimitPolicy_GetPolicyV2 tests policy creation
-func TestTokenBasedRateLimitPolicy_GetPolicyV2(t *testing.T) {
-	metadata := policyv1alpha2.PolicyMetadata{
+// TestTokenBasedRateLimitPolicy_GetPolicy tests policy creation
+func TestTokenBasedRateLimitPolicy_GetPolicy(t *testing.T) {
+	metadata := policy.PolicyMetadata{
 		RouteName: "test-route",
 	}
 
@@ -60,7 +60,7 @@ func TestTokenBasedRateLimitPolicy_GetPolicyV2(t *testing.T) {
 		"backend":   "memory",
 	}
 
-	p, err := GetPolicyV2(metadata, params)
+	p, err := GetPolicy(metadata, params)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestTokenBasedRateLimitPolicy_GetPolicyV2(t *testing.T) {
 
 // TestTokenBasedRateLimitPolicy_DelegateRaceCondition specifically tests the race condition fix
 func TestTokenBasedRateLimitPolicy_DelegateRaceCondition(t *testing.T) {
-	metadata := policyv1alpha2.PolicyMetadata{
+	metadata := policy.PolicyMetadata{
 		RouteName: "race-test-route",
 	}
 
@@ -96,7 +96,7 @@ func TestTokenBasedRateLimitPolicy_DelegateRaceCondition(t *testing.T) {
 		"backend":   "memory",
 	}
 
-	p, err := GetPolicyV2(metadata, params)
+	p, err := GetPolicy(metadata, params)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestTokenBasedRateLimitPolicy_DelegateRaceCondition(t *testing.T) {
 
 // TestTokenBasedRateLimitPolicy_ConcurrentAccess tests thread-safe delegate creation
 func TestTokenBasedRateLimitPolicy_ConcurrentAccess(t *testing.T) {
-	metadata := policyv1alpha2.PolicyMetadata{
+	metadata := policy.PolicyMetadata{
 		RouteName: "test-route",
 	}
 
@@ -141,7 +141,7 @@ func TestTokenBasedRateLimitPolicy_ConcurrentAccess(t *testing.T) {
 		"backend":   "memory",
 	}
 
-	p, err := GetPolicyV2(metadata, params)
+	p, err := GetPolicy(metadata, params)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}

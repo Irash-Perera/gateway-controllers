@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"strings"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 	jwtauth "github.com/wso2/gateway-controllers/policies/jwt-auth"
 )
 
@@ -86,12 +86,12 @@ type MCPRequestParams struct {
 	URI       string         `json:"uri"` // For resources/read
 }
 
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
+// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicy(
+	metadata policy.PolicyMetadata,
 	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
-	slog.Debug("MCP Auth Policy: GetPolicyV2 called")
+) (policy.Policy, error) {
+	slog.Debug("MCP Auth Policy: GetPolicy called")
 	ins := &McpAuthPolicy{
 		AuthConfig: GetMcpAuthConfig(params),
 	}
@@ -104,12 +104,12 @@ func GetPolicyV2(
 	return ins, nil
 }
 
-func (p *McpAuthPolicy) Mode() policyv1alpha2.ProcessingMode {
-	return policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
-		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
-		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
-		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,
+func (p *McpAuthPolicy) Mode() policy.ProcessingMode {
+	return policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeSkip,
+		RequestBodyMode:    policy.BodyModeBuffer,
+		ResponseHeaderMode: policy.HeaderModeSkip,
+		ResponseBodyMode:   policy.BodyModeSkip,
 	}
 }
 
@@ -319,12 +319,12 @@ func validateAuthFailureConfig(statusCode int, format string) error {
 	}
 }
 
-func buildInvalidConfigResponseV2(message string) policyv1alpha2.RequestAction {
+func buildInvalidConfigResponse(message string) policy.RequestAction {
 	body, _ := json.Marshal(map[string]string{
 		"error":   "Internal Server Error",
 		"message": message,
 	})
-	return policyv1alpha2.ImmediateResponse{
+	return policy.ImmediateResponse{
 		StatusCode: 500,
 		Headers: map[string]string{
 			"content-type": "application/json",
@@ -333,19 +333,19 @@ func buildInvalidConfigResponseV2(message string) policyv1alpha2.RequestAction {
 	}
 }
 
-func ensureRequestMetadataV2(ctx *policyv1alpha2.RequestContext) {
+func ensureRequestMetadata(ctx *policy.RequestContext) {
 	if ctx.SharedContext == nil {
-		ctx.SharedContext = &policyv1alpha2.SharedContext{}
+		ctx.SharedContext = &policy.SharedContext{}
 	}
 	if ctx.Metadata == nil {
 		ctx.Metadata = map[string]any{}
 	}
 }
 
-func (p *McpAuthPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, params map[string]interface{}) policyv1alpha2.RequestHeaderAction {
+func (p *McpAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	if err := validateAuthFailureConfig(p.OnFailureStatusCode, p.ErrorMessageFormat); err != nil {
-		v1r := buildInvalidConfigResponseV2(err.Error()).(policyv1alpha2.ImmediateResponse)
-		return policyv1alpha2.ImmediateResponse{StatusCode: v1r.StatusCode, Headers: v1r.Headers, Body: v1r.Body}
+		v1r := buildInvalidConfigResponse(err.Error()).(policy.ImmediateResponse)
+		return policy.ImmediateResponse{StatusCode: v1r.StatusCode, Headers: v1r.Headers, Body: v1r.Body}
 	}
 	// Check for GET /.well-known/oauth-protected-resource
 	if ctx.Method == "GET" && isWellKnownEndpointRequest(ctx.OperationPath) {
@@ -359,17 +359,17 @@ func (p *McpAuthPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContex
 		keyManagersRaw, ok := params["keyManagers"]
 		if !ok {
 			slog.Debug("MCP Auth Policy: Key managers not configured in params")
-			return p.handleAuthFailureV2(ctx.SharedContext, p.OnFailureStatusCode, p.ErrorMessageFormat, "key managers not configured")
+			return p.handleAuthFailure(ctx.SharedContext, p.OnFailureStatusCode, p.ErrorMessageFormat, "key managers not configured")
 		}
 
 		slog.Debug("MCP Auth Policy: Starting to parse key managers configuration")
 		issuers, kms, err := parseKeyManagers(keyManagersRaw)
 		if err != nil {
-			v1r := buildInvalidConfigResponseV2(err.Error()).(policyv1alpha2.ImmediateResponse)
-			return policyv1alpha2.ImmediateResponse{StatusCode: v1r.StatusCode, Headers: v1r.Headers, Body: v1r.Body}
+			v1r := buildInvalidConfigResponse(err.Error()).(policy.ImmediateResponse)
+			return policy.ImmediateResponse{StatusCode: v1r.StatusCode, Headers: v1r.Headers, Body: v1r.Body}
 		}
 		if len(issuers) == 0 {
-			return p.handleAuthFailureV2(ctx.SharedContext, p.OnFailureStatusCode, p.ErrorMessageFormat, "no valid key managers found")
+			return p.handleAuthFailure(ctx.SharedContext, p.OnFailureStatusCode, p.ErrorMessageFormat, "no valid key managers found")
 		}
 
 		if len(p.Issuers) > 0 {
@@ -384,7 +384,7 @@ func (p *McpAuthPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContex
 		}
 
 		if len(issuers) == 0 {
-			return p.handleAuthFailureV2(ctx.SharedContext, p.OnFailureStatusCode, p.ErrorMessageFormat, "no matching issuers found")
+			return p.handleAuthFailure(ctx.SharedContext, p.OnFailureStatusCode, p.ErrorMessageFormat, "no matching issuers found")
 		}
 
 		prm := ProtectedResourceMetadata{
@@ -393,7 +393,7 @@ func (p *McpAuthPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContex
 			ScopesSupported:      p.RequiredScopes,
 		}
 		jsonOut, _ := json.Marshal(prm)
-		return policyv1alpha2.ImmediateResponse{
+		return policy.ImmediateResponse{
 			StatusCode: 200,
 			Headers: map[string]string{
 				"Content-Type":   "application/json",
@@ -402,29 +402,29 @@ func (p *McpAuthPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContex
 			Body: jsonOut,
 		}
 	}
-	return policyv1alpha2.UpstreamRequestHeaderModifications{}
+	return policy.UpstreamRequestHeaderModifications{}
 }
 
 // OnRequestBody processes the request body phase for MCP authentication.
-func (p *McpAuthPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, params map[string]any) policyv1alpha2.RequestAction {
+func (p *McpAuthPolicy) OnRequestBody(ctx *policy.RequestContext, params map[string]any) policy.RequestAction {
 	if err := validateAuthFailureConfig(p.OnFailureStatusCode, p.ErrorMessageFormat); err != nil {
-		v1r := buildInvalidConfigResponseV2(err.Error()).(policyv1alpha2.ImmediateResponse)
-		return policyv1alpha2.ImmediateResponse{StatusCode: v1r.StatusCode, Headers: v1r.Headers, Body: v1r.Body}
+		v1r := buildInvalidConfigResponse(err.Error()).(policy.ImmediateResponse)
+		return policy.ImmediateResponse{StatusCode: v1r.StatusCode, Headers: v1r.Headers, Body: v1r.Body}
 	}
 
 	if p.GatewayHost != "" {
-		ensureRequestMetadataV2(ctx)
+		ensureRequestMetadata(ctx)
 		ctx.Metadata["gatewayHost"] = p.GatewayHost
 	}
 
 	if ctx.Method == "POST" && strings.Contains(ctx.OperationPath, "mcp") {
 		if ctx.Body == nil || !ctx.Body.Present {
-			return p.handleAuthV2(ctx, params, p.RequiredScopes)
+			return p.handleAuth(ctx, params, p.RequiredScopes)
 		}
 		var mcpReq MCPRequest
 		if err := json.Unmarshal(ctx.Body.Content, &mcpReq); err != nil {
 			slog.Debug("MCP Auth Policy: Failed to parse MCP request", "error", err)
-			return p.handleAuthFailureV2(ctx.SharedContext, p.OnFailureStatusCode, p.ErrorMessageFormat, "Invalid MCP request format")
+			return p.handleAuthFailure(ctx.SharedContext, p.OnFailureStatusCode, p.ErrorMessageFormat, "Invalid MCP request format")
 		}
 
 		slog.Debug("MCP Auth Policy: Extracted MCP attributes",
@@ -437,15 +437,15 @@ func (p *McpAuthPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, params
 			return nil
 		}
 
-		return p.handleAuthV2(ctx, params, p.RequiredScopes)
+		return p.handleAuth(ctx, params, p.RequiredScopes)
 	}
 
-	return policyv1alpha2.UpstreamRequestModifications{}
+	return policy.UpstreamRequestModifications{}
 }
 
-// handleAuthFailureV2 constructs an authentication failure response.
-func (p *McpAuthPolicy) handleAuthFailureV2(shared *policyv1alpha2.SharedContext, statusCode int, format string, reason any) policyv1alpha2.ImmediateResponse {
-	shared.AuthContext = &policyv1alpha2.AuthContext{
+// handleAuthFailure constructs an authentication failure response.
+func (p *McpAuthPolicy) handleAuthFailure(shared *policy.SharedContext, statusCode int, format string, reason any) policy.ImmediateResponse {
+	shared.AuthContext = &policy.AuthContext{
 		Authenticated: false,
 		AuthType:      AuthType,
 		Previous:      shared.AuthContext,
@@ -472,17 +472,17 @@ func (p *McpAuthPolicy) handleAuthFailureV2(shared *policyv1alpha2.SharedContext
 		bodyBytes, _ := json.Marshal(errResponse)
 		body = string(bodyBytes)
 	}
-	return policyv1alpha2.ImmediateResponse{
+	return policy.ImmediateResponse{
 		StatusCode: statusCode,
 		Headers:    headers,
 		Body:       []byte(body),
 	}
 }
 
-// handleAuthV2 performs MCP authentication in the request body phase.
-func (p *McpAuthPolicy) handleAuthV2(ctx *policyv1alpha2.RequestContext, params map[string]any, scopes []string) policyv1alpha2.RequestAction {
+// handleAuth performs MCP authentication in the request body phase.
+func (p *McpAuthPolicy) handleAuth(ctx *policy.RequestContext, params map[string]any, scopes []string) policy.RequestAction {
 	type requestHeaderPolicer interface {
-		OnRequestHeaders(*policyv1alpha2.RequestHeaderContext, map[string]interface{}) policyv1alpha2.RequestHeaderAction
+		OnRequestHeaders(*policy.RequestHeaderContext, map[string]interface{}) policy.RequestHeaderAction
 	}
 
 	sessionIds := ctx.Headers.Get(McpSessionHeader)
@@ -492,16 +492,16 @@ func (p *McpAuthPolicy) handleAuthV2(ctx *policyv1alpha2.RequestContext, params 
 	}
 
 	slog.Debug("MCP Auth Policy: Delegating authentication to JWT Auth Policy")
-	jwtPolicy, err := jwtauth.GetPolicyV2(policyv1alpha2.PolicyMetadata{}, params)
+	jwtPolicy, err := jwtauth.GetPolicyV2(policy.PolicyMetadata{}, params)
 	if err != nil {
-		return p.handleAuthFailureV2(ctx.SharedContext, 500, "json", fmt.Sprintf("jwtauth.GetPolicy unavailable: %s", err))
+		return p.handleAuthFailure(ctx.SharedContext, 500, "json", fmt.Sprintf("jwtauth.GetPolicyV2 unavailable: %s", err))
 	}
 	hrp, ok := jwtPolicy.(requestHeaderPolicer)
 	if !ok {
-		return p.handleAuthFailureV2(ctx.SharedContext, 500, "json", "jwtPolicy does not implement OnRequestHeaders")
+		return p.handleAuthFailure(ctx.SharedContext, 500, "json", "jwtPolicy does not implement OnRequestHeaders")
 	}
 
-	headerCtx := &policyv1alpha2.RequestHeaderContext{
+	headerCtx := &policy.RequestHeaderContext{
 		SharedContext: ctx.SharedContext,
 		Headers:       ctx.Headers,
 		Path:          ctx.Path,
@@ -511,9 +511,9 @@ func (p *McpAuthPolicy) handleAuthV2(ctx *policyv1alpha2.RequestContext, params 
 		Vhost:         ctx.Vhost,
 	}
 	headerAction := hrp.OnRequestHeaders(headerCtx, params)
-	if ir, ok := headerAction.(policyv1alpha2.ImmediateResponse); ok {
+	if ir, ok := headerAction.(policy.ImmediateResponse); ok {
 		slog.Debug("MCP Auth Policy: Authentication failed in JWT Auth Policy, handling failure")
-		ctx.SharedContext.AuthContext = &policyv1alpha2.AuthContext{
+		ctx.SharedContext.AuthContext = &policy.AuthContext{
 			Authenticated: false,
 			AuthType:      AuthType,
 			Previous:      ctx.SharedContext.AuthContext,
@@ -531,7 +531,7 @@ func (p *McpAuthPolicy) handleAuthV2(ctx *policyv1alpha2.RequestContext, params 
 		wwwAuthHeader := generateWwwAuthenticateHeaderFromFields(ctx.Scheme, ctx.Authority, ctx.Vhost, ctx.APIContext, params, scopes, escapedDesc)
 		headers[WWWAuthenticateHeader] = wwwAuthHeader
 		headers[McpSessionHeader] = sessionId
-		return policyv1alpha2.ImmediateResponse{
+		return policy.ImmediateResponse{
 			StatusCode: ir.StatusCode,
 			Headers:    headers,
 			Body:       ir.Body,
@@ -541,8 +541,8 @@ func (p *McpAuthPolicy) handleAuthV2(ctx *policyv1alpha2.RequestContext, params 
 	if ctx.SharedContext.AuthContext != nil {
 		ctx.SharedContext.AuthContext.AuthType = AuthType
 	}
-	if a, ok := headerAction.(policyv1alpha2.UpstreamRequestHeaderModifications); ok {
-		return policyv1alpha2.UpstreamRequestModifications{
+	if a, ok := headerAction.(policy.UpstreamRequestHeaderModifications); ok {
+		return policy.UpstreamRequestModifications{
 			UpstreamRequestHeaderModifications: a,
 		}
 	}

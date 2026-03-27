@@ -21,7 +21,7 @@ package llmcostratelimit
 import (
 	"testing"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 // TestLLMCostRateLimitPolicy_Mode tests the processing mode
@@ -29,11 +29,11 @@ func TestLLMCostRateLimitPolicy_Mode(t *testing.T) {
 	p := &LLMCostRateLimitPolicy{}
 	mode := p.Mode()
 
-	expected := policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess,
-		RequestBodyMode:    policyv1alpha2.BodyModeSkip,
-		ResponseHeaderMode: policyv1alpha2.HeaderModeProcess,
-		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,
+	expected := policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeProcess,
+		RequestBodyMode:    policy.BodyModeSkip,
+		ResponseHeaderMode: policy.HeaderModeProcess,
+		ResponseBodyMode:   policy.BodyModeSkip,
 	}
 
 	if mode != expected {
@@ -41,9 +41,9 @@ func TestLLMCostRateLimitPolicy_Mode(t *testing.T) {
 	}
 }
 
-// TestLLMCostRateLimitPolicy_GetPolicyV2 tests policy creation
-func TestLLMCostRateLimitPolicy_GetPolicyV2(t *testing.T) {
-	metadata := policyv1alpha2.PolicyMetadata{
+// TestLLMCostRateLimitPolicy_GetPolicy tests policy creation
+func TestLLMCostRateLimitPolicy_GetPolicy(t *testing.T) {
+	metadata := policy.PolicyMetadata{
 		RouteName: "test-route",
 	}
 
@@ -60,7 +60,7 @@ func TestLLMCostRateLimitPolicy_GetPolicyV2(t *testing.T) {
 		"backend":             "memory",
 	}
 
-	p, err := GetPolicyV2(metadata, params)
+	p, err := GetPolicy(metadata, params)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}

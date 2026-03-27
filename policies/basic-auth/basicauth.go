@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"strings"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 const (
@@ -36,33 +36,33 @@ type BasicAuthPolicy struct{}
 
 var ins = &BasicAuthPolicy{}
 
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
+// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicy(
+	metadata policy.PolicyMetadata,
 	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
+) (policy.Policy, error) {
 	return ins, nil
 }
 
 // Mode returns the processing mode for this policy
-func (p *BasicAuthPolicy) Mode() policyv1alpha2.ProcessingMode {
-	return policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess, // Process request headers for auth
-		RequestBodyMode:    policyv1alpha2.BodyModeSkip,      // Don't need request body
-		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,    // Don't process response headers
-		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,      // Don't need response body
+func (p *BasicAuthPolicy) Mode() policy.ProcessingMode {
+	return policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeProcess, // Process request headers for auth
+		RequestBodyMode:    policy.BodyModeSkip,      // Don't need request body
+		ResponseHeaderMode: policy.HeaderModeSkip,    // Don't process response headers
+		ResponseBodyMode:   policy.BodyModeSkip,      // Don't need response body
 	}
 }
 
 // OnRequestHeaders performs Basic Authentication in the request header phase.
-func (p *BasicAuthPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, params map[string]interface{}) policyv1alpha2.RequestHeaderAction {
+func (p *BasicAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	expectedUsername, ok := params["username"].(string)
 	if !ok || expectedUsername == "" {
 		errBody, _ := json.Marshal(map[string]string{
 			"error":   "Internal Server Error",
 			"message": "Invalid policy configuration: username must be a non-empty string",
 		})
-		return policyv1alpha2.ImmediateResponse{
+		return policy.ImmediateResponse{
 			StatusCode: 500,
 			Headers:    map[string]string{"content-type": "application/json"},
 			Body:       errBody,
@@ -75,7 +75,7 @@ func (p *BasicAuthPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderCont
 			"error":   "Internal Server Error",
 			"message": "Invalid policy configuration: password must be a non-empty string",
 		})
-		return policyv1alpha2.ImmediateResponse{
+		return policy.ImmediateResponse{
 			StatusCode: 500,
 			Headers:    map[string]string{"content-type": "application/json"},
 			Body:       errBody,
@@ -128,25 +128,25 @@ func (p *BasicAuthPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderCont
 		return p.handleAuthFailureHeaders(ctx.SharedContext, allowUnauthenticated, realm)
 	}
 
-	ctx.SharedContext.AuthContext = &policyv1alpha2.AuthContext{
+	ctx.SharedContext.AuthContext = &policy.AuthContext{
 		Authenticated: true,
 		AuthType:      AuthType,
 		Subject:       providedUsername,
 		Previous:      ctx.SharedContext.AuthContext,
 	}
-	return policyv1alpha2.UpstreamRequestHeaderModifications{}
+	return policy.UpstreamRequestHeaderModifications{}
 }
 
 // handleAuthFailureHeaders handles authentication failure in the header phase.
-func (p *BasicAuthPolicy) handleAuthFailureHeaders(shared *policyv1alpha2.SharedContext, allowUnauthenticated bool, realm string) policyv1alpha2.RequestHeaderAction {
-	shared.AuthContext = &policyv1alpha2.AuthContext{
+func (p *BasicAuthPolicy) handleAuthFailureHeaders(shared *policy.SharedContext, allowUnauthenticated bool, realm string) policy.RequestHeaderAction {
+	shared.AuthContext = &policy.AuthContext{
 		Authenticated: false,
 		AuthType:      AuthType,
 		Previous:      shared.AuthContext,
 	}
 
 	if allowUnauthenticated {
-		return policyv1alpha2.UpstreamRequestHeaderModifications{}
+		return policy.UpstreamRequestHeaderModifications{}
 	}
 
 	escapedRealm := strings.ReplaceAll(strings.ReplaceAll(realm, "\\", "\\\\"), "\"", "\\\"")
@@ -160,7 +160,7 @@ func (p *BasicAuthPolicy) handleAuthFailureHeaders(shared *policyv1alpha2.Shared
 		"message": "Authentication required",
 	})
 
-	return policyv1alpha2.ImmediateResponse{
+	return policy.ImmediateResponse{
 		StatusCode: 401,
 		Headers:    headers,
 		Body:       body,

@@ -7,17 +7,17 @@ import (
 	"strings"
 	"testing"
 
-	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 func TestAzureContentSafetyPolicy_Mode(t *testing.T) {
 	p := &AzureContentSafetyContentModerationPolicy{}
 	got := p.Mode()
-	want := policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
-		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
-		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
-		ResponseBodyMode:   policyv1alpha2.BodyModeStream,
+	want := policy.ProcessingMode{
+		RequestHeaderMode:  policy.HeaderModeSkip,
+		RequestBodyMode:    policy.BodyModeBuffer,
+		ResponseHeaderMode: policy.HeaderModeSkip,
+		ResponseBodyMode:   policy.BodyModeStream,
 	}
 	if got != want {
 		t.Fatalf("unexpected mode: got %+v, want %+v", got, want)
@@ -134,7 +134,7 @@ func TestAzureContentSafetyPolicy_GetPolicy_Errors(t *testing.T) {
 		"azureContentSafetyKey":      "k",
 	}
 
-	_, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, base)
+	_, err := GetPolicy(policy.PolicyMetadata{}, base)
 	if err == nil || !strings.Contains(err.Error(), "at least one of 'request' or 'response' parameters must be provided") {
 		t.Fatalf("expected request/response presence error, got %v", err)
 	}
@@ -146,7 +146,7 @@ func TestAzureContentSafetyPolicy_GetPolicy_Errors(t *testing.T) {
 			"showAssessment": "true",
 		},
 	}
-	_, err = GetPolicyV2(policyv1alpha2.PolicyMetadata{}, badReq)
+	_, err = GetPolicy(policy.PolicyMetadata{}, badReq)
 	if err == nil || !strings.Contains(err.Error(), "invalid request parameters") {
 		t.Fatalf("expected invalid request parameters error, got %v", err)
 	}
@@ -162,7 +162,7 @@ func TestAzureContentSafetyPolicy_OnRequest_NoRequestConfig_NoOp(t *testing.T) {
 	})
 
 	action := p.OnRequestBody(azureRequestContext(`{"message":"hello"}`), nil)
-	if _, ok := action.(policyv1alpha2.UpstreamRequestModifications); !ok {
+	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
 }
@@ -177,7 +177,7 @@ func TestAzureContentSafetyPolicy_OnResponse_NoResponseConfig_NoOp(t *testing.T)
 	})
 
 	action := p.OnResponseBody(azureResponseContext(`{"message":"hello"}`), nil)
-	if _, ok := action.(policyv1alpha2.DownstreamResponseModifications); !ok {
+	if _, ok := action.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", action)
 	}
 }
@@ -195,7 +195,7 @@ func TestAzureContentSafetyPolicy_NoValidCategories_PassThrough(t *testing.T) {
 	})
 
 	action := p.OnRequestBody(azureRequestContext(`{"message":"hello"}`), nil)
-	if _, ok := action.(policyv1alpha2.UpstreamRequestModifications); !ok {
+	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected pass-through when no valid categories, got %T", action)
 	}
 }
@@ -210,7 +210,7 @@ func TestAzureContentSafetyPolicy_JSONPathError_PassthroughBehavior(t *testing.T
 		},
 	})
 	a1 := pPass.OnRequestBody(azureRequestContext(`{"message":"hello"}`), nil)
-	if _, ok := a1.(policyv1alpha2.UpstreamRequestModifications); !ok {
+	if _, ok := a1.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected pass-through for jsonPath error when passthrough enabled, got %T", a1)
 	}
 
@@ -247,7 +247,7 @@ func TestAzureContentSafetyPolicy_APICallError_PassthroughBehavior(t *testing.T)
 		},
 	})
 	a1 := pPass.OnRequestBody(azureRequestContext(`{"message":"hello"}`), nil)
-	if _, ok := a1.(policyv1alpha2.UpstreamRequestModifications); !ok {
+	if _, ok := a1.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected pass-through on API error when passthrough enabled, got %T", a1)
 	}
 
@@ -282,7 +282,7 @@ func TestAzureContentSafetyPolicy_APISuccess_NoViolation(t *testing.T) {
 		},
 	})
 	action := p.OnRequestBody(azureRequestContext(`{"messages":"hello"}`), nil)
-	if _, ok := action.(policyv1alpha2.UpstreamRequestModifications); !ok {
+	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications on non-violation, got %T", action)
 	}
 }
@@ -330,7 +330,7 @@ func TestAzureContentSafetyPolicy_APIViolation_RequestAndResponse(t *testing.T) 
 
 func mustGetAzurePolicy(t *testing.T, params map[string]interface{}) *AzureContentSafetyContentModerationPolicy {
 	t.Helper()
-	p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, params)
+	p, err := GetPolicy(policy.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("failed to create policy: %v", err)
 	}
@@ -357,35 +357,35 @@ func azureMockServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	}))
 }
 
-func azureRequestContext(body string) *policyv1alpha2.RequestContext {
-	return &policyv1alpha2.RequestContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+func azureRequestContext(body string) *policy.RequestContext {
+	return &policy.RequestContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-id",
 			Metadata:  map[string]interface{}{},
 		},
-		Body: &policyv1alpha2.Body{
+		Body: &policy.Body{
 			Content: []byte(body),
 			Present: body != "",
 		},
 	}
 }
 
-func azureResponseContext(body string) *policyv1alpha2.ResponseContext {
-	return &policyv1alpha2.ResponseContext{
-		SharedContext: &policyv1alpha2.SharedContext{
+func azureResponseContext(body string) *policy.ResponseContext {
+	return &policy.ResponseContext{
+		SharedContext: &policy.SharedContext{
 			RequestID: "req-id",
 			Metadata:  map[string]interface{}{},
 		},
-		ResponseBody: &policyv1alpha2.Body{
+		ResponseBody: &policy.Body{
 			Content: []byte(body),
 			Present: body != "",
 		},
 	}
 }
 
-func assertAzureRequestError(t *testing.T, action policyv1alpha2.RequestAction, expectAssessments bool, wantDirection string) map[string]interface{} {
+func assertAzureRequestError(t *testing.T, action policy.RequestAction, expectAssessments bool, wantDirection string) map[string]interface{} {
 	t.Helper()
-	resp, ok := action.(policyv1alpha2.ImmediateResponse)
+	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -397,9 +397,9 @@ func assertAzureRequestError(t *testing.T, action policyv1alpha2.RequestAction, 
 	return body
 }
 
-func assertAzureResponseError(t *testing.T, action policyv1alpha2.ResponseAction, expectAssessments bool, wantDirection string) map[string]interface{} {
+func assertAzureResponseError(t *testing.T, action policy.ResponseAction, expectAssessments bool, wantDirection string) map[string]interface{} {
 	t.Helper()
-	resp, ok := action.(policyv1alpha2.DownstreamResponseModifications)
+	resp, ok := action.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", action)
 	}
