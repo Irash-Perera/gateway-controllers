@@ -1,10 +1,10 @@
 module github.com/wso2/gateway-controllers/policies/semantic-cache
 
-go 1.25.7
+go 1.26.1
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/wso2/api-platform/sdk v0.4.5
+	github.com/wso2/api-platform/sdk/ai v0.1.1
 	github.com/wso2/api-platform/sdk/core v0.1.0
 )
 
@@ -47,6 +47,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
+	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/milvus-io/milvus-proto/go-api/v2 v2.6.8 // indirect
 	github.com/milvus-io/milvus/client/v2 v2.6.2 // indirect
 	github.com/milvus-io/milvus/pkg/v2 v2.6.8 // indirect

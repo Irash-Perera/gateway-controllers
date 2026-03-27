@@ -26,8 +26,7 @@ import (
 	"strings"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
-	utils "github.com/wso2/api-platform/sdk/utils"
+	utils "github.com/wso2/api-platform/sdk/core/utils"
 )
 
 const (
@@ -69,26 +68,11 @@ type WordCountGuardrailPolicyParams struct {
 	ShowAssessment    bool
 }
 
-// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
-// The returned concrete type also satisfies policyv1alpha2 phase interfaces
-// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
-// can discover those capabilities via type assertions even when using this factory.
-func GetPolicy(
-	metadata policy.PolicyMetadata,
-	params map[string]interface{},
-) (policy.Policy, error) {
-	return newPolicy(params)
-}
-
 // GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
 func GetPolicyV2(
 	metadata policyv1alpha2.PolicyMetadata,
 	params map[string]interface{},
 ) (policyv1alpha2.Policy, error) {
-	return newPolicy(params)
-}
-
-func newPolicy(params map[string]interface{}) (*WordCountGuardrailPolicy, error) {
 	p := &WordCountGuardrailPolicy{}
 
 	requestParamsRaw, hasRequest, err := getFlowParams(params, "request")
@@ -268,90 +252,14 @@ func extractInt(value interface{}) (int, error) {
 	}
 }
 
-// Mode returns the processing mode for this policy
-func (p *WordCountGuardrailPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeStream,
+// Mode returns the processing mode for this policy.
+func (p *WordCountGuardrailPolicy) Mode() policyv1alpha2.ProcessingMode {
+	return policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha2.BodyModeStream,
 	}
-}
-
-// OnRequest validates request body word count
-func (p *WordCountGuardrailPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
-	if !p.hasRequestParams || !p.requestParams.Enabled {
-		return policy.UpstreamRequestModifications{}
-	}
-
-	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
-	}
-	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
-}
-
-// OnResponse validates response body word count
-func (p *WordCountGuardrailPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
-	if !p.hasResponseParams || !p.responseParams.Enabled {
-		return policy.UpstreamResponseModifications{}
-	}
-
-	var content []byte
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
-	}
-	return p.validatePayload(content, p.responseParams, true).(policy.ResponseAction)
-}
-
-// validatePayload validates payload word count
-func (p *WordCountGuardrailPolicy) validatePayload(payload []byte, params WordCountGuardrailPolicyParams, isResponse bool) interface{} {
-	// Extract value using JSONPath
-	extractedValue, err := extractStringFromJSONPath(payload, params.JsonPath)
-	if err != nil {
-		slog.Debug("WordCountGuardrail: Error extracting value from JSONPath", "jsonPath", params.JsonPath, "error", err, "isResponse", isResponse)
-		return p.buildErrorResponse("Error extracting value from JSONPath", err, isResponse, params.ShowAssessment, params.Min, params.Max)
-	}
-
-	// Clean and trim
-	extractedValue = textCleanRegexCompiled.ReplaceAllString(extractedValue, "")
-	extractedValue = strings.TrimSpace(extractedValue)
-
-	// Split into words and count non-empty
-	words := wordSplitRegexCompiled.Split(extractedValue, -1)
-	wordCount := 0
-	for _, w := range words {
-		if w != "" {
-			wordCount++
-		}
-	}
-
-	// Check if within range
-	isWithinRange := wordCount >= params.Min && wordCount <= params.Max
-
-	var validationPassed bool
-	if params.Invert {
-		validationPassed = !isWithinRange // Inverted: pass if NOT in range
-	} else {
-		validationPassed = isWithinRange // Normal: pass if in range
-	}
-
-	if !validationPassed {
-		slog.Debug("WordCountGuardrail: Validation failed", "wordCount", wordCount, "min", params.Min, "max", params.Max, "invert", params.Invert, "isResponse", isResponse)
-		var reason string
-		if params.Invert {
-			reason = fmt.Sprintf("word count %d is within the excluded range %d-%d words", wordCount, params.Min, params.Max)
-		} else {
-			reason = fmt.Sprintf("word count %d is outside the allowed range %d-%d words", wordCount, params.Min, params.Max)
-		}
-		return p.buildErrorResponse(reason, nil, isResponse, params.ShowAssessment, params.Min, params.Max)
-	}
-
-	slog.Debug("WordCountGuardrail: Validation passed", "wordCount", wordCount, "min", params.Min, "max", params.Max, "isResponse", isResponse)
-	if isResponse {
-		return policy.UpstreamResponseModifications{}
-	}
-	return policy.UpstreamRequestModifications{}
 }
 
 func extractStringFromJSONPath(payload []byte, jsonPath string) (string, error) {
@@ -418,40 +326,6 @@ func normalizeExtractedValue(value interface{}) (string, error) {
 		return strings.Join(parts, " "), nil
 	default:
 		return "", fmt.Errorf("value at JSONPath is not a supported type")
-	}
-}
-
-// buildErrorResponse builds an error response for both request and response phases
-func (p *WordCountGuardrailPolicy) buildErrorResponse(reason string, validationError error, isResponse bool, showAssessment bool, min, max int) interface{} {
-	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, min, max)
-
-	responseBody := map[string]interface{}{
-		"type":    "WORD_COUNT_GUARDRAIL",
-		"message": assessment,
-	}
-
-	bodyBytes, err := json.Marshal(responseBody)
-	if err != nil {
-		bodyBytes = []byte(`{"type":"WORD_COUNT_GUARDRAIL","message":"Internal error"}`)
-	}
-
-	if isResponse {
-		statusCode := GuardrailErrorCode
-		return policy.UpstreamResponseModifications{
-			StatusCode: &statusCode,
-			Body:       bodyBytes,
-			SetHeaders: map[string]string{
-				"Content-Type": "application/json",
-			},
-		}
-	}
-
-	return policy.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-		},
-		Body: bodyBytes,
 	}
 }
 

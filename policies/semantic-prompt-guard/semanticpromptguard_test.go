@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	embeddingproviders "github.com/wso2/api-platform/sdk/utils/embeddingproviders"
+	embeddingproviders "github.com/wso2/api-platform/sdk/ai/embeddings"
 )
 
 type mockEmbeddingProvider struct {

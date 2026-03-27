@@ -30,8 +30,7 @@ import (
 	"time"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
-	utils "github.com/wso2/api-platform/sdk/utils"
+	utils "github.com/wso2/api-platform/sdk/core/utils"
 )
 
 // TODO
@@ -74,14 +73,11 @@ type AzureContentSafetyPolicyParams struct {
 	ViolenceSeverityThreshold int
 }
 
-// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
-// The returned concrete type also satisfies policyv1alpha2 phase interfaces
-// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
-// can discover those capabilities via type assertions even when using this factory.
-func GetPolicy(
-	metadata policy.PolicyMetadata,
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha2.Policy, error) {
 	// Validate and extract static configuration from params
 	if err := validateAzureConfigParams(params); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -123,20 +119,6 @@ func GetPolicy(
 	slog.Debug("AzureContentSafety: Policy initialized", "endpoint", p.endpoint, "hasRequestParams", p.hasRequestParams, "hasResponseParams", p.hasResponseParams)
 
 	return p, nil
-}
-
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
-	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
-	return GetPolicy(policy.PolicyMetadata{
-		RouteName:  metadata.RouteName,
-		APIId:      metadata.APIId,
-		APIName:    metadata.APIName,
-		APIVersion: metadata.APIVersion,
-		AttachedTo: policy.Level(metadata.AttachedTo),
-	}, params)
 }
 
 // parseRequestResponseParams parses and validates request/response parameters from map to struct
@@ -276,39 +258,13 @@ func validateAzureConfigParams(params map[string]interface{}) error {
 }
 
 // Mode returns the processing mode for this policy
-func (p *AzureContentSafetyContentModerationPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeStream,
+func (p *AzureContentSafetyContentModerationPolicy) Mode() policyv1alpha2.ProcessingMode {
+	return policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha2.BodyModeStream,
 	}
-}
-
-// OnRequest validates request body content
-func (p *AzureContentSafetyContentModerationPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
-	if !p.hasRequestParams {
-		return policy.UpstreamRequestModifications{}
-	}
-
-	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
-	}
-	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
-}
-
-// OnResponse validates response body content
-func (p *AzureContentSafetyContentModerationPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
-	if !p.hasResponseParams {
-		return policy.UpstreamResponseModifications{}
-	}
-
-	var content []byte
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
-	}
-	return p.validatePayload(content, p.responseParams, true).(policy.ResponseAction)
 }
 
 // OnRequestBody validates request body content
@@ -335,83 +291,6 @@ func (p *AzureContentSafetyContentModerationPolicy) OnResponseBody(ctx *policyv1
 		content = ctx.ResponseBody.Content
 	}
 	return p.validatePayloadV2(content, p.responseParams, true).(policyv1alpha2.ResponseAction)
-}
-
-// validatePayload validates payload against Azure Content Safety
-func (p *AzureContentSafetyContentModerationPolicy) validatePayload(payload []byte, params AzureContentSafetyPolicyParams, isResponse bool) interface{} {
-	// Build category thresholds from params
-	categoryMap := p.buildCategoryMap(params)
-	categories := p.getValidCategories(categoryMap)
-
-	if len(categories) == 0 {
-		slog.Debug("AzureContentSafety: No valid categories configured, passing through", "isResponse", isResponse)
-		// No valid categories, pass through
-		if isResponse {
-			return policy.UpstreamResponseModifications{}
-		}
-		return policy.UpstreamRequestModifications{}
-	}
-
-	if payload == nil {
-		if isResponse {
-			return policy.UpstreamResponseModifications{}
-		}
-		return policy.UpstreamRequestModifications{}
-	}
-
-	// Extract value using JSONPath
-	extractedValue, err := utils.ExtractStringValueFromJsonpath(payload, params.JsonPath)
-	if err != nil {
-		if params.PassthroughOnError {
-			slog.Debug("AzureContentSafety: JSONPath extraction error, passthrough enabled", "jsonPath", params.JsonPath, "error", err, "isResponse", isResponse)
-			if isResponse {
-				return policy.UpstreamResponseModifications{}
-			}
-			return policy.UpstreamRequestModifications{}
-		}
-		slog.Debug("AzureContentSafety: Error extracting value from JSONPath", "jsonPath", params.JsonPath, "error", err, "isResponse", isResponse)
-		return p.buildErrorResponse("Error extracting value from JSONPath", err, isResponse, params.ShowAssessment, nil, "")
-	}
-
-	// Clean and trim
-	extractedValue = textCleanRegexCompiled.ReplaceAllString(extractedValue, "")
-	extractedValue = strings.TrimSpace(extractedValue)
-
-	// Call Azure Content Safety API
-	categoriesAnalysis, err := p.callAzureContentSafetyAPI(p.endpoint, p.apiKey, extractedValue, categories)
-	if err != nil {
-		if params.PassthroughOnError {
-			slog.Debug("AzureContentSafety: API call error, passthrough enabled", "error", err, "isResponse", isResponse)
-			if isResponse {
-				return policy.UpstreamResponseModifications{}
-			}
-			return policy.UpstreamRequestModifications{}
-		}
-		slog.Debug("AzureContentSafety: Error calling Azure Content Safety API", "error", err, "isResponse", isResponse)
-		return p.buildErrorResponse("Error calling Azure Content Safety API", err, isResponse, params.ShowAssessment, nil, "")
-	}
-
-	// Check for violations
-	for _, analysis := range categoriesAnalysis {
-		category, _ := analysis["category"].(string)
-		severityFloat, _ := analysis["severity"].(float64)
-		severity := int(severityFloat)
-		threshold := categoryMap[category]
-
-		if threshold >= 0 && severity >= threshold {
-			slog.Debug("AzureContentSafety: Violation detected", "category", category, "severity", severity, "threshold", threshold, "isResponse", isResponse)
-			// Violation detected
-			return p.buildErrorResponse("Violation of Azure content safety content moderation detected", nil, isResponse, params.ShowAssessment, categoriesAnalysis, extractedValue)
-		}
-	}
-
-	slog.Debug("AzureContentSafety: Validation passed", "categoryCount", len(categoriesAnalysis), "isResponse", isResponse)
-
-	// No violations, continue
-	if isResponse {
-		return policy.UpstreamResponseModifications{}
-	}
-	return policy.UpstreamRequestModifications{}
 }
 
 // validatePayloadV2 validates payload against Azure Content Safety, returning policyv1alpha2 actions.
@@ -649,40 +528,6 @@ func (p *AzureContentSafetyContentModerationPolicy) makeHTTPRequest(method, url 
 	}
 
 	return resp, nil
-}
-
-// buildErrorResponse builds an error response for both request and response phases
-func (p *AzureContentSafetyContentModerationPolicy) buildErrorResponse(reason string, validationError error, isResponse bool, showAssessment bool, categoriesAnalysis []map[string]interface{}, inspectedContent string) interface{} {
-	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, categoriesAnalysis, inspectedContent)
-
-	responseBody := map[string]interface{}{
-		"type":    "AZURE_CONTENT_SAFETY_CONTENT_MODERATION",
-		"message": assessment,
-	}
-
-	bodyBytes, err := json.Marshal(responseBody)
-	if err != nil {
-		bodyBytes = []byte(`{"type":"AZURE_CONTENT_SAFETY_CONTENT_MODERATION","message":"Internal error"}`)
-	}
-
-	if isResponse {
-		statusCode := GuardrailErrorCode
-		return policy.UpstreamResponseModifications{
-			StatusCode: &statusCode,
-			Body:       bodyBytes,
-			SetHeaders: map[string]string{
-				"Content-Type": "application/json",
-			},
-		}
-	}
-
-	return policy.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-		},
-		Body: bodyBytes,
-	}
 }
 
 // buildAssessmentObject builds the assessment object

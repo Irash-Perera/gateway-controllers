@@ -23,7 +23,6 @@ import (
 	"sync"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 const (
@@ -52,14 +51,11 @@ var (
 	instanceErr  error
 )
 
-// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
-// The returned concrete type also satisfies policyv1alpha2 phase interfaces
-// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
-// can discover those capabilities via type assertions even when using this factory.
-func GetPolicy(
-	_ policy.PolicyMetadata,
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	_ policyv1alpha2.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha2.Policy, error) {
 	instanceOnce.Do(func() {
 		pricingFile, _ := params["pricing_file"].(string)
 		if pricingFile == "" {
@@ -77,123 +73,16 @@ func GetPolicy(
 	return instance, instanceErr
 }
 
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
-	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
-	return GetPolicy(policy.PolicyMetadata{
-		RouteName:  metadata.RouteName,
-		APIId:      metadata.APIId,
-		APIName:    metadata.APIName,
-		APIVersion: metadata.APIVersion,
-		AttachedTo: policy.Level(metadata.AttachedTo),
-	}, params)
-}
-
 // Mode declares the SDK processing requirements:
 //   - RequestBodyMode=Buffer: buffer the request so ctx.RequestBody is available
-//     in OnResponse (needed for Anthropic speed parameter).
+//     in OnResponseBody (needed for Anthropic speed parameter).
 //   - ResponseBodyMode=Buffer: buffer the full response body so we can parse
 //     the usage object and model name.
-func (p *LLMCostPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestBodyMode:  policy.BodyModeBuffer,
-		ResponseBodyMode: policy.BodyModeBuffer,
+func (p *LLMCostPolicy) Mode() policyv1alpha2.ProcessingMode {
+	return policyv1alpha2.ProcessingMode{
+		RequestBodyMode:  policyv1alpha2.BodyModeBuffer,
+		ResponseBodyMode: policyv1alpha2.BodyModeBuffer,
 	}
-}
-
-// OnRequest is a no-op — all work is done in OnResponse.
-func (p *LLMCostPolicy) OnRequest(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
-	return policy.UpstreamRequestModifications{}
-}
-
-// OnResponse reads the LLM response, looks up model pricing, calculates cost,
-// and stores the result in SharedContext.Metadata.
-func (p *LLMCostPolicy) OnResponse(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
-	if ctx.ResponseBody == nil || !ctx.ResponseBody.Present || len(ctx.ResponseBody.Content) == 0 {
-		slog.Warn("llm-cost: empty or missing response body, skipping cost calculation")
-		return setCostMetadata(ctx, 0.0, costStatusNotCalculated)
-	}
-
-	responseBody := ctx.ResponseBody.Content
-
-	// Extract model name from response body.
-	// OpenAI-compatible providers use $.model; Gemini uses $.modelVersion.
-	var probe struct {
-		Model        string `json:"model"`
-		ModelVersion string `json:"modelVersion"`
-	}
-	if err := json.Unmarshal(responseBody, &probe); err != nil {
-		slog.Warn("llm-cost: could not parse response body", "error", err)
-		return setCostMetadata(ctx, 0.0, costStatusNotCalculated)
-	}
-	modelName := probe.Model
-	if modelName == "" {
-		modelName = probe.ModelVersion
-	}
-	if modelName == "" {
-		slog.Warn("llm-cost: no model name found in response body ($.model or $.modelVersion)")
-		return setCostMetadata(ctx, 0.0, costStatusNotCalculated)
-	}
-
-	// Look up pricing entry.
-	pricing, found := lookupPricing(p.pricingMap, modelName)
-	if !found {
-		slog.Warn("llm-cost: no pricing entry for model, setting cost to 0", "model", modelName)
-		return setCostMetadata(ctx, 0.0, costStatusNotCalculated)
-	}
-
-	// Select provider calculator.
-	calc := selectCalculator(pricing.Provider)
-	if calc == nil {
-		slog.Warn("llm-cost: unsupported provider, skipping cost calculation", "provider", pricing.Provider, "model", modelName)
-		return setCostMetadata(ctx, 0.0, costStatusNotCalculated)
-	}
-
-	// Get buffered request body (may be nil for providers that don't need it).
-	var requestBody []byte
-	if ctx.RequestBody != nil && ctx.RequestBody.Present {
-		requestBody = ctx.RequestBody.Content
-	}
-
-	// Normalize provider-specific usage fields into our common Usage struct.
-	usage, err := calc.Normalize(responseBody, requestBody)
-	if err != nil {
-		slog.Warn("llm-cost: failed to normalize usage", "model", modelName, "error", err)
-		return setCostMetadata(ctx, 0.0, costStatusNotCalculated)
-	}
-
-	// Calculate base cost using the provider-agnostic generic calculator.
-	baseCost := genericCalculateCost(usage, pricing)
-
-	// Apply provider-specific adjustments (geo/speed multipliers, router flat cost, etc.).
-	finalCost := calc.Adjust(baseCost, usage, pricing)
-
-	slog.Debug("llm-cost: calculated cost",
-		"model", modelName,
-		"provider", pricing.Provider,
-		"prompt_tokens", usage.PromptTokens,
-		"completion_tokens", usage.CompletionTokens,
-		"cost_usd", finalCost,
-	)
-
-	return setCostMetadata(ctx, finalCost, costStatusCalculated)
-}
-
-// setCostMetadata writes x-llm-cost and x-llm-cost-status into SharedContext.Metadata
-// so downstream policies can read the cost without it being exposed as a response header.
-func setCostMetadata(ctx *policy.ResponseContext, costUSD float64, status string) policy.ResponseAction {
-	if ctx.SharedContext == nil {
-		slog.Warn("llm-cost: SharedContext is nil, cannot set cost metadata")
-		return policy.UpstreamResponseModifications{}
-	}
-	if ctx.SharedContext.Metadata == nil {
-		ctx.SharedContext.Metadata = make(map[string]interface{})
-	}
-	ctx.SharedContext.Metadata[MetadataLLMCost] = fmt.Sprintf("%.10f", costUSD)
-	ctx.SharedContext.Metadata[MetadataLLMCostStatus] = status
-	return policy.UpstreamResponseModifications{}
 }
 
 // OnResponseBody reads the LLM response, looks up model pricing, calculates cost,

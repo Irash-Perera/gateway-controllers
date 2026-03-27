@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 func newBasicRequestHeaderContext(headers map[string][]string) *policyv1alpha2.RequestHeaderContext {
@@ -254,58 +253,6 @@ func TestBasicAuthPolicy_OnRequestHeaders_InvalidConfig_NoPassword(t *testing.T)
 	}
 	if resp.StatusCode != 500 {
 		t.Errorf("expected status 500 for invalid config, got %d", resp.StatusCode)
-	}
-}
-
-// TestBasicAuthPolicy_AuthContext_PreviousPreserved_OnSuccess tests the v1alpha helper
-// that chains AuthContext entries.
-func TestBasicAuthPolicy_AuthContext_PreviousPreserved_OnSuccess(t *testing.T) {
-	p := &BasicAuthPolicy{}
-	prior := &policy.AuthContext{Authenticated: true, AuthType: "other"}
-	ctx := &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
-			RequestID: "req-1",
-			Metadata:  map[string]interface{}{},
-		},
-		Headers: policy.NewHeaders(nil),
-		Method:  "GET",
-		Path:    "/api/resource",
-	}
-	ctx.SharedContext.AuthContext = prior
-
-	p.handleAuthSuccess(ctx, "alice")
-
-	if ctx.SharedContext.AuthContext == nil {
-		t.Fatal("Expected AuthContext to be set")
-	}
-	if ctx.SharedContext.AuthContext.Previous != prior {
-		t.Errorf("Expected Previous to point to prior AuthContext, got %v", ctx.SharedContext.AuthContext.Previous)
-	}
-}
-
-// TestBasicAuthPolicy_AuthContext_PreviousPreserved_OnFailure tests the v1alpha helper
-// that chains AuthContext entries on failure.
-func TestBasicAuthPolicy_AuthContext_PreviousPreserved_OnFailure(t *testing.T) {
-	p := &BasicAuthPolicy{}
-	prior := &policy.AuthContext{Authenticated: true, AuthType: "other"}
-	ctx := &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
-			RequestID: "req-1",
-			Metadata:  map[string]interface{}{},
-		},
-		Headers: policy.NewHeaders(nil),
-		Method:  "GET",
-		Path:    "/api/resource",
-	}
-	ctx.SharedContext.AuthContext = prior
-
-	p.handleAuthFailure(ctx, false, "Restricted", "invalid credentials")
-
-	if ctx.SharedContext.AuthContext == nil {
-		t.Fatal("Expected AuthContext to be set")
-	}
-	if ctx.SharedContext.AuthContext.Previous != prior {
-		t.Errorf("Expected Previous to point to prior AuthContext, got %v", ctx.SharedContext.AuthContext.Previous)
 	}
 }
 

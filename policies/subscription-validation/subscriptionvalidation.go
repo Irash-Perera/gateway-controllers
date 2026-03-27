@@ -10,8 +10,7 @@ import (
 	"time"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
-	policyenginev1 "github.com/wso2/api-platform/sdk/gateway/policyengine/v1"
+	policyenginev1 "github.com/wso2/api-platform/sdk/core/policyengine"
 )
 
 const (
@@ -66,36 +65,6 @@ func init() {
 	go runRateLimitCleaner()
 }
 
-// getCookieValue parses the Cookie header and returns the value for the given cookie name.
-// Returns empty string if the cookie is not found or Cookie header is missing.
-func getCookieValue(headers *policy.Headers, name string) string {
-	if headers == nil || name == "" {
-		return ""
-	}
-	vals := headers.Get("Cookie")
-	if len(vals) == 0 {
-		return ""
-	}
-	// Cookie header format: "name1=value1; name2=value2"
-	for _, raw := range vals {
-		for _, part := range strings.Split(raw, ";") {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
-			idx := strings.Index(part, "=")
-			if idx < 0 {
-				continue
-			}
-			cookieName := strings.TrimSpace(part[:idx])
-			if strings.EqualFold(cookieName, name) {
-				return strings.TrimSpace(part[idx+1:])
-			}
-		}
-	}
-	return ""
-}
-
 // runRateLimitCleaner periodically evicts stale entries from the shared rateLimits map.
 func runRateLimitCleaner() {
 	ticker := time.NewTicker(rateLimitCleanupInterval)
@@ -112,12 +81,11 @@ func runRateLimitCleaner() {
 	}
 }
 
-// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
-// TODO: add GetPolicyV2 once this module is upgraded to sdk v0.4.5+ (ProcessingMode type alias required).
-func GetPolicy(
-	metadata policy.PolicyMetadata,
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha2.Policy, error) {
 	p := &SubscriptionValidationPolicy{
 		cfg:         mergeConfig(ins.cfg, params),
 		store:       ins.store,
@@ -150,162 +118,13 @@ func mergeConfig(base PolicyConfig, params map[string]interface{}) PolicyConfig 
 }
 
 // Mode returns the processing mode for this policy.
-func (p *SubscriptionValidationPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess,
-		RequestBodyMode:    policy.BodyModeSkip,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeSkip,
+func (p *SubscriptionValidationPolicy) Mode() policyv1alpha2.ProcessingMode {
+	return policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess,
+		RequestBodyMode:    policyv1alpha2.BodyModeSkip,
+		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,
 	}
-}
-
-// OnRequest validates the subscription (token-first, appId-fallback)
-// and enforces plan-based rate limiting when applicable.
-func (p *SubscriptionValidationPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
-	if ctx == nil || ctx.SharedContext == nil {
-		return p.forbiddenResponse("request context is missing")
-	}
-
-	apiID := ctx.SharedContext.APIId
-	if strings.TrimSpace(apiID) == "" {
-		slog.Error("subscriptionValidation: APIId is empty in SharedContext; failing validation")
-		return p.forbiddenResponse("API id is missing")
-	}
-
-	if p.store == nil {
-		slog.Error("subscriptionValidation: subscription store is not initialized")
-		return p.forbiddenResponse("subscription store is not available")
-	}
-
-	// Path 1: Check Subscription-Key header (token-based, primary)
-	if ctx.Headers != nil {
-		headerValues := ctx.Headers.Get(p.cfg.SubscriptionKeyHeader)
-		if len(headerValues) > 0 {
-			token := strings.TrimSpace(headerValues[0])
-			if token != "" {
-				if action := p.validateByToken(apiID, token); action != nil {
-					return action
-				}
-				return policy.UpstreamRequestModifications{
-					RemoveHeaders: []string{normalizeHeaderName(p.cfg.SubscriptionKeyHeader)},
-				}
-			}
-		}
-		// Path 1b: Check subscription key cookie if configured
-		if p.cfg.SubscriptionKeyCookie != "" {
-			if token := getCookieValue(ctx.Headers, p.cfg.SubscriptionKeyCookie); token != "" {
-				if action := p.validateByToken(apiID, token); action != nil {
-					return action
-				}
-
-				cookieValues := ctx.Headers.Get("Cookie")
-				updated, removed := stripCookie(cookieValues, p.cfg.SubscriptionKeyCookie)
-				if removed {
-					if updated == "" {
-						return policy.UpstreamRequestModifications{RemoveHeaders: []string{"cookie"}}
-					}
-					return policy.UpstreamRequestModifications{SetHeaders: map[string]string{"cookie": updated}}
-				}
-
-				// Token came from cookie lookup, but we couldn't safely strip it; fail open on stripping only.
-				return policy.UpstreamRequestModifications{}
-			}
-		}
-	}
-
-	// Path 2: Fallback to application ID from auth metadata (legacy)
-	metadata := ctx.SharedContext.Metadata
-	if metadata != nil {
-		if rawAppID, ok := metadata[applicationIDMetadataKey]; ok {
-			appID := strings.TrimSpace(fmt.Sprint(rawAppID))
-			if appID != "" {
-				return p.validateByApplication(apiID, appID)
-			}
-		}
-	}
-
-	// Neither token nor application ID was provided
-	return p.forbiddenResponse("no subscription token or application identity provided")
-}
-
-// validateByToken checks the token against the store, then enforces rate limits.
-// The store uses hashed tokens; we hash the incoming token before lookup.
-func (p *SubscriptionValidationPolicy) validateByToken(apiID, token string) policy.RequestAction {
-	hashedToken := policyenginev1.HashSubscriptionToken(token)
-	active, entry := p.store.IsActiveByToken(apiID, hashedToken)
-	if !active {
-		slog.Info("subscriptionValidation: no active subscription found (token)",
-			"apiId", apiID)
-		return p.forbiddenResponse("")
-	}
-
-	if entry != nil && entry.ThrottleLimitCount > 0 && entry.ThrottleLimitUnit != "" {
-		if blocked := p.checkRateLimit(apiID, token, entry); blocked != nil {
-			return blocked
-		}
-	}
-
-	return nil
-}
-
-// validateByApplication checks the application ID against the store, then enforces rate limits.
-// This is the legacy path; it now recovers quota/throttle metadata from the store.
-func (p *SubscriptionValidationPolicy) validateByApplication(apiID, appID string) policy.RequestAction {
-	active, entry := p.store.IsActiveByApplication(apiID, appID)
-	if !active {
-		slog.Info("subscriptionValidation: no active subscription found (appId fallback)",
-			"apiId", apiID,
-			"applicationId", appID)
-		return p.forbiddenResponse("")
-	}
-
-	if entry != nil && entry.ThrottleLimitCount > 0 && entry.ThrottleLimitUnit != "" {
-		if blocked := p.checkRateLimit(apiID, appID, entry); blocked != nil {
-			return blocked
-		}
-	}
-
-	return nil
-}
-
-// checkRateLimit enforces the plan's throttle limit for the given token.
-func (p *SubscriptionValidationPolicy) checkRateLimit(apiID, token string, entry *policyenginev1.SubscriptionEntry) policy.RequestAction {
-	window := windowDuration(entry.ThrottleLimitUnit)
-	if window == 0 {
-		return nil
-	}
-
-	key := apiID + ":" + token
-	now := time.Now()
-
-	p.rateLimitMu.Lock()
-	rl, exists := p.rateLimits[key]
-	if !exists || now.Sub(rl.windowStart) >= window {
-		p.rateLimits[key] = &rateLimitEntry{windowStart: now, count: 1, lastSeen: now}
-		p.rateLimitMu.Unlock()
-		return nil
-	}
-
-	rl.count++
-	rl.lastSeen = now
-	exceeded := rl.count > entry.ThrottleLimitCount
-	resetAt := rl.windowStart.Add(window)
-	limit := entry.ThrottleLimitCount
-	remaining := limit - rl.count
-	if remaining < 0 {
-		remaining = 0
-	}
-	p.rateLimitMu.Unlock()
-
-	if exceeded {
-		if entry.StopOnQuotaReach {
-			return p.rateLimitResponse(limit, remaining, resetAt, window)
-		}
-		slog.Warn("subscriptionValidation: quota exceeded but stopOnQuotaReach is false, allowing",
-			"apiId", apiID)
-	}
-
-	return nil
 }
 
 // windowDuration converts a throttle unit string to a time.Duration.
@@ -321,84 +140,6 @@ func windowDuration(unit string) time.Duration {
 		return 30 * 24 * time.Hour
 	default:
 		return 0
-	}
-}
-
-// OnResponse is a no-op for this policy.
-func (p *SubscriptionValidationPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
-	return nil
-}
-
-// forbiddenResponse constructs an ImmediateResponse with status 403.
-func (p *SubscriptionValidationPolicy) forbiddenResponse(detail string) policy.RequestAction {
-	message := forbiddenMessage
-	if detail != "" {
-		message = fmt.Sprintf("%s: %s", message, detail)
-	}
-
-	payload := map[string]string{
-		"error":   "forbidden",
-		"message": message,
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		body = []byte(`{"error":"forbidden","message":"subscription validation failed"}`)
-	}
-
-	return policy.ImmediateResponse{
-		StatusCode: forbiddenStatusCode,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-		},
-		Body: body,
-	}
-}
-
-// rateLimitResponse constructs a 429 Too Many Requests response.
-func (p *SubscriptionValidationPolicy) rateLimitResponse(limit, remaining int, resetAt time.Time, window time.Duration) policy.RequestAction {
-	payload := map[string]interface{}{
-		"error":   "rate_limit_exceeded",
-		"message": fmt.Sprintf("Subscription quota exceeded: %d requests per %s", limit, entryThrottleUnitString(window)),
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		body = []byte(`{"error":"rate_limit_exceeded","message":"subscription quota exceeded"}`)
-	}
-
-	resetUnix := resetAt.Unix()
-	resetSeconds := int64(time.Until(resetAt).Seconds())
-	if resetSeconds < 0 {
-		resetSeconds = 0
-	}
-	retryAfterSeconds := resetSeconds
-	if retryAfterSeconds < 1 {
-		retryAfterSeconds = 1
-	}
-	windowSeconds := int64(window.Seconds())
-	if windowSeconds < 1 {
-		windowSeconds = 1
-	}
-	policyValue := fmt.Sprintf("%d;w=%d", limit, windowSeconds)
-
-	return policy.ImmediateResponse{
-		StatusCode: 429,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-			// X-RateLimit-* (de facto standard)
-			"X-RateLimit-Limit":            strconv.Itoa(limit),
-			"X-RateLimit-Remaining":        strconv.Itoa(remaining),
-			"X-RateLimit-Reset":            strconv.FormatInt(resetUnix, 10),
-			"X-RateLimit-Full-Quota-Reset": strconv.FormatInt(resetUnix, 10),
-			// RateLimit-* (IETF draft)
-			"RateLimit-Limit":            strconv.Itoa(limit),
-			"RateLimit-Remaining":        strconv.Itoa(remaining),
-			"RateLimit-Reset":            strconv.FormatInt(resetSeconds, 10),
-			"RateLimit-Full-Quota-Reset": strconv.FormatInt(resetSeconds, 10),
-			"RateLimit-Policy":           policyValue,
-			// RFC 7231
-			"Retry-After": strconv.FormatInt(retryAfterSeconds, 10),
-		},
-		Body: body,
 	}
 }
 

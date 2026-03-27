@@ -24,21 +24,9 @@ import (
 	"strings"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 var ins = &AnalyticsHeaderFilterPolicy{}
-
-// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
-// The returned concrete type also satisfies policyv1alpha2 phase interfaces
-// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
-// can discover those capabilities via type assertions even when using this factory.
-func GetPolicy(
-	metadata policy.PolicyMetadata,
-	params map[string]interface{},
-) (policy.Policy, error) {
-	return ins, nil
-}
 
 // GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
 func GetPolicyV2(
@@ -52,12 +40,12 @@ func GetPolicyV2(
 type AnalyticsHeaderFilterPolicy struct{}
 
 // Mode returns the processing mode for this policy
-func (p *AnalyticsHeaderFilterPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess, // Process request headers
-		RequestBodyMode:    policy.BodyModeSkip,      // Don't need request body
-		ResponseHeaderMode: policy.HeaderModeProcess, // Process response headers
-		ResponseBodyMode:   policy.BodyModeSkip,      // Don't need response body
+func (p *AnalyticsHeaderFilterPolicy) Mode() policyv1alpha2.ProcessingMode {
+	return policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess, // Process request headers
+		RequestBodyMode:    policyv1alpha2.BodyModeSkip,      // Don't need request body
+		ResponseHeaderMode: policyv1alpha2.HeaderModeProcess, // Process response headers
+		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,      // Don't need response body
 	}
 }
 
@@ -132,60 +120,6 @@ func (p *AnalyticsHeaderFilterPolicy) parseHeaderFilterConfig(configRaw interfac
 	headers = p.parseHeaderList(headersRaw)
 
 	return mode, headers, nil
-}
-
-// OnRequest processes request headers and marks them for exclusion from analytics
-func (p *AnalyticsHeaderFilterPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
-	requestConfigRaw, hasRequestConfig := params["request"]
-	if !hasRequestConfig || requestConfigRaw == nil {
-		// No request headers filter configuration, return empty action
-		return policy.UpstreamRequestModifications{}
-	}
-
-	mode, specifiedHeaders, err := p.parseHeaderFilterConfig(requestConfigRaw)
-	if err != nil {
-		slog.Warn("Analytics Header Filter Policy: Failed to parse request headers filter config", "error", err)
-		return policy.UpstreamRequestModifications{}
-	}
-
-	slog.Debug("Analytics Header Filter Policy: Parsed request config",
-		"mode", mode,
-		"headers", specifiedHeaders)
-
-	// Set DropHeadersFromAnalytics action (no processing, just pass the config)
-	return policy.UpstreamRequestModifications{
-		DropHeadersFromAnalytics: policy.DropHeaderAction{
-			Action:  mode,
-			Headers: specifiedHeaders,
-		},
-	}
-}
-
-// OnResponse processes response headers and marks them for exclusion from analytics
-func (p *AnalyticsHeaderFilterPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
-	responseConfigRaw, hasResponseConfig := params["response"]
-	if !hasResponseConfig || responseConfigRaw == nil {
-		// No response headers filter configuration, return empty action
-		return policy.UpstreamResponseModifications{}
-	}
-
-	mode, specifiedHeaders, err := p.parseHeaderFilterConfig(responseConfigRaw)
-	if err != nil {
-		slog.Warn("Analytics Header Filter Policy: Failed to parse response headers filter config", "error", err)
-		return policy.UpstreamResponseModifications{}
-	}
-
-	slog.Debug("Analytics Header Filter Policy: Parsed response config",
-		"mode", mode,
-		"headers", specifiedHeaders)
-
-	// Set DropHeadersFromAnalytics action (no processing, just pass the config)
-	return policy.UpstreamResponseModifications{
-		DropHeadersFromAnalytics: policy.DropHeaderAction{
-			Action:  mode,
-			Headers: specifiedHeaders,
-		},
-	}
 }
 
 // OnRequestHeaders processes request headers for analytics filtering in the header phase.

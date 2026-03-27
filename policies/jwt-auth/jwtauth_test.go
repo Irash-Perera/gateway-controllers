@@ -39,7 +39,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 // TestJWTAuthPolicy_ValidToken tests successful JWT authentication
@@ -1067,20 +1066,6 @@ func createJWKSServer(t *testing.T, publicKey *rsa.PublicKey, kid string) *httpt
 	return server
 }
 
-// createMockRequestContext creates a v1alpha RequestContext for private helper tests
-// (handleAuthSuccess, handleAuthFailure) which still use the v1alpha interface.
-func createMockRequestContext(headers map[string][]string) *policy.RequestContext {
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
-			RequestID: "test-request-id",
-			Metadata:  make(map[string]interface{}),
-		},
-		Headers: policy.NewHeaders(headers),
-		Body:    nil,
-		Path:    "/api/test",
-		Method:  "GET",
-	}
-}
 
 // createMockRequestHeaderContext creates a v1alpha2 RequestHeaderContext for OnRequestHeaders tests.
 func createMockRequestHeaderContext(headers map[string][]string) *policyv1alpha2.RequestHeaderContext {
@@ -1741,39 +1726,3 @@ func TestJWTAuthPolicy_UserIdClaim_WithClaimMappings(t *testing.T) {
 	}
 }
 
-// TestJWTAuthPolicy_AuthContext_PreviousPreserved_OnSuccess tests that the v1alpha helper
-// chains AuthContext entries on success.
-func TestJWTAuthPolicy_AuthContext_PreviousPreserved_OnSuccess(t *testing.T) {
-	p := &JwtAuthPolicy{}
-	prior := &policy.AuthContext{Authenticated: true, AuthType: "other"}
-	ctx := createMockRequestContext(nil)
-	ctx.SharedContext.AuthContext = prior
-
-	claims := jwt.MapClaims{"sub": "alice", "iss": "https://issuer.example.com"}
-	p.handleAuthSuccess(ctx, claims, nil, "sub")
-
-	if ctx.SharedContext.AuthContext == nil {
-		t.Fatal("Expected AuthContext to be set")
-	}
-	if ctx.SharedContext.AuthContext.Previous != prior {
-		t.Errorf("Expected Previous to point to prior AuthContext, got %v", ctx.SharedContext.AuthContext.Previous)
-	}
-}
-
-// TestJWTAuthPolicy_AuthContext_PreviousPreserved_OnFailure tests that the v1alpha helper
-// chains AuthContext entries on failure.
-func TestJWTAuthPolicy_AuthContext_PreviousPreserved_OnFailure(t *testing.T) {
-	p := &JwtAuthPolicy{}
-	prior := &policy.AuthContext{Authenticated: true, AuthType: "other"}
-	ctx := createMockRequestContext(nil)
-	ctx.SharedContext.AuthContext = prior
-
-	p.handleAuthFailure(ctx, 401, "json", "Unauthorized", "token validation failed")
-
-	if ctx.SharedContext.AuthContext == nil {
-		t.Fatal("Expected AuthContext to be set")
-	}
-	if ctx.SharedContext.AuthContext.Previous != prior {
-		t.Errorf("Expected Previous to point to prior AuthContext, got %v", ctx.SharedContext.AuthContext.Previous)
-	}
-}

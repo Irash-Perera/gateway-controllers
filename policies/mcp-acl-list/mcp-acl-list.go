@@ -25,7 +25,6 @@ import (
 	"strings"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 const (
@@ -53,15 +52,12 @@ type sseEvent struct {
 	data   string
 }
 
-// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
-// The returned concrete type also satisfies policyv1alpha2 phase interfaces
-// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
-// can discover those capabilities via type assertions even when using this factory.
-func GetPolicy(
-	metadata policy.PolicyMetadata,
-	params map[string]any,
-) (policy.Policy, error) {
-	slog.Debug("MCP ACL List Policy: GetPolicy called")
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
+	params map[string]interface{},
+) (policyv1alpha2.Policy, error) {
+	slog.Debug("MCP ACL List Policy: GetPolicyV2 called")
 
 	ins := &McpAclListPolicy{}
 
@@ -100,20 +96,6 @@ func GetPolicy(
 	)
 
 	return ins, nil
-}
-
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
-	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
-	return GetPolicy(policy.PolicyMetadata{
-		RouteName:  metadata.RouteName,
-		APIId:      metadata.APIId,
-		APIName:    metadata.APIName,
-		APIVersion: metadata.APIVersion,
-		AttachedTo: policy.Level(metadata.AttachedTo),
-	}, params)
 }
 
 // parseAclConfig parses ACL configuration for a capability type.
@@ -175,193 +157,12 @@ func parseAclConfig(params map[string]any, capabilityType string) (AclConfig, er
 	return config, nil
 }
 
-func (p *McpAclListPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeBuffer,
-	}
-}
-
-func (p *McpAclListPolicy) OnRequest(ctx *policy.RequestContext, params map[string]any) policy.RequestAction {
-	if !isMcpPostRequest(ctx.Method, ctx.OperationPath) {
-		return nil
-	}
-	slog.Debug("MCP ACL List Policy: OnRequest started")
-
-	if ctx.Body == nil || len(ctx.Body.Content) == 0 {
-		return nil
-	}
-
-	requestPayload, _, _, err := parseRequestPayload(ctx.Body.Content, isEventStream(ctx.Headers))
-	if err != nil {
-		slog.Debug("MCP ACL List Policy: Failed to parse MCP request", "error", err, "path", ctx.Path)
-		return p.buildRequestErrorResponse(ctx, 400, -32700, "Invalid JSON", nil)
-	}
-
-	requestID := requestPayload["id"]
-
-	method, _ := requestPayload["method"].(string)
-	capabilityType, action, ok := parseMcpMethod(method)
-	if !ok {
-		return nil
-	}
-
-	if ctx.Metadata == nil {
-		ctx.Metadata = make(map[string]any)
-	}
-	ctx.Metadata[metadataMcpCapabilityType] = capabilityType
-	ctx.Metadata[metadataMcpAction] = action
-
-	if !isApplicableOnRequest(capabilityType, action) {
-		return nil
-	}
-
-	config := p.getAclConfig(capabilityType)
-	if !config.Enabled {
-		return nil
-	}
-
-	paramsRaw, ok := requestPayload["params"].(map[string]any)
-	if !ok {
-		slog.Debug("MCP ACL List Policy: Invalid request params", "capabilityType", capabilityType, "requestID", requestID, "error", "params not a map")
-		return p.buildRequestErrorResponse(ctx, 400, -32602, "Invalid MCP request params", requestID)
-	}
-
-	paramKey := getParamKey(capabilityType)
-	capabilityName, _ := paramsRaw[paramKey].(string)
-	if strings.TrimSpace(capabilityName) == "" {
-		slog.Debug("MCP ACL List Policy: Missing capability name", "capabilityType", capabilityType, "requestID", requestID, "paramKey", paramKey)
-		return p.buildRequestErrorResponse(ctx, 400, -32602, fmt.Sprintf("Missing MCP %s name", capabilityType), requestID)
-	}
-
-	if !isAllowedByAcl(config, capabilityName) {
-		slog.Debug("MCP ACL List Policy: Capability denied by policy", "capabilityType", capabilityType, "capabilityName", capabilityName, "requestID", requestID)
-		return p.buildRequestErrorResponse(ctx, 400, -32000, "MCP capability not allowed", requestID)
-	}
-
-	return nil
-}
-
-func (p *McpAclListPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]any) policy.ResponseAction {
-	if !isMcpPostRequest(ctx.RequestMethod, ctx.OperationPath) {
-		return nil
-	}
-	slog.Debug("MCP ACL List Policy: OnResponse started")
-
-	if ctx.Metadata == nil {
-		return nil
-	}
-
-	capabilityType, _ := ctx.Metadata[metadataMcpCapabilityType].(string)
-	action, _ := ctx.Metadata[metadataMcpAction].(string)
-	if capabilityType == "" || action != "list" {
-		slog.Debug("MCP ACL List Policy: OnResponse skipped, action is not list", "capabilityType", capabilityType, "action", action)
-		return nil
-	}
-
-	config := p.getAclConfig(capabilityType)
-	if !config.Enabled {
-		return nil
-	}
-
-	if ctx.ResponseBody == nil || !ctx.ResponseBody.Present {
-		return nil
-	}
-
-	if isEventStream(ctx.ResponseHeaders) {
-		events := parseEventStream(ctx.ResponseBody.Content)
-		updated := false
-		for i, event := range events {
-			if strings.TrimSpace(event.data) == "" {
-				continue
-			}
-			var responsePayload map[string]any
-			if err := json.Unmarshal([]byte(event.data), &responsePayload); err != nil {
-				continue
-			}
-			if _, hasError := responsePayload["error"]; hasError {
-				slog.Debug("MCP ACL List Policy: Upstream response contains error", "capabilityType", capabilityType)
-				continue
-			}
-			resultRaw, ok := responsePayload["result"].(map[string]any)
-			if !ok {
-				slog.Debug("MCP ACL List Policy: Invalid MCP response result", "capabilityType", capabilityType, "error", "result not an object")
-				continue
-			}
-
-			listKey := capabilityType
-			existing, ok := resultRaw[listKey].([]any)
-			if !ok {
-				continue
-			}
-			filtered, changed := filterListItems(existing, capabilityType, config)
-			if !changed {
-				slog.Debug("MCP ACL List Policy: No changes in list items", "capabilityType", capabilityType)
-				continue
-			}
-
-			resultRaw[listKey] = filtered
-			responsePayload["result"] = resultRaw
-
-			updatedPayload, err := json.Marshal(responsePayload)
-			if err != nil {
-				slog.Debug("MCP ACL List Policy: Failed to marshal updated response", "capabilityType", capabilityType, "error", err)
-				continue
-			}
-			events[i].data = string(updatedPayload)
-			updated = true
-		}
-
-		if !updated {
-			return nil
-		}
-		return policy.UpstreamResponseModifications{
-			Body: buildEventStream(events),
-		}
-	}
-
-	var responsePayload map[string]any
-	if err := json.Unmarshal(ctx.ResponseBody.Content, &responsePayload); err != nil {
-		slog.Debug("MCP ACL List Policy: Failed to parse MCP response", "capabilityType", capabilityType, "error", err)
-		return nil
-	}
-
-	if _, hasError := responsePayload["error"]; hasError {
-		slog.Debug("MCP ACL List Policy: Upstream response contains error", "capabilityType", capabilityType)
-		return nil
-	}
-
-	resultRaw, ok := responsePayload["result"].(map[string]any)
-	if !ok {
-		slog.Debug("MCP ACL List Policy: Invalid MCP response result", "capabilityType", capabilityType, "error", "result not an object")
-		return nil
-	}
-
-	listKey := capabilityType
-	existing, ok := resultRaw[listKey].([]any)
-	if !ok {
-		return nil
-	}
-
-	filtered, changed := filterListItems(existing, capabilityType, config)
-	if !changed {
-		slog.Debug("MCP ACL List Policy: No changes in list items", "capabilityType", capabilityType)
-		return nil
-	}
-
-	resultRaw[listKey] = filtered
-	responsePayload["result"] = resultRaw
-
-	updatedPayload, err := json.Marshal(responsePayload)
-	if err != nil {
-		slog.Debug("MCP ACL List Policy: Failed to marshal updated response", "capabilityType", capabilityType, "error", err)
-		return nil
-	}
-
-	return policy.UpstreamResponseModifications{
-		Body: updatedPayload,
+func (p *McpAclListPolicy) Mode() policyv1alpha2.ProcessingMode {
+	return policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha2.BodyModeBuffer,
 	}
 }
 
@@ -455,23 +256,6 @@ func getParamKey(capabilityType string) string {
 		return "uri"
 	}
 	return "name"
-}
-
-// isEventStream reports whether headers indicate an SSE payload.
-func isEventStream(headers *policy.Headers) bool {
-	if headers == nil {
-		return false
-	}
-	values := headers.Get("content-type")
-	if len(values) == 0 {
-		values = headers.Get("Content-Type")
-	}
-	for _, value := range values {
-		if strings.Contains(strings.ToLower(value), "text/event-stream") {
-			return true
-		}
-	}
-	return false
 }
 
 // parseEventStream splits an SSE payload into events.
@@ -571,52 +355,6 @@ func isApplicableOnRequest(capabilityType, action string) bool {
 	}
 }
 
-// buildRequestErrorResponse builds an error response for a request.
-func (p *McpAclListPolicy) buildRequestErrorResponse(ctx *policy.RequestContext, statusCode int, jsonRpcCode int, reason string, requestID any) policy.RequestAction {
-	sessionID := getSessionID(ctx.Headers)
-	if isEventStream(ctx.Headers) {
-		return p.buildEventStreamErrorResponse(statusCode, jsonRpcCode, reason, requestID, sessionID)
-	}
-	return p.buildErrorResponse(statusCode, jsonRpcCode, reason, requestID, sessionID)
-}
-
-// buildEventStreamErrorResponse builds an SSE error response.
-func (p *McpAclListPolicy) buildEventStreamErrorResponse(statusCode int, jsonRpcCode int, reason string, requestID any, sessionID string) policy.RequestAction {
-	responseBody := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      requestID,
-		"error": map[string]any{
-			"code":    jsonRpcCode,
-			"message": reason,
-		},
-	}
-	body, err := json.Marshal(responseBody)
-	if err != nil {
-		slog.Debug("MCP ACL List Policy: Failed to marshal event-stream error response", "error", err)
-		idBytes, idErr := json.Marshal(requestID)
-		if idErr != nil {
-			idBytes = []byte("null")
-		}
-		body = fmt.Appendf(nil, `{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"Unexpected error"}}`, string(idBytes))
-	}
-
-	event := sseEvent{data: string(body)}
-	streamBody := buildEventStream([]sseEvent{event})
-
-	headers := map[string]string{
-		"Content-Type": "text/event-stream",
-	}
-	if sessionID != "" {
-		headers[mcpSessionHeader] = sessionID
-	}
-
-	return policy.ImmediateResponse{
-		StatusCode: statusCode,
-		Headers:    headers,
-		Body:       streamBody,
-	}
-}
-
 // isMcpPostRequest reports whether the request targets the MCP endpoint.
 func isMcpPostRequest(method, path string) bool {
 	if !strings.EqualFold(method, "POST") {
@@ -627,52 +365,6 @@ func isMcpPostRequest(method, path string) bool {
 		cleanPath = cleanPath[:idx]
 	}
 	return cleanPath == mcpPathSegment || strings.HasPrefix(cleanPath, mcpPathSegment+"/")
-}
-
-// buildErrorResponse builds a JSON error response.
-func (p *McpAclListPolicy) buildErrorResponse(statusCode int, jsonRpcCode int, reason string, requestID any, sessionID string) policy.RequestAction {
-	responseBody := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      requestID,
-		"error": map[string]any{
-			"code":    jsonRpcCode,
-			"message": reason,
-		},
-	}
-	body, err := json.Marshal(responseBody)
-	if err != nil {
-		slog.Debug("MCP ACL List Policy: Failed to marshal error response", "error", err)
-		idBytes, idErr := json.Marshal(requestID)
-		if idErr != nil {
-			idBytes = []byte("null")
-		}
-		body = fmt.Appendf(nil, `{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"Unexpected error"}}`, string(idBytes))
-	}
-
-	headers := map[string]string{
-		"Content-Type": "application/json",
-	}
-	if sessionID != "" {
-		headers[mcpSessionHeader] = sessionID
-	}
-
-	return policy.ImmediateResponse{
-		StatusCode: statusCode,
-		Headers:    headers,
-		Body:       body,
-	}
-}
-
-// getSessionID extracts the MCP session ID from headers.
-func getSessionID(headers *policy.Headers) string {
-	if headers == nil {
-		return ""
-	}
-	values := headers.Get(mcpSessionHeader)
-	if len(values) == 0 {
-		return ""
-	}
-	return values[0]
 }
 
 // OnRequestBody enforces ACL rules on the MCP request body.

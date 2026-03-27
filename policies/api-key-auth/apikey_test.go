@@ -8,7 +8,6 @@ import (
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 	apikeycommon "github.com/wso2/api-platform/common/apikey"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 func TestAPIKeyPolicy_Mode(t *testing.T) {
@@ -191,34 +190,6 @@ func TestAPIKeyPolicy_OnRequestHeaders_FailsWhenValidationErrors(t *testing.T) {
 	assertUnauthorizedJSON(t, action)
 }
 
-func TestAPIKeyPolicy_HandleAuthFailure_PlainFormat(t *testing.T) {
-	p := &APIKeyPolicy{}
-	// handleAuthFailure uses v1alpha RequestContext
-	ctx := &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
-			RequestID: "req-1",
-			Metadata:  map[string]interface{}{},
-			APIId:     "api-1",
-			APIName:   "OrdersAPI",
-		},
-		Headers: policy.NewHeaders(nil),
-		Method:  "GET",
-		Path:    "/orders",
-	}
-
-	action := p.handleAuthFailure(ctx, 401, "plain", "Auth failed", "test failure")
-	resp, ok := action.(policy.ImmediateResponse)
-	if !ok {
-		t.Fatalf("expected ImmediateResponse, got %T", action)
-	}
-	if resp.Headers["content-type"] != "text/plain" {
-		t.Fatalf("unexpected content-type: %q", resp.Headers["content-type"])
-	}
-	if string(resp.Body) != "Auth failed" {
-		t.Fatalf("unexpected body: %q", string(resp.Body))
-	}
-}
-
 func TestExtractQueryParam(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -344,60 +315,3 @@ func sanitizeTestName(v string) string {
 	return strings.ToLower(v)
 }
 
-func TestAPIKeyPolicy_AuthContext_PreviousPreserved_OnSuccess(t *testing.T) {
-	p := &APIKeyPolicy{}
-	prior := &policy.AuthContext{Authenticated: true, AuthType: "other"}
-	// handleAuthSuccess uses v1alpha RequestContext
-	ctx := &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
-			RequestID:     "req-1",
-			Metadata:      map[string]interface{}{},
-			APIId:         "api-1",
-			APIName:       "OrdersAPI",
-			APIVersion:    "v1",
-			OperationPath: "/orders",
-		},
-		Headers: policy.NewHeaders(nil),
-		Method:  "GET",
-		Path:    "/orders",
-	}
-	ctx.SharedContext.AuthContext = prior
-
-	p.handleAuthSuccess(ctx)
-
-	if ctx.SharedContext.AuthContext == nil {
-		t.Fatal("Expected AuthContext to be set")
-	}
-	if ctx.SharedContext.AuthContext.Previous != prior {
-		t.Errorf("Expected Previous to point to prior AuthContext, got %v", ctx.SharedContext.AuthContext.Previous)
-	}
-}
-
-func TestAPIKeyPolicy_AuthContext_PreviousPreserved_OnFailure(t *testing.T) {
-	p := &APIKeyPolicy{}
-	prior := &policy.AuthContext{Authenticated: true, AuthType: "other"}
-	// handleAuthFailure uses v1alpha RequestContext
-	ctx := &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
-			RequestID:     "req-1",
-			Metadata:      map[string]interface{}{},
-			APIId:         "api-1",
-			APIName:       "OrdersAPI",
-			APIVersion:    "v1",
-			OperationPath: "/orders",
-		},
-		Headers: policy.NewHeaders(nil),
-		Method:  "GET",
-		Path:    "/orders",
-	}
-	ctx.SharedContext.AuthContext = prior
-
-	p.handleAuthFailure(ctx, 401, "json", "Valid API key required", "invalid API key")
-
-	if ctx.SharedContext.AuthContext == nil {
-		t.Fatal("Expected AuthContext to be set")
-	}
-	if ctx.SharedContext.AuthContext.Previous != prior {
-		t.Errorf("Expected Previous to point to prior AuthContext, got %v", ctx.SharedContext.AuthContext.Previous)
-	}
-}

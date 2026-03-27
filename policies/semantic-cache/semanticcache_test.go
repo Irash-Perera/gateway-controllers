@@ -10,9 +10,8 @@ import (
 	"time"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
-	embeddingproviders "github.com/wso2/api-platform/sdk/utils/embeddingproviders"
-	vectordbproviders "github.com/wso2/api-platform/sdk/utils/vectordbproviders"
+	embeddingproviders "github.com/wso2/api-platform/sdk/ai/embeddings"
+	vectordbproviders "github.com/wso2/api-platform/sdk/ai/vectordb"
 )
 
 type mockEmbeddingProvider struct {
@@ -80,11 +79,11 @@ func (m *mockVectorDBProvider) Close() error {
 func TestSemanticCachePolicy_Mode(t *testing.T) {
 	p := &SemanticCachePolicy{}
 	got := p.Mode()
-	want := policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeBuffer,
+	want := policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha2.BodyModeBuffer,
 	}
 	if got != want {
 		t.Fatalf("unexpected mode: got %+v, want %+v", got, want)
@@ -591,10 +590,10 @@ func TestSemanticCachePolicy_OnResponse(t *testing.T) {
 	}
 }
 
-func TestBuildErrorResponse(t *testing.T) {
+func TestBuildErrorResponseV2(t *testing.T) {
 	p := &SemanticCachePolicy{}
-	action := p.buildErrorResponse("jsonpath failed", errors.New("bad path"))
-	resp, ok := action.(policy.ImmediateResponse)
+	action := p.buildErrorResponseV2("jsonpath failed", errors.New("bad path"))
+	resp, ok := action.(policyv1alpha2.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}

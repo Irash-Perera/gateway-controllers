@@ -8,7 +8,6 @@ import (
 	"github.com/google/cel-go/cel"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 // CELEvaluator provides CEL expression evaluation for rate limit key and cost extraction
@@ -111,33 +110,8 @@ func createCostExtractionEnv() (*cel.Env, error) {
 	)
 }
 
-// EvaluateKeyExpression evaluates a CEL expression for key extraction from request context
+// EvaluateKeyExpressionV2 evaluates a CEL expression for key extraction from request context
 // Returns the extracted key string or an error
-func (e *CELEvaluator) EvaluateKeyExpression(expression string, ctx *policy.RequestContext, routeName string) (string, error) {
-	program, err := e.getOrCompileKeyProgram(expression)
-	if err != nil {
-		return "", fmt.Errorf("failed to compile CEL expression: %w", err)
-	}
-
-	// Build evaluation context
-	evalCtx := buildKeyEvalContext(ctx, routeName)
-
-	// Evaluate
-	result, _, err := program.Eval(evalCtx)
-	if err != nil {
-		slog.Debug("CEL key extraction evaluation failed", "expression", expression, "error", err)
-		return "", fmt.Errorf("CEL evaluation failed: %w", err)
-	}
-
-	// Convert to string
-	strResult, ok := result.Value().(string)
-	if !ok {
-		return "", fmt.Errorf("CEL expression must return string, got %T", result.Value())
-	}
-
-	return strResult, nil
-}
-
 func (e *CELEvaluator) EvaluateKeyExpressionV2(expression string, ctx *policyv1alpha2.RequestContext, routeName string) (string, error) {
 	program, err := e.getOrCompileKeyProgram(expression)
 	if err != nil {
@@ -163,28 +137,8 @@ func (e *CELEvaluator) EvaluateKeyExpressionV2(expression string, ctx *policyv1a
 	return strResult, nil
 }
 
-// EvaluateRequestCostExpression evaluates a CEL expression for cost extraction from request context
+// EvaluateRequestCostExpressionV2 evaluates a CEL expression for cost extraction from request context
 // Returns the extracted cost value or an error
-func (e *CELEvaluator) EvaluateRequestCostExpression(expression string, ctx *policy.RequestContext) (float64, error) {
-	program, err := e.getOrCompileCostProgram(expression)
-	if err != nil {
-		return 0, fmt.Errorf("failed to compile CEL expression: %w", err)
-	}
-
-	// Build evaluation context for request phase
-	evalCtx := buildRequestCostEvalContext(ctx)
-
-	// Evaluate
-	result, _, err := program.Eval(evalCtx)
-	if err != nil {
-		slog.Debug("CEL request cost extraction evaluation failed", "expression", expression, "error", err)
-		return 0, fmt.Errorf("CEL evaluation failed: %w", err)
-	}
-
-	// Convert to float64
-	return toFloat64(result.Value())
-}
-
 func (e *CELEvaluator) EvaluateRequestCostExpressionV2(expression string, ctx *policyv1alpha2.RequestContext) (float64, error) {
 	program, err := e.getOrCompileCostProgram(expression)
 	if err != nil {
@@ -203,59 +157,6 @@ func (e *CELEvaluator) EvaluateRequestCostExpressionV2(expression string, ctx *p
 
 	// Convert to float64
 	return toFloat64(result.Value())
-}
-
-// EvaluateResponseCostExpression evaluates a CEL expression for cost extraction from response context
-// Returns the extracted cost value or an error
-func (e *CELEvaluator) EvaluateResponseCostExpression(expression string, ctx *policy.ResponseContext) (float64, error) {
-	program, err := e.getOrCompileCostProgram(expression)
-	if err != nil {
-		return 0, fmt.Errorf("failed to compile CEL expression: %w", err)
-	}
-
-	// Build evaluation context for response phase
-	evalCtx := buildResponseCostEvalContext(ctx)
-
-	// Evaluate
-	result, _, err := program.Eval(evalCtx)
-	if err != nil {
-		slog.Debug("CEL response cost extraction evaluation failed", "expression", expression, "error", err)
-		return 0, fmt.Errorf("CEL evaluation failed: %w", err)
-	}
-
-	// Convert to float64
-	return toFloat64(result.Value())
-}
-
-// buildKeyEvalContext builds the CEL evaluation context for key extraction
-func buildKeyEvalContext(ctx *policy.RequestContext, routeName string) map[string]interface{} {
-	// Convert headers to map[string][]string for CEL
-	headers := make(map[string][]string)
-	if ctx.Headers != nil {
-		ctx.Headers.Iterate(func(key string, values []string) {
-			headers[key] = values
-		})
-	}
-
-	// Build metadata map
-	metadata := make(map[string]interface{})
-	if ctx.Metadata != nil {
-		for k, v := range ctx.Metadata {
-			metadata[k] = v
-		}
-	}
-
-	return map[string]interface{}{
-		"request.Headers":  headers,
-		"request.Path":     ctx.Path,
-		"request.Method":   ctx.Method,
-		"request.Metadata": metadata,
-		"api.Name":         ctx.APIName,
-		"api.Version":      ctx.APIVersion,
-		"api.Context":      ctx.APIContext,
-		"api.Id":           ctx.APIId,
-		"route.Name":       routeName,
-	}
 }
 
 func buildKeyEvalContextV2(ctx *policyv1alpha2.RequestContext, routeName string) map[string]interface{} {
@@ -285,51 +186,6 @@ func buildKeyEvalContextV2(ctx *policyv1alpha2.RequestContext, routeName string)
 		"api.Context":      ctx.APIContext,
 		"api.Id":           ctx.APIId,
 		"route.Name":       routeName,
-	}
-}
-
-// buildRequestCostEvalContext builds the CEL evaluation context for request-phase cost extraction
-func buildRequestCostEvalContext(ctx *policy.RequestContext) map[string]interface{} {
-	// Convert headers to map[string][]string for CEL
-	headers := make(map[string][]string)
-	if ctx.Headers != nil {
-		ctx.Headers.Iterate(func(key string, values []string) {
-			headers[key] = values
-		})
-	}
-
-	// Build metadata map
-	metadata := make(map[string]interface{})
-	if ctx.Metadata != nil {
-		for k, v := range ctx.Metadata {
-			metadata[k] = v
-		}
-	}
-
-	// Get body content
-	var bodyBytes []byte
-	var bodyString string
-	if ctx.Body != nil && ctx.Body.Present && ctx.Body.Content != nil {
-		bodyBytes = ctx.Body.Content
-		bodyString = string(bodyBytes)
-	}
-
-	return map[string]interface{}{
-		"request.Headers":    headers,
-		"request.Body":       bodyBytes,
-		"request.BodyString": bodyString,
-		"request.Path":       ctx.Path,
-		"request.Method":     ctx.Method,
-		"request.Metadata":   metadata,
-		// Response variables are empty during request phase
-		"response.Headers":    map[string][]string{},
-		"response.Body":       []byte{},
-		"response.BodyString": "",
-		"response.Status":     int64(0),
-		"api.Name":            ctx.APIName,
-		"api.Version":         ctx.APIVersion,
-		"api.Context":         ctx.APIContext,
-		"api.Id":              ctx.APIId,
 	}
 }
 
@@ -370,66 +226,6 @@ func buildRequestCostEvalContextV2(ctx *policyv1alpha2.RequestContext) map[strin
 		"response.Body":       []byte{},
 		"response.BodyString": "",
 		"response.Status":     int64(0),
-		"api.Name":            ctx.APIName,
-		"api.Version":         ctx.APIVersion,
-		"api.Context":         ctx.APIContext,
-		"api.Id":              ctx.APIId,
-	}
-}
-
-// buildResponseCostEvalContext builds the CEL evaluation context for response-phase cost extraction
-func buildResponseCostEvalContext(ctx *policy.ResponseContext) map[string]interface{} {
-	// Convert request headers to map[string][]string for CEL
-	requestHeaders := make(map[string][]string)
-	if ctx.RequestHeaders != nil {
-		ctx.RequestHeaders.Iterate(func(key string, values []string) {
-			requestHeaders[key] = values
-		})
-	}
-
-	// Convert response headers to map[string][]string for CEL
-	responseHeaders := make(map[string][]string)
-	if ctx.ResponseHeaders != nil {
-		ctx.ResponseHeaders.Iterate(func(key string, values []string) {
-			responseHeaders[key] = values
-		})
-	}
-
-	// Build metadata map
-	metadata := make(map[string]interface{})
-	if ctx.Metadata != nil {
-		for k, v := range ctx.Metadata {
-			metadata[k] = v
-		}
-	}
-
-	// Get request body content
-	var requestBodyBytes []byte
-	var requestBodyString string
-	if ctx.RequestBody != nil && ctx.RequestBody.Present && ctx.RequestBody.Content != nil {
-		requestBodyBytes = ctx.RequestBody.Content
-		requestBodyString = string(requestBodyBytes)
-	}
-
-	// Get response body content
-	var responseBodyBytes []byte
-	var responseBodyString string
-	if ctx.ResponseBody != nil && ctx.ResponseBody.Present && ctx.ResponseBody.Content != nil {
-		responseBodyBytes = ctx.ResponseBody.Content
-		responseBodyString = string(responseBodyBytes)
-	}
-
-	return map[string]interface{}{
-		"request.Headers":     requestHeaders,
-		"request.Body":        requestBodyBytes,
-		"request.BodyString":  requestBodyString,
-		"request.Path":        ctx.RequestPath,
-		"request.Method":      ctx.RequestMethod,
-		"request.Metadata":    metadata,
-		"response.Headers":    responseHeaders,
-		"response.Body":       responseBodyBytes,
-		"response.BodyString": responseBodyString,
-		"response.Status":     int64(ctx.ResponseStatus),
 		"api.Name":            ctx.APIName,
 		"api.Version":         ctx.APIVersion,
 		"api.Context":         ctx.APIContext,

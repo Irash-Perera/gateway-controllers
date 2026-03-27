@@ -26,8 +26,7 @@ import (
 	"strings"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
-	utils "github.com/wso2/api-platform/sdk/utils"
+	utils "github.com/wso2/api-platform/sdk/core/utils"
 )
 
 const (
@@ -69,14 +68,11 @@ type SentenceCountGuardrailPolicyParams struct {
 	ShowAssessment    bool
 }
 
-// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
-// The returned concrete type also satisfies policyv1alpha2 phase interfaces
-// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
-// can discover those capabilities via type assertions even when using this factory.
-func GetPolicy(
-	metadata policy.PolicyMetadata,
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha2.Policy, error) {
 	p := &SentenceCountGuardrailPolicy{}
 
 	requestParamsRaw, hasRequest, err := getFlowParams(params, "request")
@@ -113,20 +109,6 @@ func GetPolicy(
 	slog.Debug("SentenceCountGuardrail: Policy initialized", "hasRequestParams", p.hasRequestParams, "hasResponseParams", p.hasResponseParams)
 
 	return p, nil
-}
-
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
-	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
-	return GetPolicy(policy.PolicyMetadata{
-		RouteName:  metadata.RouteName,
-		APIId:      metadata.APIId,
-		APIName:    metadata.APIName,
-		APIVersion: metadata.APIVersion,
-		AttachedTo: policy.Level(metadata.AttachedTo),
-	}, params)
 }
 
 func getFlowParams(params map[string]interface{}, flow string) (map[string]interface{}, bool, error) {
@@ -270,90 +252,14 @@ func extractInt(value interface{}) (int, error) {
 	}
 }
 
-// Mode returns the processing mode for this policy
-func (p *SentenceCountGuardrailPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeStream,
+// Mode returns the processing mode for this policy.
+func (p *SentenceCountGuardrailPolicy) Mode() policyv1alpha2.ProcessingMode {
+	return policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha2.BodyModeStream,
 	}
-}
-
-// OnRequest validates request body sentence count
-func (p *SentenceCountGuardrailPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
-	if !p.hasRequestParams || !p.requestParams.Enabled {
-		return policy.UpstreamRequestModifications{}
-	}
-
-	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
-	}
-	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
-}
-
-// OnResponse validates response body sentence count
-func (p *SentenceCountGuardrailPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
-	if !p.hasResponseParams || !p.responseParams.Enabled {
-		return policy.UpstreamResponseModifications{}
-	}
-
-	var content []byte
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
-	}
-	return p.validatePayload(content, p.responseParams, true).(policy.ResponseAction)
-}
-
-// validatePayload validates payload sentence count
-func (p *SentenceCountGuardrailPolicy) validatePayload(payload []byte, params SentenceCountGuardrailPolicyParams, isResponse bool) interface{} {
-	// Extract value using JSONPath
-	extractedValue, err := extractStringFromJSONPath(payload, params.JsonPath)
-	if err != nil {
-		slog.Debug("SentenceCountGuardrail: Error extracting value from JSONPath", "jsonPath", params.JsonPath, "error", err, "isResponse", isResponse)
-		return p.buildErrorResponse("Error extracting value from JSONPath", err, isResponse, params.ShowAssessment, params.Min, params.Max)
-	}
-
-	// Clean and trim
-	extractedValue = textCleanRegexCompiled.ReplaceAllString(extractedValue, "")
-	extractedValue = strings.TrimSpace(extractedValue)
-
-	// Split into sentences and count non-empty
-	sentences := sentenceSplitRegexCompiled.Split(extractedValue, -1)
-	sentenceCount := 0
-	for _, s := range sentences {
-		if s != "" {
-			sentenceCount++
-		}
-	}
-
-	// Check if within range
-	isWithinRange := sentenceCount >= params.Min && sentenceCount <= params.Max
-
-	var validationPassed bool
-	if params.Invert {
-		validationPassed = !isWithinRange // Inverted: pass if NOT in range
-	} else {
-		validationPassed = isWithinRange // Normal: pass if in range
-	}
-
-	if !validationPassed {
-		slog.Debug("SentenceCountGuardrail: Validation failed", "sentenceCount", sentenceCount, "min", params.Min, "max", params.Max, "invert", params.Invert, "isResponse", isResponse)
-		var reason string
-		if params.Invert {
-			reason = fmt.Sprintf("sentence count %d is within the excluded range %d-%d sentences", sentenceCount, params.Min, params.Max)
-		} else {
-			reason = fmt.Sprintf("sentence count %d is outside the allowed range %d-%d sentences", sentenceCount, params.Min, params.Max)
-		}
-		return p.buildErrorResponse(reason, nil, isResponse, params.ShowAssessment, params.Min, params.Max)
-	}
-
-	slog.Debug("SentenceCountGuardrail: Validation passed", "sentenceCount", sentenceCount, "min", params.Min, "max", params.Max, "isResponse", isResponse)
-	if isResponse {
-		return policy.UpstreamResponseModifications{}
-	}
-	return policy.UpstreamRequestModifications{}
 }
 
 func extractStringFromJSONPath(payload []byte, jsonPath string) (string, error) {
@@ -420,40 +326,6 @@ func normalizeExtractedValue(value interface{}) (string, error) {
 		return strings.Join(parts, " "), nil
 	default:
 		return "", fmt.Errorf("value at JSONPath is not a supported type")
-	}
-}
-
-// buildErrorResponse builds an error response for both request and response phases
-func (p *SentenceCountGuardrailPolicy) buildErrorResponse(reason string, validationError error, isResponse bool, showAssessment bool, min, max int) interface{} {
-	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, min, max)
-
-	responseBody := map[string]interface{}{
-		"type":    "SENTENCE_COUNT_GUARDRAIL",
-		"message": assessment,
-	}
-
-	bodyBytes, err := json.Marshal(responseBody)
-	if err != nil {
-		bodyBytes = []byte(`{"type":"SENTENCE_COUNT_GUARDRAIL","message":"Internal error"}`)
-	}
-
-	if isResponse {
-		statusCode := GuardrailErrorCode
-		return policy.UpstreamResponseModifications{
-			StatusCode: &statusCode,
-			Body:       bodyBytes,
-			SetHeaders: map[string]string{
-				"Content-Type": "application/json",
-			},
-		}
-	}
-
-	return policy.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-		},
-		Body: bodyBytes,
 	}
 }
 

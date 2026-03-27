@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 type stubDelegatePolicy struct {
@@ -25,20 +24,6 @@ type stubDelegatePolicy struct {
 
 func (s *stubDelegatePolicy) Mode() policyv1alpha2.ProcessingMode {
 	return s.mode
-}
-
-func (s *stubDelegatePolicy) OnRequest(
-	ctx *policy.RequestContext,
-	params map[string]interface{},
-) policy.RequestAction {
-	return nil
-}
-
-func (s *stubDelegatePolicy) OnResponse(
-	ctx *policy.ResponseContext,
-	params map[string]interface{},
-) policy.ResponseAction {
-	return nil
 }
 
 func (s *stubDelegatePolicy) OnRequestHeaders(
@@ -123,8 +108,8 @@ func TestTransformToRatelimitParams_DefaultQuotaAndRouteNameKeyExtraction(t *tes
 		},
 	}
 
-	rlParams := transformToRatelimitParams(params, policy.PolicyMetadata{
-		AttachedTo: policy.LevelRoute,
+	rlParams := transformToRatelimitParams(params, policyv1alpha2.PolicyMetadata{
+		AttachedTo: policyv1alpha2.LevelRoute,
 	})
 
 	quota := getSingleQuota(t, rlParams)
@@ -148,8 +133,8 @@ func TestTransformToRatelimitParams_UsesAPINameKeyExtractionAtAPILevel(t *testin
 		},
 	}
 
-	rlParams := transformToRatelimitParams(params, policy.PolicyMetadata{
-		AttachedTo: policy.LevelAPI,
+	rlParams := transformToRatelimitParams(params, policyv1alpha2.PolicyMetadata{
+		AttachedTo: policyv1alpha2.LevelAPI,
 	})
 
 	quota := getSingleQuota(t, rlParams)
@@ -168,7 +153,7 @@ func TestTransformToRatelimitParams_TranslatesRequestsToLimitAndRemovesRequests(
 		},
 	}
 
-	rlParams := transformToRatelimitParams(params, policy.PolicyMetadata{})
+	rlParams := transformToRatelimitParams(params, policyv1alpha2.PolicyMetadata{})
 	quota := getSingleQuota(t, rlParams)
 
 	limits := getQuotaLimits(t, quota)
@@ -200,7 +185,7 @@ func TestTransformToRatelimitParams_AllowsLegacyLimitWhenRequestsAbsent(t *testi
 		},
 	}
 
-	rlParams := transformToRatelimitParams(params, policy.PolicyMetadata{})
+	rlParams := transformToRatelimitParams(params, policyv1alpha2.PolicyMetadata{})
 	quota := getSingleQuota(t, rlParams)
 	limits := getQuotaLimits(t, quota)
 	if len(limits) != 1 {
@@ -228,7 +213,7 @@ func TestTransformToRatelimitParams_RequestsOverridesLimitWhenBothPresent(t *tes
 		},
 	}
 
-	rlParams := transformToRatelimitParams(params, policy.PolicyMetadata{})
+	rlParams := transformToRatelimitParams(params, policyv1alpha2.PolicyMetadata{})
 	quota := getSingleQuota(t, rlParams)
 	limits := getQuotaLimits(t, quota)
 	if len(limits) != 1 {
@@ -267,7 +252,7 @@ func TestTransformToRatelimitParams_TranslatesMultipleLimitEntries(t *testing.T)
 		},
 	}
 
-	rlParams := transformToRatelimitParams(params, policy.PolicyMetadata{})
+	rlParams := transformToRatelimitParams(params, policyv1alpha2.PolicyMetadata{})
 	quota := getSingleQuota(t, rlParams)
 	limits := getQuotaLimits(t, quota)
 
@@ -318,7 +303,7 @@ func TestTransformToRatelimitParams_PassesThroughSystemParamsIncludingNestedMaps
 		"memory":    memory,
 	}
 
-	rlParams := transformToRatelimitParams(params, policy.PolicyMetadata{})
+	rlParams := transformToRatelimitParams(params, policyv1alpha2.PolicyMetadata{})
 
 	if got := rlParams["algorithm"]; got != "gcra" {
 		t.Fatalf("expected algorithm passthrough gcra, got %v", got)
@@ -348,7 +333,7 @@ func TestTransformToRatelimitParams_DoesNotMutateInputLimits(t *testing.T) {
 		"limits": []interface{}{inputLimit},
 	}
 
-	_ = transformToRatelimitParams(params, policy.PolicyMetadata{})
+	_ = transformToRatelimitParams(params, policyv1alpha2.PolicyMetadata{})
 
 	if _, hasRequests := inputLimit["requests"]; !hasRequests {
 		t.Fatalf("expected original input map to still contain requests key")
@@ -407,7 +392,7 @@ func TestTransformToRatelimitParams_HandlesMissingOrMalformedLimitsWithoutPanic(
 				}
 			}()
 
-			rlParams := transformToRatelimitParams(tc.params, policy.PolicyMetadata{})
+			rlParams := transformToRatelimitParams(tc.params, policyv1alpha2.PolicyMetadata{})
 			quota := getSingleQuota(t, rlParams)
 			limits := getQuotaLimits(t, quota)
 

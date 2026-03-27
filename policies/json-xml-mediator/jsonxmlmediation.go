@@ -27,7 +27,6 @@ import (
 	"unicode"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 const (
@@ -45,14 +44,11 @@ type JSONXMLMediationPolicy struct {
 	downstreamPayloadFormat string
 }
 
-// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
-// The returned concrete type also satisfies policyv1alpha2 phase interfaces
-// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
-// can discover those capabilities via type assertions even when using this factory.
-func GetPolicy(
-	metadata policy.PolicyMetadata,
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
 	params map[string]interface{},
-) (policy.Policy, error) {
+) (policyv1alpha2.Policy, error) {
 	upstreamPayloadFormat, err := getUpstreamPayloadFormat(params)
 	if err != nil {
 		return nil, err
@@ -72,103 +68,13 @@ func GetPolicy(
 	}, nil
 }
 
-// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func GetPolicyV2(
-	metadata policyv1alpha2.PolicyMetadata,
-	params map[string]interface{},
-) (policyv1alpha2.Policy, error) {
-	return GetPolicy(policy.PolicyMetadata{
-		RouteName:  metadata.RouteName,
-		APIId:      metadata.APIId,
-		APIName:    metadata.APIName,
-		APIVersion: metadata.APIVersion,
-		AttachedTo: policy.Level(metadata.AttachedTo),
-	}, params)
-}
-
 // Mode returns the processing mode for this policy.
-func (p *JSONXMLMediationPolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeProcess,
-		ResponseBodyMode:   policy.BodyModeBuffer,
-	}
-}
-
-// OnRequest applies conversion to match the configured upstream payload format.
-func (p *JSONXMLMediationPolicy) OnRequest(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
-	if ctx.Body == nil || !ctx.Body.Present || len(ctx.Body.Content) == 0 {
-		return policy.UpstreamRequestModifications{}
-	}
-
-	contentType := getFirstHeader(ctx.Headers, "content-type")
-
-	if !matchesContentType(contentType, p.downstreamPayloadFormat) {
-		return p.handleInternalServerError(fmt.Sprintf(
-			"Content-Type must be %s for downstream payload format %s",
-			expectedContentTypeMessage(p.downstreamPayloadFormat),
-			p.downstreamPayloadFormat,
-		))
-	}
-
-	if p.downstreamPayloadFormat == p.upstreamPayloadFormat {
-		return policy.UpstreamRequestModifications{}
-	}
-
-	convertedBody, convertedContentType, convErr := p.convertBetweenFormats(
-		ctx.Body.Content,
-		p.downstreamPayloadFormat,
-		p.upstreamPayloadFormat,
-	)
-	if convErr != nil {
-		return p.handleInternalServerError(convErr.Error())
-	}
-
-	return policy.UpstreamRequestModifications{
-		Body: convertedBody,
-		SetHeaders: map[string]string{
-			"content-type":   convertedContentType,
-			"content-length": fmt.Sprintf("%d", len(convertedBody)),
-		},
-	}
-}
-
-// OnResponse mediates the upstream response to the configured downstream payload format.
-func (p *JSONXMLMediationPolicy) OnResponse(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
-	if ctx.ResponseBody == nil || !ctx.ResponseBody.Present || len(ctx.ResponseBody.Content) == 0 {
-		return policy.UpstreamResponseModifications{}
-	}
-
-	contentType := getFirstHeader(ctx.ResponseHeaders, "content-type")
-
-	if !matchesContentType(contentType, p.upstreamPayloadFormat) {
-		return p.handleInternalServerErrorResponse(fmt.Sprintf(
-			"Content-Type must be %s in response for upstream payload format %s",
-			expectedContentTypeMessage(p.upstreamPayloadFormat),
-			p.upstreamPayloadFormat,
-		))
-	}
-
-	if p.upstreamPayloadFormat == p.downstreamPayloadFormat {
-		return policy.UpstreamResponseModifications{}
-	}
-
-	convertedBody, convertedContentType, convErr := p.convertBetweenFormats(
-		ctx.ResponseBody.Content,
-		p.upstreamPayloadFormat,
-		p.downstreamPayloadFormat,
-	)
-	if convErr != nil {
-		return p.handleInternalServerErrorResponse(convErr.Error())
-	}
-
-	return policy.UpstreamResponseModifications{
-		Body: convertedBody,
-		SetHeaders: map[string]string{
-			"content-type":   convertedContentType,
-			"content-length": fmt.Sprintf("%d", len(convertedBody)),
-		},
+func (p *JSONXMLMediationPolicy) Mode() policyv1alpha2.ProcessingMode {
+	return policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess,
+		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha2.HeaderModeProcess,
+		ResponseBodyMode:   policyv1alpha2.BodyModeBuffer,
 	}
 }
 
@@ -209,19 +115,6 @@ func getPayloadFormat(params map[string]interface{}, key string, required bool) 
 	}
 
 	return normalized, true, nil
-}
-
-func getFirstHeader(headers *policy.Headers, key string) string {
-	if headers == nil {
-		return ""
-	}
-
-	vals := headers.Get(key)
-	if len(vals) == 0 {
-		return ""
-	}
-
-	return strings.ToLower(vals[0])
 }
 
 func matchesContentType(contentType, payloadFormat string) bool {
@@ -269,41 +162,6 @@ func (p *JSONXMLMediationPolicy) convertBetweenFormats(body []byte, sourceFormat
 		return jsonData, canonicalContentType(targetFormat), nil
 	default:
 		return nil, "", fmt.Errorf("unsupported payload mediation from %s to %s", sourceFormat, targetFormat)
-	}
-}
-
-func (p *JSONXMLMediationPolicy) handleInternalServerError(message string) policy.RequestAction {
-	errorResponse := map[string]interface{}{
-		"error":   "Internal Server Error",
-		"message": message,
-	}
-	bodyBytes, _ := json.Marshal(errorResponse)
-
-	return policy.ImmediateResponse{
-		StatusCode: 500,
-		Headers: map[string]string{
-			"content-type":   "application/json",
-			"content-length": fmt.Sprintf("%d", len(bodyBytes)),
-		},
-		Body: bodyBytes,
-	}
-}
-
-func (p *JSONXMLMediationPolicy) handleInternalServerErrorResponse(message string) policy.ResponseAction {
-	errorResponse := map[string]interface{}{
-		"error":   "Internal Server Error",
-		"message": message,
-	}
-	bodyBytes, _ := json.Marshal(errorResponse)
-
-	statusCode := 500
-	return policy.UpstreamResponseModifications{
-		StatusCode: &statusCode,
-		Body:       bodyBytes,
-		SetHeaders: map[string]string{
-			"content-type":   "application/json",
-			"content-length": fmt.Sprintf("%d", len(bodyBytes)),
-		},
 	}
 }
 

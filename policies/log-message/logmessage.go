@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 const (
@@ -47,17 +46,6 @@ type flowConfig struct {
 
 var ins = &LogMessagePolicy{}
 
-// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
-// The returned concrete type also satisfies policyv1alpha2 phase interfaces
-// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
-// can discover those capabilities via type assertions even when using this factory.
-func GetPolicy(
-	metadata policy.PolicyMetadata,
-	params map[string]interface{},
-) (policy.Policy, error) {
-	return ins, nil
-}
-
 // GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
 func GetPolicyV2(
 	metadata policyv1alpha2.PolicyMetadata,
@@ -67,81 +55,13 @@ func GetPolicyV2(
 }
 
 // Mode returns the processing mode for this policy
-func (p *LogMessagePolicy) Mode() policy.ProcessingMode {
-	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeProcess, // Process request headers for logging
-		RequestBodyMode:    policy.BodyModeBuffer,    // Need request body for logging
-		ResponseHeaderMode: policy.HeaderModeProcess, // Process response headers for logging
-		ResponseBodyMode:   policy.BodyModeStream,    // Need response body for logging
+func (p *LogMessagePolicy) Mode() policyv1alpha2.ProcessingMode {
+	return policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess, // Process request headers for logging
+		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,    // Need request body for logging
+		ResponseHeaderMode: policyv1alpha2.HeaderModeProcess, // Process response headers for logging
+		ResponseBodyMode:   policyv1alpha2.BodyModeStream,    // Need response body for logging
 	}
-}
-
-// OnRequest logs the request message
-func (p *LogMessagePolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
-	config := p.parseFlowConfig(params, "request")
-
-	// Skip logging if both request payload and headers are disabled.
-	if !config.logPayload && !config.logHeaders {
-		return policy.UpstreamRequestModifications{}
-	}
-
-	// Create log record
-	logRecord := LogRecord{
-		MediationFlow: MediationFlowRequest,
-		RequestID:     p.getRequestID(ctx.Headers),
-		HTTPMethod:    ctx.Method,
-		ResourcePath:  ctx.Path,
-	}
-
-	// Log payload if enabled.
-	if config.logPayload && ctx.Body != nil && ctx.Body.Present && len(ctx.Body.Content) > 0 {
-		logRecord.Payload = string(ctx.Body.Content)
-	}
-
-	// Log headers if enabled.
-	if config.logHeaders {
-		logRecord.Headers = p.buildHeadersMap(ctx.Headers, config.excludedHeaders)
-	}
-
-	// Log the message.
-	p.logMessage(logRecord)
-
-	// Continue with the request unchanged.
-	return policy.UpstreamRequestModifications{}
-}
-
-// OnResponse logs the response message
-func (p *LogMessagePolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
-	config := p.parseFlowConfig(params, "response")
-
-	// Skip logging if both response payload and headers are disabled.
-	if !config.logPayload && !config.logHeaders {
-		return policy.UpstreamResponseModifications{}
-	}
-
-	// Create log record
-	logRecord := LogRecord{
-		MediationFlow: MediationFlowResponse,
-		RequestID:     p.getResponseRequestID(ctx.ResponseHeaders),
-		HTTPMethod:    ctx.RequestMethod,
-		ResourcePath:  ctx.RequestPath,
-	}
-
-	// Log payload if enabled.
-	if config.logPayload && ctx.ResponseBody != nil && ctx.ResponseBody.Present && len(ctx.ResponseBody.Content) > 0 {
-		logRecord.Payload = string(ctx.ResponseBody.Content)
-	}
-
-	// Log headers if enabled.
-	if config.logHeaders {
-		logRecord.Headers = p.buildHeadersMap(ctx.ResponseHeaders, config.excludedHeaders)
-	}
-
-	// Log the message.
-	p.logMessage(logRecord)
-
-	// Continue with the response unchanged.
-	return policy.UpstreamResponseModifications{}
 }
 
 // LogRecord represents the structure of log data
@@ -152,60 +72,6 @@ type LogRecord struct {
 	ResourcePath  string                 `json:"resource-path"`
 	Payload       string                 `json:"payload,omitempty"`
 	Headers       map[string]interface{} `json:"headers,omitempty"`
-}
-
-// getRequestID extracts request ID from request headers
-func (p *LogMessagePolicy) getRequestID(headers *policy.Headers) string {
-	if headers == nil {
-		return ErrMsgMissingReqID
-	}
-	if requestIDs := headers.Get(HeaderXRequestID); len(requestIDs) > 0 {
-		return requestIDs[0]
-	}
-	return ErrMsgMissingReqID
-}
-
-// getResponseRequestID extracts request ID from response headers
-func (p *LogMessagePolicy) getResponseRequestID(headers *policy.Headers) string {
-	if headers == nil {
-		return ErrMsgMissingReqID
-	}
-	if requestIDs := headers.Get(HeaderXRequestID); len(requestIDs) > 0 {
-		return requestIDs[0]
-	}
-	return ErrMsgMissingReqID
-}
-
-// buildHeadersMap builds a map of headers for logging, excluding sensitive ones
-func (p *LogMessagePolicy) buildHeadersMap(headers *policy.Headers, excludedHeaders map[string]struct{}) map[string]interface{} {
-	headersMap := make(map[string]interface{})
-	if headers == nil {
-		return headersMap
-	}
-
-	headers.Iterate(func(name string, values []string) {
-		lowerName := strings.ToLower(name)
-
-		// Skip excluded headers
-		if _, excluded := excludedHeaders[lowerName]; excluded {
-			return // continue iteration
-		}
-
-		// Mask authorization header by default
-		if lowerName == "authorization" {
-			headersMap[name] = "***"
-			return
-		}
-
-		// Add header to map
-		if len(values) == 1 {
-			headersMap[name] = values[0]
-		} else {
-			headersMap[name] = values
-		}
-	})
-
-	return headersMap
 }
 
 // parseFlowConfig parses flow configuration from request/response parameters.
