@@ -6,9 +6,11 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/wso2/api-platform/common v0.0.0-20260323041357-1f55a5a9ac34 h1:u5Os8Jc5XCG8VyUB25cLsWJ/D2bFf8E3+xXkz4DEItk=
 github.com/wso2/api-platform/common v0.0.0-20260323041357-1f55a5a9ac34/go.mod h1:Tv4pznkS1TK3tJvUmbgGD40Efdv063aaHG/J0TDkAzQ=
-github.com/wso2/api-platform/sdk v0.4.5 h1:1T5bY4W0No8SKZiydg8dt/x0iFKWiRTgquzoQd7EXU4=
-github.com/wso2/api-platform/sdk v0.4.5/go.mod h1:Zoaj0dOuHmI96K9rY9w2qunjjT4Lcvlq9AYezL4a3/0=
-github.com/wso2/api-platform/sdk/core v0.1.0 h1:yxxlgmrZLztCqHzAW7GdRnUNBFOA2l8AX6fphMZaly0=
-github.com/wso2/api-platform/sdk/core v0.1.0/go.mod h1:R114dV8/EAl843+16zi97Cbd5+iPPYjHKdN7Nik3EUw=
+github.com/wso2/api-platform/common v0.0.0-20260326194347-3d85c50eae71 h1:vnK2p6QV2kqOhs2iFpuYKVV6jpu8/Q1QuVz14UlQsn0=
+github.com/wso2/api-platform/common v0.0.0-20260326194347-3d85c50eae71/go.mod h1:Tv4pznkS1TK3tJvUmbgGD40Efdv063aaHG/J0TDkAzQ=
+github.com/wso2/api-platform/sdk v0.4.6 h1:mH/VojkAuvcNd+QWKz13HBzqeHQklY1zQ7fRFXUK75w=
+github.com/wso2/api-platform/sdk v0.4.6/go.mod h1:Ib95qHuBaE02TkMGOYcLKVIaSyKi3WcapoHEXxQxySs=
+github.com/wso2/api-platform/sdk/core v0.1.2 h1:p/J9pxlxLF+VKkW+BY3x1sh6F7VbiRPKjOOhnUs4Hs0=
+github.com/wso2/api-platform/sdk/core v0.1.2/go.mod h1:vgNVzR16g9k5cun3VXZ7wDg8UGbPxsVU2TW8EbRCv0o=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=

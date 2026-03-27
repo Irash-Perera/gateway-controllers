@@ -203,7 +203,7 @@ func parseParams(params map[string]interface{}) (PromptDecoratorPolicyParams, er
 // Mode returns the processing mode for this policy
 func (p *PromptDecoratorPolicy) Mode() policy.ProcessingMode {
 	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
+		RequestHeaderMode:  policy.HeaderModeProcess, // needed to catch empty-body requests
 		RequestBodyMode:    policy.BodyModeBuffer,
 		ResponseHeaderMode: policy.HeaderModeSkip,
 		ResponseBodyMode:   policy.BodyModeSkip,

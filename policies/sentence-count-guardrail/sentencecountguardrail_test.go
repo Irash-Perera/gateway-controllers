@@ -474,8 +474,8 @@ func TestMode(t *testing.T) {
 	p := &SentenceCountGuardrailPolicy{}
 	mode := p.Mode()
 
-	if mode.RequestHeaderMode != policyv1alpha2.HeaderModeSkip {
-		t.Fatalf("expected RequestHeaderMode=Skip, got %v", mode.RequestHeaderMode)
+	if mode.RequestHeaderMode != policyv1alpha2.HeaderModeProcess {
+		t.Fatalf("expected RequestHeaderMode=Process, got %v", mode.RequestHeaderMode)
 	}
 	if mode.RequestBodyMode != policyv1alpha2.BodyModeBuffer {
 		t.Fatalf("expected RequestBodyMode=Buffer, got %v", mode.RequestBodyMode)

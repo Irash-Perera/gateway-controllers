@@ -43,7 +43,7 @@ const (
 	sseDone                  = "[DONE]"
 	metaKeyAccContent        = "sentencecountguardrail:accumulated_content"
 	metaKeyAccJsonBody       = "sentencecountguardrail:json_body"
-	DefaultStreamingJsonPath = "$.choices[*].delta.content"
+	DefaultStreamingJsonPath = "$.choices[0].delta.content"
 )
 
 var (
@@ -273,7 +273,7 @@ func extractInt(value interface{}) (int, error) {
 // Mode returns the processing mode for this policy
 func (p *SentenceCountGuardrailPolicy) Mode() policy.ProcessingMode {
 	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
+		RequestHeaderMode:  policy.HeaderModeProcess, // needed to catch empty-body requests
 		RequestBodyMode:    policy.BodyModeBuffer,
 		ResponseHeaderMode: policy.HeaderModeSkip,
 		ResponseBodyMode:   policy.BodyModeStream,
@@ -426,6 +426,10 @@ func normalizeExtractedValue(value interface{}) (string, error) {
 // buildErrorResponse builds an error response for both request and response phases
 func (p *SentenceCountGuardrailPolicy) buildErrorResponse(reason string, validationError error, isResponse bool, showAssessment bool, min, max int) interface{} {
 	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, min, max)
+	analyticsMetadata := map[string]interface{}{
+		"isGuardrailHit": true,
+		"guardrailName":  "sentence-count-guardrail",
+	}
 
 	responseBody := map[string]interface{}{
 		"type":    "SENTENCE_COUNT_GUARDRAIL",
@@ -440,8 +444,9 @@ func (p *SentenceCountGuardrailPolicy) buildErrorResponse(reason string, validat
 	if isResponse {
 		statusCode := GuardrailErrorCode
 		return policy.UpstreamResponseModifications{
-			StatusCode: &statusCode,
-			Body:       bodyBytes,
+			StatusCode:        &statusCode,
+			Body:              bodyBytes,
+			AnalyticsMetadata: analyticsMetadata,
 			SetHeaders: map[string]string{
 				"Content-Type": "application/json",
 			},
@@ -449,7 +454,8 @@ func (p *SentenceCountGuardrailPolicy) buildErrorResponse(reason string, validat
 	}
 
 	return policy.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
+		StatusCode:        GuardrailErrorCode,
+		AnalyticsMetadata: analyticsMetadata,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},
@@ -522,7 +528,12 @@ func (p *SentenceCountGuardrailPolicy) OnResponseBody(ctx *policyv1alpha2.Respon
 		content = ctx.ResponseBody.Content
 	}
 
-	if text := extractSSEDeltaContent(string(content), p.responseParams.StreamingJsonPath); text != "" {
+	contentStr := string(content)
+	if isSSEChunk(contentStr) {
+		// SSE body: always use the SSE extraction path, even when all delta content fields are
+		// null (e.g. tool-call responses), so we never fall through to JSONPath extraction on
+		// SSE-formatted data.
+		text := extractSSEDeltaContent(contentStr, p.responseParams.StreamingJsonPath)
 		return p.validateSentenceCountInText(text, p.responseParams, true)
 	}
 
@@ -606,6 +617,10 @@ func (p *SentenceCountGuardrailPolicy) validatePayloadV2(payload []byte, params 
 // buildErrorResponseV2 builds a policyv1alpha2 error response for both request and response phases.
 func (p *SentenceCountGuardrailPolicy) buildErrorResponseV2(reason string, validationError error, isResponse bool, showAssessment bool, min, max int) interface{} {
 	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, min, max)
+	analyticsMetadata := map[string]interface{}{
+		"isGuardrailHit": true,
+		"guardrailName":  "sentence-count-guardrail",
+	}
 
 	responseBody := map[string]interface{}{
 		"type":    "SENTENCE_COUNT_GUARDRAIL",
@@ -620,8 +635,9 @@ func (p *SentenceCountGuardrailPolicy) buildErrorResponseV2(reason string, valid
 	if isResponse {
 		statusCode := GuardrailErrorCode
 		return policyv1alpha2.DownstreamResponseModifications{
-			StatusCode: &statusCode,
-			Body:       bodyBytes,
+			StatusCode:        &statusCode,
+			Body:              bodyBytes,
+			AnalyticsMetadata: analyticsMetadata,
 			DownstreamResponseHeaderModifications: policyv1alpha2.DownstreamResponseHeaderModifications{
 				HeadersToSet: map[string]string{"Content-Type": "application/json"},
 			},
@@ -629,7 +645,8 @@ func (p *SentenceCountGuardrailPolicy) buildErrorResponseV2(reason string, valid
 	}
 
 	return policyv1alpha2.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
+		StatusCode:        GuardrailErrorCode,
+		AnalyticsMetadata: analyticsMetadata,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},
@@ -700,6 +717,25 @@ func (p *SentenceCountGuardrailPolicy) OnResponseBodyChunk(ctx *policyv1alpha2.R
 		full := prev + chunkStr
 		ctx.Metadata[metaKeyAccJsonBody] = full
 		if !chunk.EndOfStream {
+			return policyv1alpha2.ResponseChunkAction{}
+		}
+		// An empty or whitespace-only EndOfStream chunk is a bare sentinel that arrives after
+		// the SSE [DONE] event (common in many streaming frameworks). In this case all content
+		// was already processed by the SSE path, so we must not attempt JSONPath extraction on
+		// an empty body. Instead, run the final SSE min/invert check on accumulated SSE content.
+		if strings.TrimSpace(full) == "" {
+			rp := p.responseParams
+			accContent, _ := ctx.Metadata[metaKeyAccContent].(string)
+			count := countSentences(accContent)
+			if !rp.Invert {
+				if count < rp.Min {
+					reason := fmt.Sprintf("sentence count %d is below minimum of %d sentences", count, rp.Min)
+					return policyv1alpha2.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
+				}
+			} else if count >= rp.Min && count <= rp.Max {
+				reason := fmt.Sprintf("sentence count %d is within the excluded range %d-%d sentences", count, rp.Min, rp.Max)
+				return policyv1alpha2.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
+			}
 			return policyv1alpha2.ResponseChunkAction{}
 		}
 		result := p.validatePayloadV2([]byte(full), p.responseParams, true)

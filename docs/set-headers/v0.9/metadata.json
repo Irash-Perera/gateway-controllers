@@ -1,0 +1,11 @@
+{
+  "name": "set-headers",
+  "displayName": "Set Headers",
+  "version": "0.9",
+  "provider": "WSO2",
+  "categories": [
+    "Transformation",
+    "MCP"
+  ],
+  "description": "This policy provides the capability to set arbitrary headers to either the request or the response.\nSetting the same header multiple times will overwrite the existing header value."
+}

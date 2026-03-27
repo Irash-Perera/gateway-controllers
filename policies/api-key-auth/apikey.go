@@ -30,9 +30,11 @@ import (
 	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
-
 const (
 	AuthType = "apikey"
+
+	applicationIDMetadataKey   = "x-wso2-application-id"
+	applicationNameMetadataKey = "x-wso2-application-name"
 )
 
 // APIKeyPolicy implements API Key Authentication
@@ -170,7 +172,7 @@ func (p *APIKeyPolicy) OnRequest(ctx *policy.RequestContext, params map[string]i
 	)
 
 	// API key was provided - validate it using external validation
-	isValid, err := p.validateAPIKey(apiId, apiOperation, operationMethod, providedKey, issuer)
+	resolvedKey, err := p.resolveValidatedAPIKey(apiId, apiOperation, operationMethod, providedKey, issuer)
 	if err != nil {
 		slog.Debug("API Key Auth Policy: Validation error",
 			"error", err,
@@ -178,7 +180,7 @@ func (p *APIKeyPolicy) OnRequest(ctx *policy.RequestContext, params map[string]i
 		return p.handleAuthFailure(ctx, 401, "json", "Valid API key required",
 			"error validating API key")
 	}
-	if !isValid {
+	if resolvedKey == nil {
 		slog.Debug("API Key Auth Policy: Invalid API key")
 		return p.handleAuthFailure(ctx, 401, "json", "Valid API key required",
 			"invalid API key")
@@ -186,11 +188,11 @@ func (p *APIKeyPolicy) OnRequest(ctx *policy.RequestContext, params map[string]i
 
 	// Authentication successful
 	slog.Debug("API Key Auth Policy: Authentication successful")
-	return p.handleAuthSuccess(ctx)
+	return p.handleAuthSuccess(ctx, resolvedKey)
 }
 
 // handleAuthSuccess handles successful authentication
-func (p *APIKeyPolicy) handleAuthSuccess(ctx *policy.RequestContext) policy.RequestAction {
+func (p *APIKeyPolicy) handleAuthSuccess(ctx *policy.RequestContext, resolvedKey *store.APIKey) policy.RequestAction {
 	slog.Debug("API Key Auth Policy: handleAuthSuccess called",
 		"apiId", ctx.APIId,
 		"apiName", ctx.APIName,
@@ -202,11 +204,29 @@ func (p *APIKeyPolicy) handleAuthSuccess(ctx *policy.RequestContext) policy.Requ
 	ctx.SharedContext.AuthContext = &policy.AuthContext{
 		Authenticated: true,
 		AuthType:      AuthType,
+		CredentialID:  resolvedKey.ID,
 		Previous:      ctx.SharedContext.AuthContext,
+		Properties: map[string]string{
+			"ApplicationName": resolvedKey.ApplicationName,
+			"ApplicationID":   resolvedKey.ApplicationID,
+		},
 	}
 
-	// Continue to upstream with no modifications
-	return policy.UpstreamRequestModifications{}
+	analyticsMetadata := map[string]any{}
+	if strings.TrimSpace(resolvedKey.ApplicationID) != "" {
+		analyticsMetadata[applicationIDMetadataKey] = strings.TrimSpace(resolvedKey.ApplicationID)
+	}
+	if strings.TrimSpace(resolvedKey.ApplicationName) != "" {
+		analyticsMetadata[applicationNameMetadataKey] = strings.TrimSpace(resolvedKey.ApplicationName)
+	}
+
+	if len(analyticsMetadata) == 0 {
+		return policy.UpstreamRequestModifications{}
+	}
+
+	return policy.UpstreamRequestModifications{
+		AnalyticsMetadata: analyticsMetadata,
+	}
 }
 
 // OnResponse is not used by this policy (authentication is request-only)
@@ -267,14 +287,15 @@ func (p *APIKeyPolicy) handleAuthFailure(ctx *policy.RequestContext, statusCode 
 	}
 }
 
-// validateAPIKey validates the provided API key against external store/service
-func (p *APIKeyPolicy) validateAPIKey(apiId, apiOperation, operationMethod, apiKey, issuer string) (bool, error) {
+// resolveValidatedAPIKey validates the provided API key against external store/service and returns the resolved key
+// returns nil if the key is invalid, or an error if there was an issue during validation
+func (p *APIKeyPolicy) resolveValidatedAPIKey(apiId, apiOperation, operationMethod, apiKey, issuer string) (*store.APIKey, error) {
 	apiKeyStore := store.GetAPIkeyStoreInstance()
-	isValid, err := apiKeyStore.ValidateAPIKey(apiId, apiOperation, operationMethod, apiKey, issuer)
+	resolvedKey, err := apiKeyStore.ResolveValidatedAPIKey(apiId, apiOperation, operationMethod, apiKey, issuer)
 	if err != nil {
-		return false, fmt.Errorf("failed to validate API key via the policy engine")
+		return nil, fmt.Errorf("failed to resolve API key via the policy engine")
 	}
-	return isValid, nil
+	return resolvedKey, nil
 }
 
 // extractQueryParam extracts the first value of the given query parameter from the request path
@@ -397,13 +418,13 @@ func (p *APIKeyPolicy) authenticate(
 		"apiOperation", apiOperation, "operationMethod", operationMethod,
 		"keyLength", len(providedKey))
 
-	isValid, err := p.validateAPIKey(apiId, apiOperation, operationMethod, providedKey, issuer)
+	resolvedKey, err := p.resolveValidatedAPIKey(apiId, apiOperation, operationMethod, providedKey, issuer)
 	if err != nil {
 		slog.Debug("API Key Auth Policy: Validation error", "error", err)
 		return p.failAuthV2(shared, 401, "json", "Valid API key required",
 			"error validating API key")
 	}
-	if !isValid {
+	if resolvedKey == nil {
 		slog.Debug("API Key Auth Policy: Invalid API key")
 		return p.failAuthV2(shared, 401, "json", "Valid API key required", "invalid API key")
 	}

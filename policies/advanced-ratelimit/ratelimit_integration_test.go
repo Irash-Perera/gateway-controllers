@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 	"github.com/wso2/gateway-controllers/policies/advanced-ratelimit/limiter"
 )
@@ -767,6 +768,45 @@ func TestKeyExtractionBehavior(t *testing.T) {
 		failed := &QuotaRuntime{KeyExtraction: []KeyComponent{{Type: "cel", Expression: "1"}}}
 		if got := p.extractQuotaKey(ctx, failed); got != "_cel_eval_error_" {
 			t.Fatalf("expected cel eval placeholder, got %q", got)
+		}
+	})
+}
+
+func TestKeyExtractionHeaderPhase(t *testing.T) {
+	p := &RateLimitPolicy{routeName: "route-main"}
+	hctx := &policyv1alpha2.RequestHeaderContext{
+		SharedContext: &policyv1alpha2.SharedContext{
+			APIName:    "petstore",
+			APIVersion: "v1",
+			Metadata:   map[string]interface{}{},
+		},
+		Headers: policyv1alpha2.NewHeaders(map[string][]string{
+			"x-tenant": {"tenant-a"},
+		}),
+	}
+
+	t.Run("apiname returns API name not route name", func(t *testing.T) {
+		got := p.extractKeyComponentFromHeaderCtx(hctx, KeyComponent{Type: "apiname"})
+		if got != "petstore" {
+			t.Fatalf("expected petstore, got %q (regression: should not return route name)", got)
+		}
+	})
+
+	t.Run("apiversion returns API version not route name", func(t *testing.T) {
+		got := p.extractKeyComponentFromHeaderCtx(hctx, KeyComponent{Type: "apiversion"})
+		if got != "v1" {
+			t.Fatalf("expected v1, got %q (regression: should not return route name)", got)
+		}
+	})
+
+	t.Run("apiname empty falls back to empty string", func(t *testing.T) {
+		emptyCtx := &policyv1alpha2.RequestHeaderContext{
+			SharedContext: &policyv1alpha2.SharedContext{Metadata: map[string]interface{}{}},
+			Headers:       policyv1alpha2.NewHeaders(nil),
+		}
+		got := p.extractKeyComponentFromHeaderCtx(emptyCtx, KeyComponent{Type: "apiname"})
+		if got != "" {
+			t.Fatalf("expected empty string, got %q", got)
 		}
 	})
 }

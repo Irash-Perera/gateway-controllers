@@ -61,7 +61,6 @@ type LLMCostRateLimitPolicy struct {
 }
 
 // GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
-// TODO: add GetPolicyV2 once this module is upgraded to sdk v0.4.5+ (ProcessingMode type alias required).
 func GetPolicy(
 	metadata policy.PolicyMetadata,
 	params map[string]interface{},
@@ -69,6 +68,20 @@ func GetPolicy(
 	return &LLMCostRateLimitPolicy{
 		metadata: metadata,
 	}, nil
+}
+
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
+	params map[string]interface{},
+) (policyv1alpha2.Policy, error) {
+	return GetPolicy(policy.PolicyMetadata{
+		RouteName:  metadata.RouteName,
+		APIId:      metadata.APIId,
+		APIName:    metadata.APIName,
+		APIVersion: metadata.APIVersion,
+		AttachedTo: policy.Level(metadata.AttachedTo),
+	}, params)
 }
 
 // Mode returns the processing mode for this policy.
@@ -311,6 +324,95 @@ func (p *LLMCostRateLimitPolicy) OnResponseHeaders(
 		"route", p.metadata.RouteName,
 		"provider", providerName)
 	return policyv1alpha2.DownstreamResponseHeaderModifications{}
+}
+
+// OnResponseBody processes the response body phase by delegating to the same
+// provider-specific advanced-ratelimit instance pinned during OnRequestHeaders.
+//
+// The executor runs response policies in reverse chain order, so llm-cost (which
+// follows this policy in the chain) runs its OnResponseBody first, setting
+// x-llm-cost in SharedContext.Metadata before this method is called. The delegate
+// (advanced-ratelimit) then reads that value to deduct the actual cost from the
+// rate limit counter.
+func (p *LLMCostRateLimitPolicy) OnResponseBody(
+	ctx *policyv1alpha2.ResponseContext,
+	params map[string]interface{},
+) policyv1alpha2.ResponseAction {
+	slog.Debug("OnResponseBody: processing LLM cost-based rate limit",
+		"route", p.metadata.RouteName)
+
+	type responseBodyPolicer interface {
+		OnResponseBody(*policyv1alpha2.ResponseContext, map[string]interface{}) policyv1alpha2.ResponseAction
+	}
+
+	costScaleFactor := extractCostScaleFactor(params)
+	if scaleFactor, ok := ctx.Metadata[MetadataKeyCostScaleFactor].(int); ok && scaleFactor > 0 {
+		costScaleFactor = scaleFactor
+	}
+
+	// First, try to use the delegate pinned during OnRequestHeaders
+	if delegate, ok := ctx.Metadata[MetadataKeyDelegate].(policy.Policy); ok {
+		slog.Debug("OnResponseBody: using pinned delegate from request phase",
+			"route", p.metadata.RouteName)
+		if rl, ok := delegate.(responseBodyPolicer); ok {
+			return p.addDollarHeadersResponseBody(rl.OnResponseBody(ctx, params), costScaleFactor)
+		}
+		return policyv1alpha2.DownstreamResponseModifications{}
+	}
+
+	// Fallback: look up by provider name (for cases where OnRequestHeaders didn't run)
+	providerName, ok := ctx.Metadata[MetadataKeyProviderName].(string)
+	if !ok || providerName == "" {
+		slog.Debug("OnResponseBody: provider name not found in metadata; skipping",
+			"route", p.metadata.RouteName)
+		return policyv1alpha2.DownstreamResponseModifications{}
+	}
+
+	if entry, ok := p.delegates.Load(providerName); ok {
+		if de, ok := entry.(*delegateEntry); ok && de.delegate != nil {
+			if rl, ok := de.delegate.(responseBodyPolicer); ok {
+				slog.Debug("OnResponseBody: delegating to advanced-ratelimit",
+					"route", p.metadata.RouteName,
+					"provider", providerName)
+				return p.addDollarHeadersResponseBody(rl.OnResponseBody(ctx, params), costScaleFactor)
+			}
+		}
+	}
+
+	slog.Debug("OnResponseBody: no delegate found for provider",
+		"route", p.metadata.RouteName,
+		"provider", providerName)
+	return policyv1alpha2.DownstreamResponseModifications{}
+}
+
+// addDollarHeadersResponseBody transforms the delegate's ResponseAction to include
+// human-readable dollar-denominated headers alongside the scaled values.
+func (p *LLMCostRateLimitPolicy) addDollarHeadersResponseBody(action policyv1alpha2.ResponseAction, costScaleFactor int) policyv1alpha2.ResponseAction {
+	if action == nil {
+		return policyv1alpha2.DownstreamResponseModifications{}
+	}
+
+	modifications, ok := action.(policyv1alpha2.DownstreamResponseModifications)
+	if !ok {
+		return action
+	}
+
+	if modifications.HeadersToSet == nil {
+		return action
+	}
+
+	newHeaders := make(map[string]string, len(modifications.HeadersToSet)+4)
+	for k, v := range modifications.HeadersToSet {
+		newHeaders[k] = v
+	}
+
+	addScaledHeader(newHeaders, "ratelimit-limit", "x-ratelimit-cost-limit-dollars", costScaleFactor)
+	addScaledHeader(newHeaders, "ratelimit-remaining", "x-ratelimit-cost-remaining-dollars", costScaleFactor)
+	addScaledHeader(newHeaders, "x-ratelimit-limit", "x-ratelimit-cost-limit-dollars", costScaleFactor)
+	addScaledHeader(newHeaders, "x-ratelimit-remaining", "x-ratelimit-cost-remaining-dollars", costScaleFactor)
+
+	modifications.HeadersToSet = newHeaders
+	return modifications
 }
 
 // addDollarHeaders transforms the delegate's response action to include

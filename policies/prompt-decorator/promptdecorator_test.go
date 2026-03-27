@@ -15,7 +15,7 @@ func TestPromptDecoratorPolicy_Mode(t *testing.T) {
 
 	got := p.Mode()
 	want := policyv1alpha2.ProcessingMode{
-		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
+		RequestHeaderMode:  policyv1alpha2.HeaderModeProcess,
 		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
 		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
 		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,

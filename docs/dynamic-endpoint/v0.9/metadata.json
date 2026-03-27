@@ -1,0 +1,10 @@
+{
+  "name": "dynamic-endpoint",
+  "displayName": "Dynamic Endpoint",
+  "version": "0.9",
+  "provider": "WSO2",
+  "categories": [
+    "Transformation"
+  ],
+  "description": "Routes requests to a named upstream definition at request time.\nUses a single required targetUpstream parameter to select the upstream definition.\nUseful for directing specific API routes or operations to alternate backends."
+}

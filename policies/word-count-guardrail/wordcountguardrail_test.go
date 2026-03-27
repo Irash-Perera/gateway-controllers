@@ -544,8 +544,8 @@ func TestMode(t *testing.T) {
 	p := &WordCountGuardrailPolicy{}
 	mode := p.Mode()
 
-	if mode.RequestHeaderMode != policyv1alpha2.HeaderModeSkip {
-		t.Fatalf("expected RequestHeaderMode=Skip, got %v", mode.RequestHeaderMode)
+	if mode.RequestHeaderMode != policyv1alpha2.HeaderModeProcess {
+		t.Fatalf("expected RequestHeaderMode=Process, got %v", mode.RequestHeaderMode)
 	}
 	if mode.RequestBodyMode != policyv1alpha2.BodyModeBuffer {
 		t.Fatalf("expected RequestBodyMode=Buffer, got %v", mode.RequestBodyMode)
@@ -691,6 +691,316 @@ func TestBuildAssessmentObject(t *testing.T) {
 	}
 	if _, ok := withErr["assessments"].(string); !ok {
 		t.Fatalf("expected error assessments string, got %#v", withErr["assessments"])
+	}
+}
+
+// ─── SSE / streaming helpers ──────────────────────────────────────────────────
+
+// sseEvent returns a full SSE data line (with trailing \n\n) for the given
+// delta content fragment, using the same JSON shape as the user-provided events.
+func sseEvent(content string) string {
+	quoted, _ := json.Marshal(content)
+	return `data: {"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":` + string(quoted) + `},"logprobs":null,"finish_reason":null}],"obfuscation":"test"}` + "\n\n"
+}
+
+// sseInitEvent returns the very first SSE chunk that carries role=assistant
+// and empty content — exactly the pattern in the user-provided stream.
+func sseInitEvent() string {
+	return `data: {"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"","refusal":null},"logprobs":null,"finish_reason":null}],"obfuscation":"test"}` + "\n\n"
+}
+
+// sseFinishEvent returns the chunk that signals finish_reason=stop with an
+// empty delta — also present in the user-provided stream.
+func sseFinishEvent() string {
+	return `data: {"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"stop"}],"obfuscation":"test"}` + "\n\n"
+}
+
+// sseDoneEvent returns the SSE terminal marker.
+func sseDoneEvent() string {
+	return "data: [DONE]\n\n"
+}
+
+// accumulateEvents joins SSE event strings into a single accumulated buffer,
+// simulating what the kernel passes to NeedsMoreResponseData.
+func accumulateEvents(events ...string) []byte {
+	return []byte(strings.Join(events, ""))
+}
+
+// newStreamingPolicy constructs a policy with only response-flow params enabled
+// and streaming configured, matching a typical streaming guardrail setup.
+func newStreamingPolicy(min, max int) *WordCountGuardrailPolicy {
+	return &WordCountGuardrailPolicy{
+		hasResponseParams: true,
+		responseParams: WordCountGuardrailPolicyParams{
+			Enabled:           true,
+			Min:               min,
+			Max:               max,
+			StreamingJsonPath: DefaultStreamingJsonPath,
+		},
+	}
+}
+
+// ─── NeedsMoreResponseData tests ─────────────────────────────────────────────
+
+func TestNeedsMoreResponseData_DisabledOrNoParams(t *testing.T) {
+	acc := accumulateEvents(sseInitEvent(), sseEvent("hello world"))
+
+	t.Run("no response params", func(t *testing.T) {
+		p := &WordCountGuardrailPolicy{hasResponseParams: false}
+		if p.NeedsMoreResponseData(acc) {
+			t.Fatal("expected false when hasResponseParams=false")
+		}
+	})
+
+	t.Run("response params disabled", func(t *testing.T) {
+		p := &WordCountGuardrailPolicy{
+			hasResponseParams: true,
+			responseParams:    WordCountGuardrailPolicyParams{Enabled: false, Min: 10, Max: 100},
+		}
+		if p.NeedsMoreResponseData(acc) {
+			t.Fatal("expected false when response params disabled")
+		}
+	})
+}
+
+func TestNeedsMoreResponseData_NonSSEContent(t *testing.T) {
+	p := newStreamingPolicy(10, 100)
+	plainJSON := []byte(`{"choices":[{"message":{"content":"hello world"}}]}`)
+	if p.NeedsMoreResponseData(plainJSON) {
+		t.Fatal("expected false for non-SSE content")
+	}
+}
+
+func TestNeedsMoreResponseData_MinZero_NoGating(t *testing.T) {
+	p := newStreamingPolicy(0, 10)
+	// Even with partial SSE content, min=0 means no buffering gate.
+	acc := accumulateEvents(sseInitEvent(), sseEvent("hello"))
+	if p.NeedsMoreResponseData(acc) {
+		t.Fatal("expected false for min=0 (no gating needed)")
+	}
+}
+
+// TestNeedsMoreResponseData_NormalMode_GatesUntilMin verifies the gate-then-stream
+// behaviour using the same SSE event shape as the user-provided stream.
+// Words arrive one or more per event, mirroring the real stream:
+//
+//	init (empty) → "You" → " provided" → … → " and" → " a"  (10 words total)
+//
+// The gate must stay open (return true) until the 10th word arrives, then close.
+func TestNeedsMoreResponseData_NormalMode_GatesUntilMin(t *testing.T) {
+	const min = 10
+	p := newStreamingPolicy(min, 100)
+
+	// These fragments, when concatenated, produce exactly the first 10 words
+	// of the user-provided stream:
+	//   "You provided a dummy email address as [EMAIL_0001] and a"
+	// Note: "[EMAIL_0001]" arrives as 6 separate fragments in the real stream;
+	// we consolidate them here to keep the test readable.
+	fragments := []string{
+		"You",         // 1
+		" provided",   // 2
+		" a",          // 3
+		" dummy",      // 4
+		" email",      // 5
+		" address",    // 6
+		" as",         // 7
+		" [EMAIL",     // 8  ← "[EMAIL" is one whitespace-delimited token
+		"_0001]",      // 8  (still 8; no space, extends "[EMAIL_0001]")
+		" and",        // 9
+		" a",          // 10
+	}
+
+	var events []string
+	events = append(events, sseInitEvent()) // empty-content init, contributes 0 words
+
+	var acc strings.Builder
+	acc.WriteString(sseInitEvent())
+
+	wordCount := 0
+	for i, frag := range fragments {
+		events = append(events, sseEvent(frag))
+		acc.WriteString(sseEvent(frag))
+
+		// Count words in the full concatenated text so far (mirrors countWords logic).
+		fullText := strings.TrimSpace(strings.Join(func() []string {
+			var parts []string
+			for _, f := range fragments[:i+1] {
+				parts = append(parts, f)
+			}
+			return parts
+		}(), ""))
+		ws := strings.Fields(fullText)
+		wordCount = len(ws)
+
+		got := p.NeedsMoreResponseData([]byte(acc.String()))
+		if wordCount < min {
+			if !got {
+				t.Errorf("fragment %d (%q): word count=%d < min=%d, expected NeedsMoreResponseData=true, got false",
+					i, frag, wordCount, min)
+			}
+		} else {
+			if got {
+				t.Errorf("fragment %d (%q): word count=%d >= min=%d, expected NeedsMoreResponseData=false, got true",
+					i, frag, wordCount, min)
+			}
+		}
+	}
+}
+
+func TestNeedsMoreResponseData_FlushesOnDONE(t *testing.T) {
+	// Even if min is not reached, [DONE] must always cause a flush (return false).
+	p := newStreamingPolicy(100, 1000) // min=100 words, far more than stream has
+
+	// Partial content + [DONE]
+	acc := accumulateEvents(sseInitEvent(), sseEvent("hello"), sseDoneEvent())
+	if p.NeedsMoreResponseData(acc) {
+		t.Fatal("expected false when [DONE] is present, regardless of word count vs min")
+	}
+}
+
+func TestNeedsMoreResponseData_FlushesOnFinishReasonStop(t *testing.T) {
+	// The finish_reason=stop chunk has delta:{} (no content field).
+	// It should not cause an early flush on its own; only [DONE] does.
+	p := newStreamingPolicy(10, 100)
+	acc := accumulateEvents(sseInitEvent(), sseEvent("hello"), sseFinishEvent())
+	// Word count = 1, still below min=10, and no [DONE] yet → should still gate.
+	if !p.NeedsMoreResponseData(acc) {
+		t.Fatal("expected true (still gating) after finish_reason=stop chunk without [DONE]")
+	}
+}
+
+func TestNeedsMoreResponseData_InvertMode(t *testing.T) {
+	// Invert: block if word count falls within [min, max].
+	// NeedsMoreResponseData must buffer until count > max (so we can be sure it
+	// will be OUTSIDE the excluded range), or until [DONE] arrives.
+	const minW, maxW = 5, 15
+	p := &WordCountGuardrailPolicy{
+		hasResponseParams: true,
+		responseParams: WordCountGuardrailPolicyParams{
+			Enabled:           true,
+			Min:               minW,
+			Max:               maxW,
+			Invert:            true,
+			StreamingJsonPath: DefaultStreamingJsonPath,
+		},
+	}
+
+	// Build 10 words (within [5,15]) — should still be gating.
+	acc := accumulateEvents(sseInitEvent())
+	words10 := []string{"one", " two", " three", " four", " five",
+		" six", " seven", " eight", " nine", " ten"}
+	for _, w := range words10 {
+		acc = append(acc, []byte(sseEvent(w))...)
+	}
+	if !p.NeedsMoreResponseData(acc) {
+		t.Fatal("invert: 10 words in [5,15], expected NeedsMoreResponseData=true (still gating)")
+	}
+
+	// Add 6 more words to push count > max=15 → gate should open.
+	extra := []string{" eleven", " twelve", " thirteen", " fourteen", " fifteen", " sixteen"}
+	for _, w := range extra {
+		acc = append(acc, []byte(sseEvent(w))...)
+	}
+	if p.NeedsMoreResponseData(acc) {
+		t.Fatal("invert: 16 words > max=15, expected NeedsMoreResponseData=false (gate open)")
+	}
+}
+
+func TestNeedsMoreResponseData_InvertMode_FlushesOnDONE(t *testing.T) {
+	p := &WordCountGuardrailPolicy{
+		hasResponseParams: true,
+		responseParams: WordCountGuardrailPolicyParams{
+			Enabled: true, Min: 5, Max: 100, Invert: true,
+			StreamingJsonPath: DefaultStreamingJsonPath,
+		},
+	}
+	// count=3 < max, but [DONE] forces flush.
+	acc := accumulateEvents(sseInitEvent(), sseEvent("one"), sseEvent(" two"), sseEvent(" three"), sseDoneEvent())
+	if p.NeedsMoreResponseData(acc) {
+		t.Fatal("invert: expected false when [DONE] present, regardless of count vs max")
+	}
+}
+
+// TestNeedsMoreResponseData_InitEventEmptyContent specifically tests that the
+// first SSE event — which carries role=assistant and content="" — does NOT
+// prematurely open the gate (i.e., it contributes 0 words, so NeedsMoreResponseData
+// must return true when min > 0).
+func TestNeedsMoreResponseData_InitEventEmptyContent(t *testing.T) {
+	p := newStreamingPolicy(5, 100)
+	// Only the init event (empty content) — must remain gating.
+	acc := accumulateEvents(sseInitEvent())
+	if !p.NeedsMoreResponseData(acc) {
+		t.Fatal("init event (content=\"\") contributes 0 words; expected NeedsMoreResponseData=true when min=5")
+	}
+}
+
+// TestNeedsMoreResponseData_UserSSEStream exercises NeedsMoreResponseData with
+// the exact SSE event shape from the user-provided stream. It verifies:
+//  1. Init chunk (empty content) keeps the gate closed.
+//  2. Word-by-word deltas accumulate correctly.
+//  3. The gate opens exactly when word count reaches min.
+//  4. finish_reason=stop chunk does not prematurely open the gate.
+//  5. [DONE] always opens the gate.
+func TestNeedsMoreResponseData_UserSSEStream(t *testing.T) {
+	const min = 10
+	p := newStreamingPolicy(min, 100)
+
+	// Simulate the exact fragment sequence from the user-provided stream.
+	// Each entry is (fragment, expectedWordCount) after accumulating up to that point.
+	type step struct {
+		event         string
+		expectedWords int
+	}
+	steps := []step{
+		{sseInitEvent(), 0},       // role:assistant, content:"" → 0 words
+		{sseEvent("You"), 1},      // 1
+		{sseEvent(" provided"), 2}, // 2
+		{sseEvent(" a"), 3},       // 3
+		{sseEvent(" dummy"), 4},   // 4
+		{sseEvent(" email"), 5},   // 5
+		{sseEvent(" address"), 6}, // 6
+		{sseEvent(" as"), 7},      // 7
+		{sseEvent(" ["), 8},       // 8  ("[" is a whitespace-separated token)
+		{sseEvent("EMAIL"), 8},    // still 8 (no space, extends "[EMAIL")
+		{sseEvent("_"), 8},        // still 8
+		{sseEvent("000"), 8},      // still 8
+		{sseEvent("1"), 8},        // still 8
+		{sseEvent("]"), 8},        // still 8 ("[EMAIL_0001]" = one token)
+		{sseEvent(" and"), 9},     // 9
+		{sseEvent(" a"), 10},      // 10 ← gate must open here
+		{sseFinishEvent(), 10},    // finish_reason:stop, delta:{} → no new words
+	}
+
+	var acc strings.Builder
+	for i, s := range steps {
+		acc.WriteString(s.event)
+		got := p.NeedsMoreResponseData([]byte(acc.String()))
+		wantGating := s.expectedWords < min
+		if got != wantGating {
+			t.Errorf("step %d: word count=%d, expected NeedsMoreResponseData=%v, got %v",
+				i, s.expectedWords, wantGating, got)
+		}
+	}
+
+	// [DONE] must always cause a flush, even if we're below min.
+	acc.WriteString(sseDoneEvent())
+	if p.NeedsMoreResponseData([]byte(acc.String())) {
+		t.Error("[DONE] present: expected NeedsMoreResponseData=false regardless of accumulated count")
+	}
+}
+
+func TestExtractSSEDeltaContent_Diagnostic(t *testing.T) {
+	events := accumulateEvents(
+		sseInitEvent(),
+		sseEvent("You"),
+		sseEvent(" provided"),
+		sseEvent(" a"),
+	)
+	got := extractSSEDeltaContent(string(events), DefaultStreamingJsonPath)
+	t.Logf("extractSSEDeltaContent result: %q", got)
+	want := "You provided a"
+	if got != want {
+		t.Errorf("expected %q, got %q", want, got)
 	}
 }
 

@@ -37,8 +37,8 @@ github.com/wso2/api-platform/sdk v0.4.5 h1:1T5bY4W0No8SKZiydg8dt/x0iFKWiRTgquzoQ
 github.com/wso2/api-platform/sdk v0.4.5/go.mod h1:Zoaj0dOuHmI96K9rY9w2qunjjT4Lcvlq9AYezL4a3/0=
 github.com/wso2/api-platform/sdk/core v0.1.0 h1:yxxlgmrZLztCqHzAW7GdRnUNBFOA2l8AX6fphMZaly0=
 github.com/wso2/api-platform/sdk/core v0.1.0/go.mod h1:R114dV8/EAl843+16zi97Cbd5+iPPYjHKdN7Nik3EUw=
-github.com/wso2/gateway-controllers/policies/advanced-ratelimit v0.9.0 h1:7fvLoU3KnrBiUgXD0IE6kktHlzUEBluQDkxJAp3Kr2I=
-github.com/wso2/gateway-controllers/policies/advanced-ratelimit v0.9.0/go.mod h1:7RUuD0Q+loKq2uTRg8o74f8ac855XVVUuP9yZAxlW5E=
+github.com/wso2/gateway-controllers/policies/advanced-ratelimit v0.9.3 h1:JV1130GfL5We+29GvMFqvJcedjrdk0v0fNJvGnloL3A=
+github.com/wso2/gateway-controllers/policies/advanced-ratelimit v0.9.3/go.mod h1:pIlUs5OHcYPHGyf3UNT7ZGnuK6jHRS+ad4w/Tz0ICK4=
 golang.org/x/exp v0.0.0-20260112195511-716be5621a96 h1:Z/6YuSHTLOHfNFdb8zVZomZr7cqNgTJvA8+Qz75D8gU=
 golang.org/x/exp v0.0.0-20260112195511-716be5621a96/go.mod h1:nzimsREAkjBCIEFtHiYkrJyT+2uy9YZJB7H1k68CXZU=
 golang.org/x/text v0.35.0 h1:JOVx6vVDFokkpaq1AEptVzLTpDe9KGpj5tR4/X+ybL8=

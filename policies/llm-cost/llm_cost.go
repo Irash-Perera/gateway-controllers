@@ -193,7 +193,11 @@ func setCostMetadata(ctx *policy.ResponseContext, costUSD float64, status string
 	}
 	ctx.SharedContext.Metadata[MetadataLLMCost] = fmt.Sprintf("%.10f", costUSD)
 	ctx.SharedContext.Metadata[MetadataLLMCostStatus] = status
-	return policy.UpstreamResponseModifications{}
+	return policy.UpstreamResponseModifications{
+		AnalyticsMetadata: map[string]interface{}{
+			MetadataLLMCost: costUSD,
+		},
+	}
 }
 
 // OnResponseBody reads the LLM response, looks up model pricing, calculates cost,

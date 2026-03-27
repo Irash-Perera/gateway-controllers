@@ -749,10 +749,8 @@ func (p *ModelWeightedRoundRobinPolicy) OnRequestHeaders(ctx *policyv1alpha2.Req
 				HeadersToSet: map[string]string{":path": newPath},
 			}
 		}
-		return policyv1alpha2.UpstreamRequestHeaderModifications{}
-	default: // payload — body not available in header phase; OnRequest will handle it
-		return policyv1alpha2.UpstreamRequestHeaderModifications{}
 	}
+	return policyv1alpha2.UpstreamRequestHeaderModifications{}
 }
 
 // OnResponseHeaders suspends a model in the response header phase when an error is detected.

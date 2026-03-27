@@ -363,7 +363,7 @@ func TestAPIKeyPolicy_AuthContext_PreviousPreserved_OnSuccess(t *testing.T) {
 	}
 	ctx.SharedContext.AuthContext = prior
 
-	p.handleAuthSuccess(ctx)
+	p.handleAuthSuccess(ctx, &apikeycommon.APIKey{})
 
 	if ctx.SharedContext.AuthContext == nil {
 		t.Fatal("Expected AuthContext to be set")

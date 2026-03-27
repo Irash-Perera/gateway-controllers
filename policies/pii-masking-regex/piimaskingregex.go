@@ -584,59 +584,38 @@ func (p *PIIMaskingRegexPolicy) processResponseBody(ctx *policyv1alpha2.Response
 }
 
 // NeedsMoreResponseData implements v2alpha.StreamingResponsePolicy.
-// Returns true when the accumulated SSE delta.content ends with what looks like
-// a partial PII placeholder ([ENTITY_XXXX]), so the kernel keeps buffering until
-// the complete token arrives.
+// Returns true when the accumulated SSE delta.content contains an unclosed '['
+// that may be a PII placeholder, so the kernel keeps buffering until ']' arrives
+// or 5 more SSE data lines have passed (whichever comes first).
 //
 // For non-SSE (plain JSON) responses delivered via chunked transfer encoding,
 // accumulates until the full JSON body is complete and parseable.
 func (p *PIIMaskingRegexPolicy) NeedsMoreResponseData(accumulated []byte) bool {
 	if p.params.RedactPII {
-		return false // no placeholders in redact mode
+		return false
 	}
 
 	s := string(accumulated)
 
-	// For non-SSE (plain JSON) responses delivered via chunked transfer encoding,
-	// accumulate until the full JSON body is complete and parseable.
 	if !isSSEChunk(s) {
 		return !json.Valid(bytes.TrimSpace(accumulated))
 	}
 
-	// Extract concatenated delta.content from all complete SSE lines, tracking
-	// which data-line index contained the last '[' for the 5-token cap.
 	content, openBracketDataLineIdx, totalDataLines := extractSSEDeltaContentTracked(s)
-	if content == "" {
-		// No complete data: lines yet — keep buffering only if a partial line is still
-		// being received; otherwise the accumulator genuinely has no content.
-		return hasTrailingPartialDataLine(s)
-	}
 
 	lastOpen := strings.LastIndex(content, "[")
 	if lastOpen == -1 {
-		// No '[' in the parsed content yet — keep buffering if a partial data: line
-		// could be carrying a placeholder that hasn't been delivered in full.
-		return hasTrailingPartialDataLine(s)
+		return false
 	}
 
 	afterBracket := content[lastOpen+1:]
-
 	if strings.Contains(afterBracket, "]") {
 		return false
 	}
 
-	if !isPartialPlaceholder(afterBracket) {
-		return false
-	}
-
-	// Hard cap: if more than 5 SSE data lines have arrived since the '[' was seen,
-	// give up waiting to avoid indefinite accumulation.
+	// Unclosed '[' found — wait, but no more than 5 data lines after it.
 	dataLinesAfterOpen := totalDataLines - openBracketDataLineIdx - 1
-	if dataLinesAfterOpen > 5 {
-		return false
-	}
-
-	return true
+	return dataLinesAfterOpen <= 5
 }
 
 // OnResponseBodyChunk implements v2alpha.StreamingResponsePolicy.
@@ -906,26 +885,6 @@ func restoreInChoices(jsonStr string, maskedMap map[string]string, choiceKey str
 	return string(updatedBytes), true
 }
 
-// hasTrailingPartialDataLine reports whether the last "data: " line in s is an
-// incomplete (unparseable) SSE event, meaning the JSON payload has not been
-// fully delivered yet. extractSSEDeltaContentTracked silently skips such lines,
-// so callers use this to detect that more data is still needed.
-func hasTrailingPartialDataLine(s string) bool {
-	lines := strings.Split(s, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimRight(lines[i], "\r")
-		if !strings.HasPrefix(line, sseDataPrefix) {
-			continue
-		}
-		jsonStr := strings.TrimPrefix(line, sseDataPrefix)
-		if jsonStr == sseDone {
-			return false
-		}
-		var data map[string]interface{}
-		return json.Unmarshal([]byte(jsonStr), &data) != nil
-	}
-	return false
-}
 
 // extractSSEDeltaContentTracked concatenates choices[*].delta.content from all
 // complete SSE data lines in the accumulated buffer. It returns:
@@ -969,38 +928,6 @@ func extractSSEDeltaContentTracked(s string) (string, int, int) {
 	return sb.String(), lastOpenBracketDataLine, totalDataLines
 }
 
-// isPartialPlaceholder returns true when afterBracket (the text after '[') looks like
-// an incomplete placeholder that needs more chunks before processing.
-//
-// Placeholder format: [ENTITY_NAME_XXXX] where XXXX is exactly 4 hex digits.
-func isPartialPlaceholder(afterBracket string) bool {
-	if len(afterBracket) == 0 {
-		// Bare '[' at end of stream — could be start of placeholder, hold one more chunk.
-		return true
-	}
-	if afterBracket[0] < 'A' || afterBracket[0] > 'Z' {
-		return false // entity names always start with uppercase
-	}
-	for _, c := range afterBracket {
-		switch {
-		case c >= 'A' && c <= 'Z': // entity name chars
-		case c == '_': // entity name separator
-		case c >= '0' && c <= '9': // hex counter digits
-		case c >= 'a' && c <= 'f': // hex counter digits
-		default:
-			return false // any other char means it's not our placeholder
-		}
-	}
-	if len(afterBracket) > 30 {
-		return false // sanity guard: too long to be a valid placeholder
-	}
-	// Find the counter digits after the last underscore.
-	lastUnderscore := strings.LastIndex(afterBracket, "_")
-	if lastUnderscore < 0 {
-		return true // still building entity name, no underscore yet
-	}
-	return len(afterBracket)-lastUnderscore-1 <= 4 // true = counter incomplete or ']' not yet seen
-}
 
 // invertStringMap returns a new map with keys and values swapped.
 func invertStringMap(m map[string]string) map[string]string {

@@ -227,6 +227,81 @@ func (e *CELEvaluator) EvaluateResponseCostExpression(expression string, ctx *po
 	return toFloat64(result.Value())
 }
 
+// EvaluateResponseCostExpressionV2 evaluates a CEL expression for cost extraction
+// from a v1alpha2 response context. Mirrors EvaluateResponseCostExpression.
+func (e *CELEvaluator) EvaluateResponseCostExpressionV2(expression string, ctx *policyv1alpha2.ResponseContext) (float64, error) {
+	program, err := e.getOrCompileCostProgram(expression)
+	if err != nil {
+		return 0, fmt.Errorf("failed to compile CEL expression: %w", err)
+	}
+
+	evalCtx := buildResponseCostEvalContextV2(ctx)
+
+	result, _, err := program.Eval(evalCtx)
+	if err != nil {
+		slog.Debug("CEL response cost extraction evaluation failed (v2)", "expression", expression, "error", err)
+		return 0, fmt.Errorf("CEL evaluation failed: %w", err)
+	}
+
+	return toFloat64(result.Value())
+}
+
+// buildResponseCostEvalContextV2 builds the CEL evaluation context for response-phase
+// cost extraction from a v1alpha2 ResponseContext.
+func buildResponseCostEvalContextV2(ctx *policyv1alpha2.ResponseContext) map[string]interface{} {
+	requestHeaders := make(map[string][]string)
+	if ctx.RequestHeaders != nil {
+		ctx.RequestHeaders.Iterate(func(key string, values []string) {
+			requestHeaders[key] = values
+		})
+	}
+
+	responseHeaders := make(map[string][]string)
+	if ctx.ResponseHeaders != nil {
+		ctx.ResponseHeaders.Iterate(func(key string, values []string) {
+			responseHeaders[key] = values
+		})
+	}
+
+	metadata := make(map[string]interface{})
+	if ctx.Metadata != nil {
+		for k, v := range ctx.Metadata {
+			metadata[k] = v
+		}
+	}
+
+	var requestBodyBytes []byte
+	var requestBodyString string
+	if ctx.RequestBody != nil && ctx.RequestBody.Present && ctx.RequestBody.Content != nil {
+		requestBodyBytes = ctx.RequestBody.Content
+		requestBodyString = string(requestBodyBytes)
+	}
+
+	var responseBodyBytes []byte
+	var responseBodyString string
+	if ctx.ResponseBody != nil && ctx.ResponseBody.Present && ctx.ResponseBody.Content != nil {
+		responseBodyBytes = ctx.ResponseBody.Content
+		responseBodyString = string(responseBodyBytes)
+	}
+
+	return map[string]interface{}{
+		"request.Headers":     requestHeaders,
+		"request.Body":        requestBodyBytes,
+		"request.BodyString":  requestBodyString,
+		"request.Path":        ctx.RequestPath,
+		"request.Method":      ctx.RequestMethod,
+		"request.Metadata":    metadata,
+		"response.Headers":    responseHeaders,
+		"response.Body":       responseBodyBytes,
+		"response.BodyString": responseBodyString,
+		"response.Status":     int64(ctx.ResponseStatus),
+		"api.Name":            ctx.APIName,
+		"api.Version":         ctx.APIVersion,
+		"api.Context":         ctx.APIContext,
+		"api.Id":              ctx.APIId,
+	}
+}
+
 // buildKeyEvalContext builds the CEL evaluation context for key extraction
 func buildKeyEvalContext(ctx *policy.RequestContext, routeName string) map[string]interface{} {
 	// Convert headers to map[string][]string for CEL

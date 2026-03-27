@@ -43,7 +43,7 @@ const (
 	sseDone                  = "[DONE]"
 	metaKeyAccContent        = "wordcountguardrail:accumulated_content"
 	metaKeyAccJsonBody       = "wordcountguardrail:json_body"
-	DefaultStreamingJsonPath = "$.choices[*].delta.content"
+	DefaultStreamingJsonPath = "$.choices[0].delta.content"
 )
 
 var (
@@ -271,7 +271,7 @@ func extractInt(value interface{}) (int, error) {
 // Mode returns the processing mode for this policy
 func (p *WordCountGuardrailPolicy) Mode() policy.ProcessingMode {
 	return policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
+		RequestHeaderMode:  policy.HeaderModeProcess, // needed to catch empty-body requests
 		RequestBodyMode:    policy.BodyModeBuffer,
 		ResponseHeaderMode: policy.HeaderModeSkip,
 		ResponseBodyMode:   policy.BodyModeStream,
@@ -424,6 +424,10 @@ func normalizeExtractedValue(value interface{}) (string, error) {
 // buildErrorResponse builds an error response for both request and response phases
 func (p *WordCountGuardrailPolicy) buildErrorResponse(reason string, validationError error, isResponse bool, showAssessment bool, min, max int) interface{} {
 	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, min, max)
+	analyticsMetadata := map[string]interface{}{
+		"isGuardrailHit": true,
+		"guardrailName":  "word-count-guardrail",
+	}
 
 	responseBody := map[string]interface{}{
 		"type":    "WORD_COUNT_GUARDRAIL",
@@ -438,8 +442,9 @@ func (p *WordCountGuardrailPolicy) buildErrorResponse(reason string, validationE
 	if isResponse {
 		statusCode := GuardrailErrorCode
 		return policy.UpstreamResponseModifications{
-			StatusCode: &statusCode,
-			Body:       bodyBytes,
+			StatusCode:        &statusCode,
+			Body:              bodyBytes,
+			AnalyticsMetadata: analyticsMetadata,
 			SetHeaders: map[string]string{
 				"Content-Type": "application/json",
 			},
@@ -447,7 +452,8 @@ func (p *WordCountGuardrailPolicy) buildErrorResponse(reason string, validationE
 	}
 
 	return policy.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
+		StatusCode:        GuardrailErrorCode,
+		AnalyticsMetadata: analyticsMetadata,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},
@@ -520,12 +526,26 @@ func (p *WordCountGuardrailPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseCo
 
 	// For SSE responses, reconstruct the full assistant text from delta events
 	// and count words on that, bypassing the JSONPath extraction (which targets
-	// the non-streaming response structure).
-	if text := extractSSEDeltaContent(string(content), p.responseParams.StreamingJsonPath); text != "" {
+	// the non-streaming response structure). Use isSSEChunk for detection so that
+	// SSE responses with all-null delta content (e.g. tool-call responses) are not
+	// incorrectly routed to JSONPath extraction.
+	contentStr := string(content)
+	if isSSEChunk(contentStr) {
+		text := extractSSEDeltaContent(contentStr, p.responseParams.StreamingJsonPath)
 		return p.validateWordCountV2(text, p.responseParams, true)
 	}
 
 	return p.validatePayloadV2(content, p.responseParams, true).(policyv1alpha2.ResponseAction)
+}
+
+// isSSEChunk reports whether s contains at least one "data: " SSE line.
+func isSSEChunk(s string) bool {
+	for _, line := range strings.SplitN(s, "\n", 5) {
+		if strings.HasPrefix(line, sseDataPrefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // extractSSEDeltaContent extracts and concatenates content values from every
@@ -582,6 +602,10 @@ func joinSSEFragments(value interface{}) string {
 // buildErrorResponseV2 builds a v1alpha2 error response for both request and response phases.
 func (p *WordCountGuardrailPolicy) buildErrorResponseV2(reason string, validationError error, isResponse bool, showAssessment bool, min, max int) interface{} {
 	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, min, max)
+	analyticsMetadata := map[string]interface{}{
+		"isGuardrailHit": true,
+		"guardrailName":  "word-count-guardrail",
+	}
 
 	responseBody := map[string]interface{}{
 		"type":    "WORD_COUNT_GUARDRAIL",
@@ -596,8 +620,9 @@ func (p *WordCountGuardrailPolicy) buildErrorResponseV2(reason string, validatio
 	if isResponse {
 		statusCode := GuardrailErrorCode
 		return policyv1alpha2.DownstreamResponseModifications{
-			StatusCode: &statusCode,
-			Body:       bodyBytes,
+			StatusCode:        &statusCode,
+			Body:              bodyBytes,
+			AnalyticsMetadata: analyticsMetadata,
 			DownstreamResponseHeaderModifications: policyv1alpha2.DownstreamResponseHeaderModifications{
 				HeadersToSet: map[string]string{
 					"Content-Type": "application/json",
@@ -607,7 +632,8 @@ func (p *WordCountGuardrailPolicy) buildErrorResponseV2(reason string, validatio
 	}
 
 	return policyv1alpha2.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
+		StatusCode:        GuardrailErrorCode,
+		AnalyticsMetadata: analyticsMetadata,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},
@@ -693,4 +719,166 @@ func (p *WordCountGuardrailPolicy) validatePayloadV2(payload []byte, params Word
 		return policyv1alpha2.DownstreamResponseModifications{}
 	}
 	return policyv1alpha2.UpstreamRequestModifications{}
+}
+
+// ─── Streaming (SSE) support ──────────────────────────────────────────────────
+//
+// NeedsMoreResponseData and OnResponseBodyChunk together implement
+// StreamingResponsePolicy using a gate-then-stream approach.
+//
+// min enforcement (gate-then-stream):
+//   NeedsMoreResponseData buffers silently until the accumulated word count
+//   reaches min, then flushes. From that point OnResponseBodyChunk processes
+//   each subsequent chunk individually, using ctx.Metadata to track the
+//   cumulative word count for max enforcement.
+//
+// invert enforcement:
+//   NeedsMoreResponseData buffers until the word count exceeds max
+//   (guaranteed outside the excluded range). If [DONE] arrives while still
+//   gated, the full accumulated content is validated in OnResponseBodyChunk.
+
+// countWords counts non-empty word segments in accumulated text.
+func countWords(text string) int {
+	text = textCleanRegexCompiled.ReplaceAllString(text, "")
+	text = strings.TrimSpace(text)
+	words := wordSplitRegexCompiled.Split(text, -1)
+	count := 0
+	for _, w := range words {
+		if strings.TrimSpace(w) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+// buildSSEErrorEvent formats a guardrail intervention as a single SSE data event.
+func (p *WordCountGuardrailPolicy) buildSSEErrorEvent(reason string, rp WordCountGuardrailPolicyParams) []byte {
+	assessment := p.buildAssessmentObject(reason, nil, true, rp.ShowAssessment, rp.Min, rp.Max)
+	responseBody := map[string]interface{}{
+		"type":    "WORD_COUNT_GUARDRAIL",
+		"message": assessment,
+	}
+	bodyBytes, err := json.Marshal(responseBody)
+	if err != nil {
+		bodyBytes = []byte(`{"type":"WORD_COUNT_GUARDRAIL","message":"Internal error"}`)
+	}
+	return []byte(sseDataPrefix + string(bodyBytes) + "\n\n")
+}
+
+// NeedsMoreResponseData implements StreamingResponsePolicy.
+// Buffers until the gate condition is satisfied — no bytes sent to the client
+// during accumulation. Always flushes when [DONE] arrives.
+func (p *WordCountGuardrailPolicy) NeedsMoreResponseData(accumulated []byte) bool {
+	if !p.hasResponseParams || !p.responseParams.Enabled {
+		return false
+	}
+	s := string(accumulated)
+	if !isSSEChunk(s) {
+		return false
+	}
+	// Stream is complete — flush for final validation.
+	if strings.Contains(s, sseDataPrefix+sseDone) {
+		return false
+	}
+	count := countWords(extractSSEDeltaContent(s, p.responseParams.StreamingJsonPath))
+	rp := p.responseParams
+	if rp.Invert {
+		// Invert mode: buffer while still within or below the excluded range.
+		return count <= rp.Max
+	}
+	// Normal mode: buffer while below the required minimum.
+	return rp.Min > 0 && count < rp.Min
+}
+
+// OnResponseBodyChunk implements StreamingResponsePolicy.
+// Receives flushed batches from the kernel accumulator and validates them.
+// ctx.Metadata tracks the full accumulated text across windows for accuracy.
+func (p *WordCountGuardrailPolicy) OnResponseBodyChunk(ctx *policyv1alpha2.ResponseStreamContext, chunk *policyv1alpha2.StreamBody, params map[string]interface{}) policyv1alpha2.ResponseChunkAction {
+	if !p.hasResponseParams || !p.responseParams.Enabled {
+		return policyv1alpha2.ResponseChunkAction{}
+	}
+	if chunk == nil || len(chunk.Chunk) == 0 {
+		return policyv1alpha2.ResponseChunkAction{}
+	}
+	chunkStr := string(chunk.Chunk)
+	if ctx.Metadata == nil {
+		ctx.Metadata = make(map[string]interface{})
+	}
+	if !isSSEChunk(chunkStr) {
+		// Plain JSON via chunked transfer (e.g. OpenAI stream:false with Transfer-Encoding: chunked).
+		// Accumulate all chunks and validate the complete body at end of stream.
+		prev, _ := ctx.Metadata[metaKeyAccJsonBody].(string)
+		full := prev + chunkStr
+		ctx.Metadata[metaKeyAccJsonBody] = full
+		if !chunk.EndOfStream {
+			return policyv1alpha2.ResponseChunkAction{}
+		}
+		// An empty or whitespace-only EndOfStream chunk is a bare sentinel that arrives after
+		// the SSE [DONE] event. All content was already processed by the SSE path, so perform
+		// the final SSE min/invert check on accumulated SSE content instead of JSONPath extraction.
+		if strings.TrimSpace(full) == "" {
+			rp := p.responseParams
+			accContent, _ := ctx.Metadata[metaKeyAccContent].(string)
+			count := countWords(accContent)
+			if !rp.Invert {
+				if count < rp.Min {
+					reason := fmt.Sprintf("word count %d is below minimum of %d words", count, rp.Min)
+					return policyv1alpha2.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
+				}
+			} else if count >= rp.Min && count <= rp.Max {
+				reason := fmt.Sprintf("word count %d is within the excluded range %d-%d words", count, rp.Min, rp.Max)
+				return policyv1alpha2.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
+			}
+			return policyv1alpha2.ResponseChunkAction{}
+		}
+		result := p.validatePayloadV2([]byte(full), p.responseParams, true)
+		if mod, ok := result.(policyv1alpha2.DownstreamResponseModifications); ok && mod.StatusCode != nil {
+			return policyv1alpha2.ResponseChunkAction{Body: mod.Body}
+		}
+		return policyv1alpha2.ResponseChunkAction{}
+	}
+
+	rp := p.responseParams
+
+	// Append this batch's delta content to the running total stored in metadata
+	// so that countWords always operates on the full text seen so far,
+	// avoiding off-by-one errors at flush-window boundaries.
+	prev := ""
+	if v, ok := ctx.Metadata[metaKeyAccContent]; ok {
+		if s, ok := v.(string); ok {
+			prev = s
+		}
+	}
+	fullContent := prev + extractSSEDeltaContent(chunkStr, rp.StreamingJsonPath)
+	ctx.Metadata[metaKeyAccContent] = fullContent
+	count := countWords(fullContent)
+	isDone := chunk.EndOfStream
+
+	if !rp.Invert {
+		// Normal mode: max violation at any point, or below min at [DONE].
+		if rp.Max > 0 && count > rp.Max {
+			slog.Debug("WordCountGuardrail: max exceeded",
+				"count", count, "max", rp.Max, "chunkIndex", chunk.Index)
+			reason := fmt.Sprintf("word count %d exceeded maximum of %d words", count, rp.Max)
+			return policyv1alpha2.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
+		}
+		if isDone && count < rp.Min {
+			slog.Debug("WordCountGuardrail: below min at stream end",
+				"count", count, "min", rp.Min, "chunkIndex", chunk.Index)
+			reason := fmt.Sprintf("word count %d is below minimum of %d words", count, rp.Min)
+			return policyv1alpha2.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
+		}
+		return policyv1alpha2.ResponseChunkAction{}
+	}
+
+	// Invert mode: at [DONE], check if count falls within the excluded range.
+	if isDone {
+		if count >= rp.Min && count <= rp.Max {
+			slog.Debug("WordCountGuardrail: invert violation at stream end",
+				"count", count, "min", rp.Min, "max", rp.Max, "chunkIndex", chunk.Index)
+			reason := fmt.Sprintf("word count %d is within the excluded range %d-%d words", count, rp.Min, rp.Max)
+			return policyv1alpha2.ResponseChunkAction{Body: p.buildSSEErrorEvent(reason, rp)}
+		}
+	}
+	return policyv1alpha2.ResponseChunkAction{}
 }

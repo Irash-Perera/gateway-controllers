@@ -46,7 +46,7 @@ const (
 
 	sseDataPrefix            = "data: "
 	sseDone                  = "[DONE]"
-	DefaultStreamingJsonPath = "$.choices[*].delta.content"
+	DefaultStreamingJsonPath = "$.choices[0].delta.content"
 	metaKeyAccJsonBody       = "urlguardrail:json_body"
 )
 
@@ -451,6 +451,10 @@ func (p *URLGuardrailPolicy) checkURL(target string, timeout int) bool {
 // buildErrorResponse builds an error response for both request and response phases
 func (p *URLGuardrailPolicy) buildErrorResponse(reason string, validationError error, isResponse bool, showAssessment bool, invalidURLs []string) interface{} {
 	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, invalidURLs)
+	analyticsMetadata := map[string]interface{}{
+		"isGuardrailHit": true,
+		"guardrailName":  "url-guardrail",
+	}
 
 	responseBody := map[string]interface{}{
 		"type":    "URL_GUARDRAIL",
@@ -465,8 +469,9 @@ func (p *URLGuardrailPolicy) buildErrorResponse(reason string, validationError e
 	if isResponse {
 		statusCode := GuardrailErrorCode
 		return policy.UpstreamResponseModifications{
-			StatusCode: &statusCode,
-			Body:       bodyBytes,
+			StatusCode:        &statusCode,
+			Body:              bodyBytes,
+			AnalyticsMetadata: analyticsMetadata,
 			SetHeaders: map[string]string{
 				"Content-Type": "application/json",
 			},
@@ -474,7 +479,8 @@ func (p *URLGuardrailPolicy) buildErrorResponse(reason string, validationError e
 	}
 
 	return policy.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
+		StatusCode:        GuardrailErrorCode,
+		AnalyticsMetadata: analyticsMetadata,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},
@@ -800,6 +806,10 @@ func (p *URLGuardrailPolicy) validateURLsInTextV2(text string, params URLGuardra
 // buildErrorResponseV2 builds a policyv1alpha2 error response for both request and response phases.
 func (p *URLGuardrailPolicy) buildErrorResponseV2(reason string, validationError error, isResponse bool, showAssessment bool, invalidURLs []string) interface{} {
 	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, invalidURLs)
+	analyticsMetadata := map[string]interface{}{
+		"isGuardrailHit": true,
+		"guardrailName":  "url-guardrail",
+	}
 
 	responseBody := map[string]interface{}{
 		"type":    "URL_GUARDRAIL",
@@ -814,8 +824,9 @@ func (p *URLGuardrailPolicy) buildErrorResponseV2(reason string, validationError
 	if isResponse {
 		statusCode := GuardrailErrorCode
 		return policyv1alpha2.DownstreamResponseModifications{
-			StatusCode: &statusCode,
-			Body:       bodyBytes,
+			StatusCode:        &statusCode,
+			Body:              bodyBytes,
+			AnalyticsMetadata: analyticsMetadata,
 			DownstreamResponseHeaderModifications: policyv1alpha2.DownstreamResponseHeaderModifications{
 				HeadersToSet: map[string]string{"Content-Type": "application/json"},
 			},
@@ -823,7 +834,8 @@ func (p *URLGuardrailPolicy) buildErrorResponseV2(reason string, validationError
 	}
 
 	return policyv1alpha2.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
+		StatusCode:        GuardrailErrorCode,
+		AnalyticsMetadata: analyticsMetadata,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},

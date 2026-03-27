@@ -436,6 +436,10 @@ func (p *SemanticPromptGuardPolicy) validatePayload(payload []byte, params Seman
 // buildErrorResponse builds an error response for request phase
 func (p *SemanticPromptGuardPolicy) buildErrorResponse(reason string, validationError error, showAssessment bool) policy.RequestAction {
 	assessment := p.buildAssessmentObject(reason, validationError, showAssessment)
+	analyticsMetadata := map[string]interface{}{
+		"isGuardrailHit": true,
+		"guardrailName":  "SemanticPromptGuard",
+	}
 
 	responseBody := map[string]interface{}{
 		"type":    "SEMANTIC_PROMPT_GUARD",
@@ -448,7 +452,8 @@ func (p *SemanticPromptGuardPolicy) buildErrorResponse(reason string, validation
 	}
 
 	return policy.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
+		StatusCode:        GuardrailErrorCode,
+		AnalyticsMetadata: analyticsMetadata,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},
@@ -611,6 +616,10 @@ func (p *SemanticPromptGuardPolicy) validatePayloadV2(payload []byte, params Sem
 // buildErrorResponseV2 builds a policyv1alpha2 error response for request phase.
 func (p *SemanticPromptGuardPolicy) buildErrorResponseV2(reason string, validationError error, showAssessment bool) policyv1alpha2.RequestAction {
 	assessment := p.buildAssessmentObject(reason, validationError, showAssessment)
+	analyticsMetadata := map[string]interface{}{
+		"isGuardrailHit": true,
+		"guardrailName":  "SemanticPromptGuard",
+	}
 
 	responseBody := map[string]interface{}{
 		"type":    "SEMANTIC_PROMPT_GUARD",
@@ -623,7 +632,8 @@ func (p *SemanticPromptGuardPolicy) buildErrorResponseV2(reason string, validati
 	}
 
 	return policyv1alpha2.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
+		StatusCode:        GuardrailErrorCode,
+		AnalyticsMetadata: analyticsMetadata,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},

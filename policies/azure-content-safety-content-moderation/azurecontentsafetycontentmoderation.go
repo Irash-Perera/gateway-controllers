@@ -486,6 +486,10 @@ func (p *AzureContentSafetyContentModerationPolicy) validatePayloadV2(payload []
 // buildErrorResponseV2 builds a policyv1alpha2 error response for both request and response phases
 func (p *AzureContentSafetyContentModerationPolicy) buildErrorResponseV2(reason string, validationError error, isResponse bool, showAssessment bool, categoriesAnalysis []map[string]interface{}, inspectedContent string) interface{} {
 	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, categoriesAnalysis, inspectedContent)
+	analyticsMetadata := map[string]interface{}{
+		"isGuardrailHit": true,
+		"guardrailName":  "AzureContentSafetyContentModeration",
+	}
 
 	responseBody := map[string]interface{}{
 		"type":    "AZURE_CONTENT_SAFETY_CONTENT_MODERATION",
@@ -500,8 +504,9 @@ func (p *AzureContentSafetyContentModerationPolicy) buildErrorResponseV2(reason 
 	if isResponse {
 		statusCode := GuardrailErrorCode
 		return policyv1alpha2.DownstreamResponseModifications{
-			StatusCode: &statusCode,
-			Body:       bodyBytes,
+			StatusCode:        &statusCode,
+			Body:              bodyBytes,
+			AnalyticsMetadata: analyticsMetadata,
 			DownstreamResponseHeaderModifications: policyv1alpha2.DownstreamResponseHeaderModifications{
 				HeadersToSet: map[string]string{
 					"Content-Type": "application/json",
@@ -511,7 +516,8 @@ func (p *AzureContentSafetyContentModerationPolicy) buildErrorResponseV2(reason 
 	}
 
 	return policyv1alpha2.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
+		StatusCode:        GuardrailErrorCode,
+		AnalyticsMetadata: analyticsMetadata,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},
@@ -654,6 +660,10 @@ func (p *AzureContentSafetyContentModerationPolicy) makeHTTPRequest(method, url 
 // buildErrorResponse builds an error response for both request and response phases
 func (p *AzureContentSafetyContentModerationPolicy) buildErrorResponse(reason string, validationError error, isResponse bool, showAssessment bool, categoriesAnalysis []map[string]interface{}, inspectedContent string) interface{} {
 	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, categoriesAnalysis, inspectedContent)
+	analyticsMetadata := map[string]interface{}{
+		"isGuardrailHit": true,
+		"guardrailName":  "AzureContentSafetyContentModeration",
+	}
 
 	responseBody := map[string]interface{}{
 		"type":    "AZURE_CONTENT_SAFETY_CONTENT_MODERATION",
@@ -668,8 +678,9 @@ func (p *AzureContentSafetyContentModerationPolicy) buildErrorResponse(reason st
 	if isResponse {
 		statusCode := GuardrailErrorCode
 		return policy.UpstreamResponseModifications{
-			StatusCode: &statusCode,
-			Body:       bodyBytes,
+			StatusCode:        &statusCode,
+			Body:              bodyBytes,
+			AnalyticsMetadata: analyticsMetadata,
 			SetHeaders: map[string]string{
 				"Content-Type": "application/json",
 			},
@@ -677,7 +688,8 @@ func (p *AzureContentSafetyContentModerationPolicy) buildErrorResponse(reason st
 	}
 
 	return policy.ImmediateResponse{
-		StatusCode: GuardrailErrorCode,
+		StatusCode:        GuardrailErrorCode,
+		AnalyticsMetadata: analyticsMetadata,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},

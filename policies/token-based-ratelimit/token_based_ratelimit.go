@@ -49,7 +49,6 @@ type TokenBasedRateLimitPolicy struct {
 }
 
 // GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
-// TODO: add GetPolicyV2 once this module is upgraded to sdk v0.4.5+ (ProcessingMode type alias required).
 func GetPolicy(
 	metadata policy.PolicyMetadata,
 	params map[string]interface{},
@@ -57,6 +56,20 @@ func GetPolicy(
 	return &TokenBasedRateLimitPolicy{
 		metadata: metadata,
 	}, nil
+}
+
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
+	params map[string]interface{},
+) (policyv1alpha2.Policy, error) {
+	return GetPolicy(policy.PolicyMetadata{
+		RouteName:  metadata.RouteName,
+		APIId:      metadata.APIId,
+		APIName:    metadata.APIName,
+		APIVersion: metadata.APIVersion,
+		AttachedTo: policy.Level(metadata.AttachedTo),
+	}, params)
 }
 
 // Mode returns the processing mode for this policy.
@@ -521,9 +534,9 @@ func convertLimits(rawLimits interface{}) []interface{} {
 	return converted
 }
 
-// OnRequestHeaders delegates to the provider-specific ratelimit instance's OnRequestHeaders if
-// a delegate is already cached for the provider. If no delegate exists yet (first request),
-// the header phase passes through and OnRequest will create the delegate.
+// OnRequestHeaders delegates to the provider-specific ratelimit instance's OnRequestHeaders.
+// If no delegate exists yet (first request for this provider), it creates one via resolveDelegate
+// so that quota keys are stored in metadata for the response phase.
 func (p *TokenBasedRateLimitPolicy) OnRequestHeaders(
 	ctx *policyv1alpha2.RequestHeaderContext,
 	params map[string]interface{},
@@ -539,10 +552,24 @@ func (p *TokenBasedRateLimitPolicy) OnRequestHeaders(
 		return policyv1alpha2.UpstreamRequestHeaderModifications{}
 	}
 
-	if delegate, ok := p.delegates.Load(providerName); ok {
-		if rl, ok := delegate.(requestHeaderPolicer); ok {
-			return rl.OnRequestHeaders(ctx, params)
-		}
+	delegate, err := p.resolveDelegate(providerName, params)
+	if err != nil {
+		slog.Warn("OnRequestHeaders: failed to resolve rate limit delegate for provider",
+			"route", p.metadata.RouteName,
+			"provider", providerName,
+			"error", err)
+		return policyv1alpha2.UpstreamRequestHeaderModifications{}
+	}
+
+	if delegate == nil {
+		slog.Warn("OnRequestHeaders: delegate is nil for provider",
+			"route", p.metadata.RouteName,
+			"provider", providerName)
+		return policyv1alpha2.UpstreamRequestHeaderModifications{}
+	}
+
+	if rl, ok := delegate.(requestHeaderPolicer); ok {
+		return rl.OnRequestHeaders(ctx, params)
 	}
 
 	return policyv1alpha2.UpstreamRequestHeaderModifications{}
