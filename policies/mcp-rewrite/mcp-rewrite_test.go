@@ -23,7 +23,7 @@ import (
 	"strings"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 func TestGetPolicy_RejectsEmptyOrWhitespaceTarget(t *testing.T) {
@@ -75,7 +75,7 @@ func TestGetPolicy_RejectsEmptyOrWhitespaceTarget(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := GetPolicy(policy.PolicyMetadata{}, tt.params)
+			_, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, tt.params)
 			if err == nil {
 				t.Fatalf("Expected error containing %q, got nil", tt.errorStr)
 			}
@@ -111,10 +111,10 @@ func TestOnRequest_RewritesToolCallTarget(t *testing.T) {
 	ctx := createMockRequestContext(nil)
 	ctx.Method = "POST"
 	ctx.Path = "/mcp"
-	ctx.Body = &policy.Body{Content: body, Present: true}
+	ctx.Body = &policyv1alpha2.Body{Content: body, Present: true}
 
 	action := p.(*McpRewritePolicy).OnRequestBody(ctx, params)
-	mods, ok := action.(policy.UpstreamRequestModifications)
+	mods, ok := action.(policyv1alpha2.UpstreamRequestModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamRequestModifications, got %T", action)
 	}
@@ -191,7 +191,7 @@ func TestOnRequest_UnlistedCapabilityRejected(t *testing.T) {
 			ctx := createMockRequestContext(nil)
 			ctx.Method = "POST"
 			ctx.Path = "/mcp"
-			ctx.Body = &policy.Body{Content: body, Present: true}
+			ctx.Body = &policyv1alpha2.Body{Content: body, Present: true}
 
 			action := p.(*McpRewritePolicy).OnRequestBody(ctx, tt.params)
 			resp := mustImmediateResponse(t, action)
@@ -253,7 +253,7 @@ func TestOnRequest_EmptyListDenyAll_ByCapability(t *testing.T) {
 			ctx := createMockRequestContext(nil)
 			ctx.Method = "POST"
 			ctx.Path = "/mcp"
-			ctx.Body = &policy.Body{Content: body, Present: true}
+			ctx.Body = &policyv1alpha2.Body{Content: body, Present: true}
 
 			action := p.(*McpRewritePolicy).OnRequestBody(ctx, tt.params)
 			resp := mustImmediateResponse(t, action)
@@ -298,7 +298,7 @@ func TestOnRequest_UnlistedSSERejected_WithSessionHeader(t *testing.T) {
 	})
 	ctx.Method = "POST"
 	ctx.Path = "/mcp"
-	ctx.Body = &policy.Body{Content: streamBody, Present: true}
+	ctx.Body = &policyv1alpha2.Body{Content: streamBody, Present: true}
 
 	action := p.(*McpRewritePolicy).OnRequestBody(ctx, params)
 	resp := mustImmediateResponse(t, action)
@@ -341,7 +341,7 @@ func TestOnRequest_InvalidParamsRejected(t *testing.T) {
 	ctx := createMockRequestContext(nil)
 	ctx.Method = "POST"
 	ctx.Path = "/mcp"
-	ctx.Body = &policy.Body{Content: body, Present: true}
+	ctx.Body = &policyv1alpha2.Body{Content: body, Present: true}
 
 	action := p.(*McpRewritePolicy).OnRequestBody(ctx, params)
 	resp := mustImmediateResponse(t, action)
@@ -375,7 +375,7 @@ func TestOnRequest_MissingCapabilityNameRejected(t *testing.T) {
 	ctx := createMockRequestContext(nil)
 	ctx.Method = "POST"
 	ctx.Path = "/mcp"
-	ctx.Body = &policy.Body{Content: body, Present: true}
+	ctx.Body = &policyv1alpha2.Body{Content: body, Present: true}
 
 	action := p.(*McpRewritePolicy).OnRequestBody(ctx, params)
 	resp := mustImmediateResponse(t, action)
@@ -409,13 +409,13 @@ func TestOnRequest_ToolCallWithoutTarget_NoRewrite(t *testing.T) {
 	ctx := createMockRequestContext(nil)
 	ctx.Method = "POST"
 	ctx.Path = "/mcp"
-	ctx.Body = &policy.Body{Content: body, Present: true}
+	ctx.Body = &policyv1alpha2.Body{Content: body, Present: true}
 
 	action := p.(*McpRewritePolicy).OnRequestBody(ctx, params)
-	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := action.(policyv1alpha2.UpstreamRequestModifications); !ok {
 		t.Fatalf("Expected UpstreamRequestModifications, got %T", action)
 	}
-	if mod := action.(policy.UpstreamRequestModifications); mod.Body != nil {
+	if mod := action.(policyv1alpha2.UpstreamRequestModifications); mod.Body != nil {
 		t.Fatalf("Expected no body rewrite, got body modification")
 	}
 }
@@ -448,12 +448,12 @@ func TestOnResponse_RewritesAndFiltersConfiguredListItems(t *testing.T) {
 	ctx := createMockResponseContext(nil, nil)
 	ctx.RequestMethod = "POST"
 	ctx.RequestPath = "/mcp"
-	ctx.ResponseBody = &policy.Body{Content: body, Present: true}
+	ctx.ResponseBody = &policyv1alpha2.Body{Content: body, Present: true}
 	ctx.Metadata[metadataMcpCapabilityType] = "tools"
 	ctx.Metadata[metadataMcpAction] = "list"
 
 	action := p.(*McpRewritePolicy).OnResponseBody(ctx, params)
-	mods, ok := action.(policy.DownstreamResponseModifications)
+	mods, ok := action.(policyv1alpha2.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamResponseModifications, got %T", action)
 	}
@@ -528,12 +528,12 @@ func TestOnResponse_EmptyListDenyAll_ByCapability(t *testing.T) {
 			ctx := createMockResponseContext(nil, nil)
 			ctx.RequestMethod = "POST"
 			ctx.RequestPath = "/mcp"
-			ctx.ResponseBody = &policy.Body{Content: body, Present: true}
+			ctx.ResponseBody = &policyv1alpha2.Body{Content: body, Present: true}
 			ctx.Metadata[metadataMcpCapabilityType] = tt.capabilityType
 			ctx.Metadata[metadataMcpAction] = "list"
 
 			action := p.(*McpRewritePolicy).OnResponseBody(ctx, tt.params)
-			mods, ok := action.(policy.DownstreamResponseModifications)
+			mods, ok := action.(policyv1alpha2.DownstreamResponseModifications)
 			if !ok {
 				t.Fatalf("Expected UpstreamResponseModifications, got %T", action)
 			}
@@ -581,12 +581,12 @@ func TestOnResponse_SSEListFiltering(t *testing.T) {
 	})
 	ctx.RequestMethod = "POST"
 	ctx.RequestPath = "/mcp"
-	ctx.ResponseBody = &policy.Body{Content: body, Present: true}
+	ctx.ResponseBody = &policyv1alpha2.Body{Content: body, Present: true}
 	ctx.Metadata[metadataMcpCapabilityType] = "prompts"
 	ctx.Metadata[metadataMcpAction] = "list"
 
 	action := p.(*McpRewritePolicy).OnResponseBody(ctx, params)
-	mods, ok := action.(policy.DownstreamResponseModifications)
+	mods, ok := action.(policyv1alpha2.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamResponseModifications, got %T", action)
 	}
@@ -607,9 +607,9 @@ func TestOnResponse_SSEListFiltering(t *testing.T) {
 	}
 }
 
-func mustPolicy(t *testing.T, params map[string]any) policy.Policy {
+func mustPolicy(t *testing.T, params map[string]any) policyv1alpha2.Policy {
 	t.Helper()
-	p, err := GetPolicy(policy.PolicyMetadata{}, params)
+	p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
@@ -634,9 +634,9 @@ func mustJSONMap(t *testing.T, body []byte) map[string]any {
 	return payload
 }
 
-func mustImmediateResponse(t *testing.T, action policy.RequestAction) policy.ImmediateResponse {
+func mustImmediateResponse(t *testing.T, action policyv1alpha2.RequestAction) policyv1alpha2.ImmediateResponse {
 	t.Helper()
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha2.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -658,13 +658,13 @@ func assertJSONRPCError(t *testing.T, body []byte, code float64, message string)
 	}
 }
 
-func createMockRequestContext(headers map[string][]string) *policy.RequestContext {
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+func createMockRequestContext(headers map[string][]string) *policyv1alpha2.RequestContext {
+	return &policyv1alpha2.RequestContext{
+		SharedContext: &policyv1alpha2.SharedContext{
 			RequestID: "test-request-id",
 			Metadata:  make(map[string]any),
 		},
-		Headers: policy.NewHeaders(headers),
+		Headers: policyv1alpha2.NewHeaders(headers),
 		Body:    nil,
 		Path:    "/mcp",
 		Method:  "POST",
@@ -672,14 +672,14 @@ func createMockRequestContext(headers map[string][]string) *policy.RequestContex
 	}
 }
 
-func createMockResponseContext(requestHeaders, responseHeaders map[string][]string) *policy.ResponseContext {
-	return &policy.ResponseContext{
-		SharedContext: &policy.SharedContext{
+func createMockResponseContext(requestHeaders, responseHeaders map[string][]string) *policyv1alpha2.ResponseContext {
+	return &policyv1alpha2.ResponseContext{
+		SharedContext: &policyv1alpha2.SharedContext{
 			RequestID: "test-request-id",
 			Metadata:  make(map[string]any),
 		},
-		RequestHeaders:  policy.NewHeaders(requestHeaders),
-		ResponseHeaders: policy.NewHeaders(responseHeaders),
+		RequestHeaders:  policyv1alpha2.NewHeaders(requestHeaders),
+		ResponseHeaders: policyv1alpha2.NewHeaders(responseHeaders),
 		RequestBody:     nil,
 		ResponseBody:    nil,
 	}

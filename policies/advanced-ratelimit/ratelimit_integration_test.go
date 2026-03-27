@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 	"github.com/wso2/gateway-controllers/policies/advanced-ratelimit/limiter"
 )
 
@@ -177,15 +177,15 @@ func assertImmediateResponse(t *testing.T, action interface{}, expectedStatus in
 	return resp
 }
 
-func assertUpstreamResponseHeaders(t *testing.T, action interface{}, required map[string]string) policy.DownstreamResponseModifications {
+func assertUpstreamResponseHeaders(t *testing.T, action interface{}, required map[string]string) policy.UpstreamResponseModifications {
 	t.Helper()
-	mods, ok := action.(policy.DownstreamResponseModifications)
+	mods, ok := action.(policy.UpstreamResponseModifications)
 	if !ok {
-		t.Fatalf("expected policy.DownstreamResponseModifications, got %T", action)
+		t.Fatalf("expected policy.UpstreamResponseModifications, got %T", action)
 	}
 	for k, v := range required {
-		if mods.HeadersToSet[k] != v {
-			t.Fatalf("expected header %s=%q, got %q", k, v, mods.HeadersToSet[k])
+		if mods.SetHeaders[k] != v {
+			t.Fatalf("expected header %s=%q, got %q", k, v, mods.SetHeaders[k])
 		}
 	}
 	return mods
@@ -209,12 +209,12 @@ func basicQuotaParams() map[string]interface{} {
 	}
 }
 
-func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
+func TestGetPolicy_ConfigAndDefaults(t *testing.T) {
 	clearCaches()
 	defer clearCaches()
 
 	t.Run("uses unknown-route when metadata route empty", func(t *testing.T) {
-		p, err := createPolicy(policy.PolicyMetadata{APIName: "api-a", APIVersion: "v1"}, basicQuotaParams())
+		p, err := GetPolicy(policy.PolicyMetadata{APIName: "api-a", APIVersion: "v1"}, basicQuotaParams())
 		if err != nil {
 			t.Fatalf("GetPolicy returned error: %v", err)
 		}
@@ -225,7 +225,7 @@ func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
 	})
 
 	t.Run("returns error when quotas missing", func(t *testing.T) {
-		_, err := createPolicy(policy.PolicyMetadata{RouteName: "r1"}, map[string]interface{}{"backend": "memory"})
+		_, err := GetPolicy(policy.PolicyMetadata{RouteName: "r1"}, map[string]interface{}{"backend": "memory"})
 		if err == nil || !strings.Contains(err.Error(), "quotas configuration is required") {
 			t.Fatalf("expected quotas required error, got %v", err)
 		}
@@ -234,7 +234,7 @@ func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
 	t.Run("returns error for invalid global keyExtraction shape", func(t *testing.T) {
 		params := basicQuotaParams()
 		params["keyExtraction"] = "invalid"
-		_, err := createPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
+		_, err := GetPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
 		if err == nil || !strings.Contains(err.Error(), "invalid keyExtraction") {
 			t.Fatalf("expected invalid keyExtraction error, got %v", err)
 		}
@@ -246,7 +246,7 @@ func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
 		quotas := params["quotas"].([]interface{})
 		quotas[0].(map[string]interface{})["keyExtraction"] = []interface{}{map[string]interface{}{"type": "constant", "key": "quota"}}
 
-		p, err := createPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
+		p, err := GetPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
 		if err != nil {
 			t.Fatalf("GetPolicy returned error: %v", err)
 		}
@@ -260,7 +260,7 @@ func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
 		params := basicQuotaParams()
 		params["keyExtraction"] = []interface{}{map[string]interface{}{"type": "constant", "key": "global"}}
 
-		p, err := createPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
+		p, err := GetPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
 		if err != nil {
 			t.Fatalf("GetPolicy returned error: %v", err)
 		}
@@ -271,7 +271,7 @@ func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
 	})
 
 	t.Run("falls back to default routename keyExtraction", func(t *testing.T) {
-		p, err := createPolicy(policy.PolicyMetadata{RouteName: "route-a"}, basicQuotaParams())
+		p, err := GetPolicy(policy.PolicyMetadata{RouteName: "route-a"}, basicQuotaParams())
 		if err != nil {
 			t.Fatalf("GetPolicy returned error: %v", err)
 		}
@@ -282,7 +282,7 @@ func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
 	})
 
 	t.Run("uses default exceeded response configuration", func(t *testing.T) {
-		p, err := createPolicy(policy.PolicyMetadata{RouteName: "r1"}, basicQuotaParams())
+		p, err := GetPolicy(policy.PolicyMetadata{RouteName: "r1"}, basicQuotaParams())
 		if err != nil {
 			t.Fatalf("GetPolicy returned error: %v", err)
 		}
@@ -310,7 +310,7 @@ func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
 			"includeIETF":       false,
 			"includeRetryAfter": false,
 		}
-		p, err := createPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
+		p, err := GetPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
 		if err != nil {
 			t.Fatalf("GetPolicy returned error: %v", err)
 		}
@@ -326,7 +326,7 @@ func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
 	t.Run("fails on unknown algorithm", func(t *testing.T) {
 		params := basicQuotaParams()
 		params["algorithm"] = "unknown"
-		_, err := createPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
+		_, err := GetPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
 		if err == nil || !strings.Contains(err.Error(), "unknown algorithm") {
 			t.Fatalf("expected unknown algorithm error, got %v", err)
 		}
@@ -343,7 +343,7 @@ func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
 			"readTimeout":       "1ms",
 			"writeTimeout":      "1ms",
 		}
-		_, err := createPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
+		_, err := GetPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
 		if err == nil || !strings.Contains(err.Error(), "failureMode=closed") {
 			t.Fatalf("expected redis closed-mode error, got %v", err)
 		}
@@ -360,7 +360,7 @@ func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
 			"readTimeout":       "1ms",
 			"writeTimeout":      "1ms",
 		}
-		p, err := createPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
+		p, err := GetPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
 		if err != nil {
 			t.Fatalf("expected open-mode policy creation to succeed, got %v", err)
 		}
@@ -384,7 +384,7 @@ func TestCreatePolicy_ConfigAndDefaults(t *testing.T) {
 				},
 			},
 		}
-		p, err := createPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
+		p, err := GetPolicy(policy.PolicyMetadata{RouteName: "r1"}, params)
 		if err != nil {
 			t.Fatalf("GetPolicy returned error: %v", err)
 		}
@@ -418,7 +418,7 @@ func TestMemoryCacheReuseAndRefCounts(t *testing.T) {
 		},
 	}
 
-	p1, err := createPolicy(metadata, params)
+	p1, err := GetPolicy(metadata, params)
 	if err != nil {
 		t.Fatalf("GetPolicy route-a first config failed: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestMemoryCacheReuseAndRefCounts(t *testing.T) {
 		t.Fatalf("expected 1 cached limiter, got %d", len(globalLimiterCache.byQuotaKey))
 	}
 
-	p2, err := createPolicy(metadata, params)
+	p2, err := GetPolicy(metadata, params)
 	if err != nil {
 		t.Fatalf("GetPolicy route-a second config failed: %v", err)
 	}
@@ -479,7 +479,7 @@ func TestSharedQuotaLimiterCleanup(t *testing.T) {
 		}
 	}
 
-	p1, err := createPolicy(metadata1, sharedParams())
+	p1, err := GetPolicy(metadata1, sharedParams())
 	if err != nil {
 		t.Fatalf("Failed to create policy for route-1: %v", err)
 	}
@@ -491,7 +491,7 @@ func TestSharedQuotaLimiterCleanup(t *testing.T) {
 		t.Fatalf("expected refcount 1 after route-1, got %d", got)
 	}
 
-	p2, err := createPolicy(metadata2, sharedParams())
+	p2, err := GetPolicy(metadata2, sharedParams())
 	if err != nil {
 		t.Fatalf("Failed to create policy for route-2: %v", err)
 	}
@@ -506,14 +506,14 @@ func TestSharedQuotaLimiterCleanup(t *testing.T) {
 		t.Fatalf("expected refcount 2 after route-2, got %d", got)
 	}
 
-	if _, err = createPolicy(metadata1, routeSpecificParams("route-1-specific")); err != nil {
+	if _, err = GetPolicy(metadata1, routeSpecificParams("route-1-specific")); err != nil {
 		t.Fatalf("Failed to update route-1: %v", err)
 	}
 	if got := getLimiterRefCountByInstance(lim1); got != 1 {
 		t.Fatalf("expected shared refcount 1 after route-1 reconfigure, got %d", got)
 	}
 
-	p3, err := createPolicy(metadata3, sharedParams())
+	p3, err := GetPolicy(metadata3, sharedParams())
 	if err != nil {
 		t.Fatalf("Failed to create route-3: %v", err)
 	}
@@ -525,14 +525,14 @@ func TestSharedQuotaLimiterCleanup(t *testing.T) {
 		t.Fatalf("expected shared refcount 2 after route-3, got %d", got)
 	}
 
-	if _, err = createPolicy(metadata2, routeSpecificParams("route-2-specific")); err != nil {
+	if _, err = GetPolicy(metadata2, routeSpecificParams("route-2-specific")); err != nil {
 		t.Fatalf("Failed to update route-2: %v", err)
 	}
 	if got := getLimiterRefCountByInstance(lim1); got != 1 {
 		t.Fatalf("expected shared refcount 1 after route-2 reconfigure, got %d", got)
 	}
 
-	if _, err = createPolicy(metadata3, routeSpecificParams("route-3-specific")); err != nil {
+	if _, err = GetPolicy(metadata3, routeSpecificParams("route-3-specific")); err != nil {
 		t.Fatalf("Failed to update route-3: %v", err)
 	}
 	if got := getLimiterRefCountByInstance(lim1); got != 0 {
@@ -562,11 +562,11 @@ func TestRouteScopedQuotaCleanup(t *testing.T) {
 		}
 	}
 
-	p1, err := createPolicy(metadata1, params("route-quota"))
+	p1, err := GetPolicy(metadata1, params("route-quota"))
 	if err != nil {
 		t.Fatalf("Failed to create route-1 policy: %v", err)
 	}
-	p2, err := createPolicy(metadata2, params("route-quota"))
+	p2, err := GetPolicy(metadata2, params("route-quota"))
 	if err != nil {
 		t.Fatalf("Failed to create route-2 policy: %v", err)
 	}
@@ -580,7 +580,7 @@ func TestRouteScopedQuotaCleanup(t *testing.T) {
 		t.Fatalf("expected 2 cached limiters, got %d", len(globalLimiterCache.byQuotaKey))
 	}
 
-	if _, err := createPolicy(metadata1, params("route-1-updated")); err != nil {
+	if _, err := GetPolicy(metadata1, params("route-1-updated")); err != nil {
 		t.Fatalf("Failed to update route-1 policy: %v", err)
 	}
 	if getLimiterRefCountByInstance(lim1) != 0 {
@@ -793,7 +793,7 @@ func TestOnRequestBehavior(t *testing.T) {
 		p := basePolicy([]QuotaRuntime{{Name: "q1", KeyExtraction: []KeyComponent{{Type: "constant", Key: "k1"}}, Limiter: lim, Limits: []LimitConfig{{Limit: 10, Duration: time.Minute}}}})
 		ctx := newRequestCtx(nil, nil)
 
-		action := p.OnRequestBody(ctx, nil)
+		action := p.OnRequest(ctx, nil)
 		if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 			t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 		}
@@ -813,7 +813,7 @@ func TestOnRequestBehavior(t *testing.T) {
 			return newResult(false, 10, 0, 5*time.Second, time.Minute), nil
 		}}
 		p := basePolicy([]QuotaRuntime{{Name: "q1", KeyExtraction: []KeyComponent{{Type: "constant", Key: "k1"}}, Limiter: lim, Limits: []LimitConfig{{Limit: 10, Duration: time.Minute}}}})
-		action := p.OnRequestBody(newRequestCtx(nil, nil), nil)
+		action := p.OnRequest(newRequestCtx(nil, nil), nil)
 		resp := assertImmediateResponse(t, action, 429)
 		if resp.Headers["x-ratelimit-quota"] != "q1" {
 			t.Fatalf("expected x-ratelimit-quota=q1, got %q", resp.Headers["x-ratelimit-quota"])
@@ -826,7 +826,7 @@ func TestOnRequestBehavior(t *testing.T) {
 	t.Run("standard limiter error fail-closed for memory", func(t *testing.T) {
 		lim := &fakeLimiter{allowNErr: errors.New("boom")}
 		p := basePolicy([]QuotaRuntime{{Name: "q1", KeyExtraction: []KeyComponent{{Type: "constant", Key: "k1"}}, Limiter: lim, Limits: []LimitConfig{{Limit: 10, Duration: time.Minute}}}})
-		action := p.OnRequestBody(newRequestCtx(nil, nil), nil)
+		action := p.OnRequest(newRequestCtx(nil, nil), nil)
 		_ = assertImmediateResponse(t, action, 429)
 	})
 
@@ -837,7 +837,7 @@ func TestOnRequestBehavior(t *testing.T) {
 		p.redisFailOpen = true
 		ctx := newRequestCtx(nil, nil)
 
-		action := p.OnRequestBody(ctx, nil)
+		action := p.OnRequest(ctx, nil)
 		if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 			t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 		}
@@ -856,7 +856,7 @@ func TestOnRequestBehavior(t *testing.T) {
 			{Name: "q2", KeyExtraction: []KeyComponent{{Type: "constant", Key: "k2"}}, Limiter: lim2, Limits: []LimitConfig{{Limit: 10, Duration: time.Minute}}},
 			{Name: "q3", KeyExtraction: []KeyComponent{{Type: "constant", Key: "k3"}}, Limiter: lim3, Limits: []LimitConfig{{Limit: 10, Duration: time.Minute}}},
 		})
-		action := p.OnRequestBody(newRequestCtx(nil, nil), nil)
+		action := p.OnRequest(newRequestCtx(nil, nil), nil)
 		resp := assertImmediateResponse(t, action, 429)
 		if resp.Headers["x-ratelimit-quota"] != "q2" {
 			t.Fatalf("expected q2 violation, got %q", resp.Headers["x-ratelimit-quota"])
@@ -885,7 +885,7 @@ func TestOnRequestBehavior(t *testing.T) {
 		}})
 		ctx := newRequestCtx(map[string][]string{"x-cost": {"7"}}, nil)
 
-		_ = p.OnRequestBody(ctx, nil)
+		_ = p.OnRequest(ctx, nil)
 		if lim.lastCost != 7 {
 			t.Fatalf("expected extracted request cost 7, got %d", lim.lastCost)
 		}
@@ -908,7 +908,7 @@ func TestOnRequestBehavior(t *testing.T) {
 		}})
 		ctx := newRequestCtx(map[string][]string{"x-cost": {"-5"}}, nil)
 
-		_ = p.OnRequestBody(ctx, nil)
+		_ = p.OnRequest(ctx, nil)
 		if lim.lastCost != 0 {
 			t.Fatalf("expected clamped request cost 0, got %d", lim.lastCost)
 		}
@@ -929,7 +929,7 @@ func TestOnRequestBehavior(t *testing.T) {
 			CostExtractor:         ce,
 			CostExtractionEnabled: true,
 		}})
-		_ = p.OnRequestBody(newRequestCtx(nil, nil), nil)
+		_ = p.OnRequest(newRequestCtx(nil, nil), nil)
 		if lim.lastCost != 5 {
 			t.Fatalf("expected default request cost 5, got %d", lim.lastCost)
 		}
@@ -952,7 +952,7 @@ func TestOnRequestBehavior(t *testing.T) {
 		}})
 		ctx := newRequestCtx(nil, nil)
 
-		action := p.OnRequestBody(ctx, nil)
+		action := p.OnRequest(ctx, nil)
 		if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 			t.Fatalf("expected upstream action, got %T", action)
 		}
@@ -976,7 +976,7 @@ func TestOnRequestBehavior(t *testing.T) {
 			CostExtractor:         ce,
 			CostExtractionEnabled: true,
 		}})
-		resp := assertImmediateResponse(t, p.OnRequestBody(newRequestCtx(nil, nil), nil), 429)
+		resp := assertImmediateResponse(t, p.OnRequest(newRequestCtx(nil, nil), nil), 429)
 		if resp.Headers["x-ratelimit-remaining"] != "0" {
 			t.Fatalf("expected x-ratelimit-remaining=0, got %q", resp.Headers["x-ratelimit-remaining"])
 		}
@@ -995,7 +995,7 @@ func TestOnRequestBehavior(t *testing.T) {
 		}})
 		p.backend = "redis"
 		p.redisFailOpen = true
-		if _, ok := p.OnRequestBody(newRequestCtx(nil, nil), nil).(policy.UpstreamRequestModifications); !ok {
+		if _, ok := p.OnRequest(newRequestCtx(nil, nil), nil).(policy.UpstreamRequestModifications); !ok {
 			t.Fatalf("expected fail-open upstream action")
 		}
 	})
@@ -1011,7 +1011,7 @@ func TestOnRequestBehavior(t *testing.T) {
 			CostExtractor:         ce,
 			CostExtractionEnabled: true,
 		}})
-		_ = assertImmediateResponse(t, p.OnRequestBody(newRequestCtx(nil, nil), nil), 429)
+		_ = assertImmediateResponse(t, p.OnRequest(newRequestCtx(nil, nil), nil), 429)
 	})
 
 	t.Run("mixed quotas store both result and placeholder", func(t *testing.T) {
@@ -1026,7 +1026,7 @@ func TestOnRequestBehavior(t *testing.T) {
 			{Name: "post", KeyExtraction: []KeyComponent{{Type: "constant", Key: "k2"}}, Limiter: limResponse, Limits: []LimitConfig{{Limit: 10, Duration: time.Minute}}, CostExtractor: ce, CostExtractionEnabled: true},
 		})
 		ctx := newRequestCtx(nil, nil)
-		_ = p.OnRequestBody(ctx, nil)
+		_ = p.OnRequest(ctx, nil)
 		results, ok := ctx.Metadata[rateLimitResultKey].([]quotaResult)
 		if !ok || len(results) != 2 {
 			t.Fatalf("expected 2 stored quota results, got %#v", ctx.Metadata[rateLimitResultKey])
@@ -1038,7 +1038,6 @@ func TestOnRequestBehavior(t *testing.T) {
 }
 
 func TestOnResponseBehavior(t *testing.T) {
-	t.Skip("OnResponseBody is not yet implemented (TODO); re-enable when response-phase cost extraction is migrated to v1alpha2")
 	mkPolicy := func(quotas []QuotaRuntime) *RateLimitPolicy {
 		return &RateLimitPolicy{
 			quotas:       quotas,
@@ -1052,7 +1051,7 @@ func TestOnResponseBehavior(t *testing.T) {
 
 	t.Run("no stored metadata returns nil", func(t *testing.T) {
 		p := mkPolicy(nil)
-		if action := p.OnResponseBody(newResponseCtx(nil, nil, nil, 200), nil); action != nil {
+		if action := p.OnResponse(newResponseCtx(nil, nil, nil, 200), nil); action != nil {
 			t.Fatalf("expected nil action, got %T", action)
 		}
 	})
@@ -1063,7 +1062,7 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitResultKey: "bad",
 			rateLimitKeysKey:   123,
 		}, 200)
-		if action := p.OnResponseBody(ctx, nil); action != nil {
+		if action := p.OnResponse(ctx, nil); action != nil {
 			t.Fatalf("expected nil action, got %T", action)
 		}
 	})
@@ -1076,10 +1075,10 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitKeysKey:   map[string]string{"q1": "k1"},
 		}, 200)
 
-		action := p.OnResponseBody(ctx, nil)
+		action := p.OnResponse(ctx, nil)
 		mods := assertUpstreamResponseHeaders(t, action, map[string]string{"x-ratelimit-limit": "10", "x-ratelimit-remaining": "7"})
-		if mods.HeadersToSet["ratelimit-policy"] == "" || mods.HeadersToSet["ratelimit"] == "" {
-			t.Fatalf("expected IETF headers to be present, got %+v", mods.HeadersToSet)
+		if mods.SetHeaders["ratelimit-policy"] == "" || mods.SetHeaders["ratelimit"] == "" {
+			t.Fatalf("expected IETF headers to be present, got %+v", mods.SetHeaders)
 		}
 	})
 
@@ -1091,7 +1090,7 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitResultKey: []quotaResult{},
 			rateLimitKeysKey:   map[string]string{},
 		}, 200)
-		if action := p.OnResponseBody(ctx, nil); action != nil {
+		if action := p.OnResponse(ctx, nil); action != nil {
 			t.Fatalf("expected nil action when key missing, got %T", action)
 		}
 	})
@@ -1105,13 +1104,13 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitKeysKey:   map[string]string{"post": "k1"},
 		}, 200)
 
-		action := p.OnResponseBody(ctx, nil)
+		action := p.OnResponse(ctx, nil)
 		mods := assertUpstreamResponseHeaders(t, action, map[string]string{"x-ratelimit-remaining": "8"})
 		if lim.consumeNCalls != 0 {
 			t.Fatalf("expected no ConsumeN call for clamped zero cost")
 		}
-		if mods.HeadersToSet["ratelimit"] == "" {
-			t.Fatalf("expected ratelimit header, got %+v", mods.HeadersToSet)
+		if mods.SetHeaders["ratelimit"] == "" {
+			t.Fatalf("expected ratelimit header, got %+v", mods.SetHeaders)
 		}
 	})
 
@@ -1124,9 +1123,9 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitKeysKey:   map[string]string{"post": "k1"},
 		}, 200)
 
-		action := p.OnResponseBody(ctx, nil)
+		action := p.OnResponse(ctx, nil)
 		mods := assertUpstreamResponseHeaders(t, action, map[string]string{"x-ratelimit-limit": "10", "x-ratelimit-remaining": "3"})
-		if mods.HeadersToSet["ratelimit-policy"] == "" {
+		if mods.SetHeaders["ratelimit-policy"] == "" {
 			t.Fatalf("expected ratelimit-policy header")
 		}
 	})
@@ -1139,7 +1138,7 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitResultKey: []quotaResult{},
 			rateLimitKeysKey:   map[string]string{"post": "k1"},
 		}, 200)
-		if action := p.OnResponseBody(ctx, nil); action != nil {
+		if action := p.OnResponse(ctx, nil); action != nil {
 			t.Fatalf("expected nil action, got %T", action)
 		}
 	})
@@ -1155,7 +1154,7 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitKeysKey:   map[string]string{"post": "k1"},
 		}, 200)
 
-		action := p.OnResponseBody(ctx, nil)
+		action := p.OnResponse(ctx, nil)
 		_ = assertUpstreamResponseHeaders(t, action, map[string]string{"x-ratelimit-remaining": "6"})
 		if lim.consumeNCalls != 1 || lim.lastCost != 4 {
 			t.Fatalf("expected ConsumeN once with cost 4, calls=%d cost=%d", lim.consumeNCalls, lim.lastCost)
@@ -1179,7 +1178,7 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitResultKey: []quotaResult{{QuotaName: "standard", Key: "s1", Duration: time.Minute, Result: newResult(true, 10, 9, 0, time.Minute)}},
 			rateLimitKeysKey:   map[string]string{"post": "p1", "standard": "s1"},
 		}, 200)
-		action := p.OnResponseBody(ctx, nil)
+		action := p.OnResponse(ctx, nil)
 		_ = assertUpstreamResponseHeaders(t, action, map[string]string{"x-ratelimit-limit": "10", "x-ratelimit-remaining": "9"})
 	})
 
@@ -1193,7 +1192,7 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitResultKey: []quotaResult{},
 			rateLimitKeysKey:   map[string]string{"post": "p1"},
 		}, 200)
-		if action := p.OnResponseBody(ctx, nil); action != nil {
+		if action := p.OnResponse(ctx, nil); action != nil {
 			t.Fatalf("expected nil action, got %T", action)
 		}
 	})
@@ -1212,13 +1211,13 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitKeysKey:   map[string]string{"q1": "k1", "q2": "k2"},
 		}, 200)
 
-		action := p.OnResponseBody(ctx, nil)
+		action := p.OnResponse(ctx, nil)
 		mods := assertUpstreamResponseHeaders(t, action, map[string]string{})
-		if !strings.Contains(mods.HeadersToSet["ratelimit-policy"], `"q1"`) || !strings.Contains(mods.HeadersToSet["ratelimit-policy"], `"q2"`) {
-			t.Fatalf("expected consolidated ratelimit-policy, got %q", mods.HeadersToSet["ratelimit-policy"])
+		if !strings.Contains(mods.SetHeaders["ratelimit-policy"], `"q1"`) || !strings.Contains(mods.SetHeaders["ratelimit-policy"], `"q2"`) {
+			t.Fatalf("expected consolidated ratelimit-policy, got %q", mods.SetHeaders["ratelimit-policy"])
 		}
-		if !strings.Contains(mods.HeadersToSet["ratelimit"], `"q1"`) || !strings.Contains(mods.HeadersToSet["ratelimit"], `"q2"`) {
-			t.Fatalf("expected consolidated ratelimit, got %q", mods.HeadersToSet["ratelimit"])
+		if !strings.Contains(mods.SetHeaders["ratelimit"], `"q1"`) || !strings.Contains(mods.SetHeaders["ratelimit"], `"q2"`) {
+			t.Fatalf("expected consolidated ratelimit, got %q", mods.SetHeaders["ratelimit"])
 		}
 	})
 
@@ -1227,7 +1226,7 @@ func TestOnResponseBehavior(t *testing.T) {
 		ctx := newResponseCtx(nil, nil, map[string]interface{}{
 			rateLimitResultKey: []quotaResult{{QuotaName: "q1", Result: nil}},
 		}, 200)
-		if action := p.OnResponseBody(ctx, nil); action != nil {
+		if action := p.OnResponse(ctx, nil); action != nil {
 			t.Fatalf("expected nil action, got %T", action)
 		}
 	})
@@ -1578,6 +1577,23 @@ func TestBuildRateLimitHeadersRetryAfterConditions(t *testing.T) {
 	}
 }
 
+func TestGetMostRestrictiveResult(t *testing.T) {
+	p := &RateLimitPolicy{}
+	if got := p.getMostRestrictiveResult(nil); got != nil {
+		t.Fatalf("expected nil for empty input, got %+v", got)
+	}
+	if got := p.getMostRestrictiveResult([]*limiter.Result{nil, nil}); got != nil {
+		t.Fatalf("expected nil for nil-only input, got %+v", got)
+	}
+
+	r1 := newResult(true, 10, 5, 0, time.Minute)
+	r2 := newResult(true, 10, 1, 0, time.Minute)
+	r3 := newResult(true, 10, 4, 0, time.Minute)
+	got := p.getMostRestrictiveResult([]*limiter.Result{r1, r2, r3})
+	if got != r2 {
+		t.Fatalf("expected result with remaining=1, got remaining=%d", got.Remaining)
+	}
+}
 
 func TestParseCostExtractionConfigEdgeCases(t *testing.T) {
 	cfg, err := parseCostExtractionConfig(nil)
@@ -1743,11 +1759,11 @@ func TestBugHunt_APIScopedLimiterCacheCollisionAcrossAlgorithms(t *testing.T) {
 		},
 	}
 
-	pFixed, err := createPolicy(metadataFixed, paramsFixed)
+	pFixed, err := GetPolicy(metadataFixed, paramsFixed)
 	if err != nil {
 		t.Fatalf("fixed-window policy creation failed: %v", err)
 	}
-	pGCRA, err := createPolicy(metadataGCRA, paramsGCRA)
+	pGCRA, err := GetPolicy(metadataGCRA, paramsGCRA)
 	if err != nil {
 		t.Fatalf("gcra policy creation failed: %v", err)
 	}
@@ -1839,7 +1855,7 @@ func TestBugHunt_UnknownBackendShouldFailValidation(t *testing.T) {
 		},
 	}
 
-	if _, err := createPolicy(policy.PolicyMetadata{RouteName: "route-backend"}, params); err == nil {
+	if _, err := GetPolicy(policy.PolicyMetadata{RouteName: "route-backend"}, params); err == nil {
 		t.Fatal("BUG: unknown backend accepted and silently treated as memory")
 	}
 }
@@ -1963,7 +1979,7 @@ func TestBugHunt_GCRAZeroLimitShouldNotPanicOnRequest(t *testing.T) {
 		},
 	}
 
-	p, err := createPolicy(policy.PolicyMetadata{RouteName: "route-zero", APIName: "api-zero", APIVersion: "v1"}, params)
+	p, err := GetPolicy(policy.PolicyMetadata{RouteName: "route-zero", APIName: "api-zero", APIVersion: "v1"}, params)
 	if err != nil {
 		// Ideal behavior: reject invalid config at creation time.
 		return
@@ -1976,7 +1992,7 @@ func TestBugHunt_GCRAZeroLimitShouldNotPanicOnRequest(t *testing.T) {
 	}()
 
 	ctx := newRequestCtx(nil, nil)
-	_ = p.OnRequestBody(ctx, nil)
+	_ = p.OnRequest(ctx, nil)
 }
 */
 
@@ -2017,7 +2033,7 @@ func TestBugHunt_InvalidExceededResponseValuesShouldFailValidation(t *testing.T)
 		},
 	}
 
-	if _, err := createPolicy(policy.PolicyMetadata{RouteName: "route-invalid-exceeded"}, params); err == nil {
+	if _, err := GetPolicy(policy.PolicyMetadata{RouteName: "route-invalid-exceeded"}, params); err == nil {
 		t.Fatal("BUG: invalid onRateLimitExceeded.statusCode/bodyFormat accepted without validation")
 	}
 }
@@ -2046,7 +2062,7 @@ func TestBugHunt_InvalidRedisFailureModeShouldFailValidation(t *testing.T) {
 		},
 	}
 
-	_, err := createPolicy(policy.PolicyMetadata{RouteName: "route-invalid-failure-mode"}, params)
+	_, err := GetPolicy(policy.PolicyMetadata{RouteName: "route-invalid-failure-mode"}, params)
 	if err == nil {
 		t.Fatal("BUG: invalid redis.failureMode accepted without validation")
 	}

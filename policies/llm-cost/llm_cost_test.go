@@ -24,7 +24,7 @@ import (
 	"runtime"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 const floatTolerance = 1e-12
@@ -1804,7 +1804,7 @@ func TestSetCostMetadata_Formatting(t *testing.T) {
 	for _, tc := range cases {
 		ctx := makeResponseContext(nil)
 		result := setCostMetadata(ctx, tc.cost, costStatusCalculated)
-		_, ok := result.(policy.DownstreamResponseModifications)
+		_, ok := result.(policy.UpstreamResponseModifications)
 		if !ok {
 			t.Fatalf("unexpected action type")
 		}
@@ -1837,9 +1837,9 @@ func makeResponseContext(body []byte) *policy.ResponseContext {
 
 func assertCostMetadata(t *testing.T, ctx *policy.ResponseContext, action policy.ResponseAction, wantStatus string, wantCost string) {
 	t.Helper()
-	_, ok := action.(policy.DownstreamResponseModifications)
+	_, ok := action.(policy.UpstreamResponseModifications)
 	if !ok {
-		t.Fatalf("expected DownstreamResponseModifications, got %T", action)
+		t.Fatalf("expected UpstreamResponseModifications, got %T", action)
 	}
 	gotStatus, _ := ctx.Metadata[MetadataLLMCostStatus].(string)
 	if gotStatus != wantStatus {
@@ -1853,14 +1853,14 @@ func assertCostMetadata(t *testing.T, ctx *policy.ResponseContext, action policy
 	}
 }
 
-func TestOnResponseBody_SuccessStatus_Calculated(t *testing.T) {
+func TestOnResponse_SuccessStatus_Calculated(t *testing.T) {
 	p := &LLMCostPolicy{pricingMap: testPricingMap}
 	body := []byte(`{
 		"model": "gpt-4o-mini-2024-07-18",
 		"usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
 	}`)
 	ctx := makeResponseContext(body)
-	action := p.OnResponseBody(ctx, nil)
+	action := p.OnResponse(ctx, nil)
 	assertCostMetadata(t, ctx, action, costStatusCalculated, "")
 	// Also verify the cost metadata is non-empty (exact value tested in calculator tests).
 	if gotCost, _ := ctx.Metadata[MetadataLLMCost].(string); gotCost == "" {
@@ -1868,33 +1868,33 @@ func TestOnResponseBody_SuccessStatus_Calculated(t *testing.T) {
 	}
 }
 
-func TestOnResponseBody_EmptyBody_NotCalculated(t *testing.T) {
+func TestOnResponse_EmptyBody_NotCalculated(t *testing.T) {
 	p := &LLMCostPolicy{pricingMap: testPricingMap}
 	ctx := &policy.ResponseContext{
 		SharedContext: &policy.SharedContext{Metadata: make(map[string]interface{})},
 		ResponseBody:  &policy.Body{Present: false},
 	}
-	assertCostMetadata(t, ctx, p.OnResponseBody(ctx, nil), costStatusNotCalculated, "0.0000000000")
+	assertCostMetadata(t, ctx, p.OnResponse(ctx, nil), costStatusNotCalculated, "0.0000000000")
 }
 
-func TestOnResponseBody_UnparsableBody_NotCalculated(t *testing.T) {
+func TestOnResponse_UnparsableBody_NotCalculated(t *testing.T) {
 	p := &LLMCostPolicy{pricingMap: testPricingMap}
 	ctx := makeResponseContext([]byte("not json"))
-	assertCostMetadata(t, ctx, p.OnResponseBody(ctx, nil), costStatusNotCalculated, "0.0000000000")
+	assertCostMetadata(t, ctx, p.OnResponse(ctx, nil), costStatusNotCalculated, "0.0000000000")
 }
 
-func TestOnResponseBody_NoModelName_NotCalculated(t *testing.T) {
+func TestOnResponse_NoModelName_NotCalculated(t *testing.T) {
 	p := &LLMCostPolicy{pricingMap: testPricingMap}
 	body := []byte(`{"usage": {"prompt_tokens": 10}}`)
 	ctx := makeResponseContext(body)
-	assertCostMetadata(t, ctx, p.OnResponseBody(ctx, nil), costStatusNotCalculated, "0.0000000000")
+	assertCostMetadata(t, ctx, p.OnResponse(ctx, nil), costStatusNotCalculated, "0.0000000000")
 }
 
-func TestOnResponseBody_UnknownModel_NotCalculated(t *testing.T) {
+func TestOnResponse_UnknownModel_NotCalculated(t *testing.T) {
 	p := &LLMCostPolicy{pricingMap: testPricingMap}
 	body := []byte(`{"model": "totally-unknown-model-xyz", "usage": {"prompt_tokens": 10}}`)
 	ctx := makeResponseContext(body)
-	assertCostMetadata(t, ctx, p.OnResponseBody(ctx, nil), costStatusNotCalculated, "0.0000000000")
+	assertCostMetadata(t, ctx, p.OnResponse(ctx, nil), costStatusNotCalculated, "0.0000000000")
 }
 
 // ---------------------------------------------------------------------------

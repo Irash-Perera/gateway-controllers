@@ -33,8 +33,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	utils "github.com/wso2/api-platform/sdk/core/utils"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	utils "github.com/wso2/api-platform/sdk/utils"
 )
 
 const (
@@ -85,7 +86,10 @@ type AWSBedrockGuardrailPolicyParams struct {
 	ShowAssessment     bool
 }
 
-// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
+// The returned concrete type also satisfies policyv1alpha2 phase interfaces
+// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
+// can discover those capabilities via type assertions even when using this factory.
 func GetPolicy(
 	metadata policy.PolicyMetadata,
 	params map[string]interface{},
@@ -168,6 +172,20 @@ func GetPolicy(
 	slog.Debug("AWSBedrockGuardrail: Policy initialized", "region", p.region, "guardrailID", p.guardrailID, "guardrailVersion", p.guardrailVersion, "hasRequestParams", p.hasRequestParams, "hasResponseParams", p.hasResponseParams)
 
 	return p, nil
+}
+
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
+	params map[string]interface{},
+) (policyv1alpha2.Policy, error) {
+	return GetPolicy(policy.PolicyMetadata{
+		RouteName:  metadata.RouteName,
+		APIId:      metadata.APIId,
+		APIName:    metadata.APIName,
+		APIVersion: metadata.APIVersion,
+		AttachedTo: policy.Level(metadata.AttachedTo),
+	}, params)
 }
 
 // parseRequestResponseParams parses and validates request/response parameters from map to struct
@@ -351,6 +369,151 @@ func (p *AWSBedrockGuardrailPolicy) Mode() policy.ProcessingMode {
 		ResponseHeaderMode: policy.HeaderModeSkip,
 		ResponseBodyMode:   policy.BodyModeStream,
 	}
+}
+
+// OnRequest validates request body using AWS Bedrock Guardrail
+func (p *AWSBedrockGuardrailPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
+	if !p.hasRequestParams || !p.requestParams.Enabled {
+		return policy.UpstreamRequestModifications{}
+	}
+
+	var content []byte
+	if ctx.Body != nil {
+		content = ctx.Body.Content
+	}
+	return p.validatePayload(content, p.requestParams, false, ctx.Metadata).(policy.RequestAction)
+}
+
+// OnResponse validates response body using AWS Bedrock Guardrail
+func (p *AWSBedrockGuardrailPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
+	if !p.hasResponseParams || !p.responseParams.Enabled {
+		return policy.UpstreamResponseModifications{}
+	}
+
+	var content []byte
+	if ctx.ResponseBody != nil {
+		content = ctx.ResponseBody.Content
+	}
+	return p.validatePayload(content, p.responseParams, true, ctx.Metadata).(policy.ResponseAction)
+}
+
+// validatePayload validates payload against AWS Bedrock Guardrail
+func (p *AWSBedrockGuardrailPolicy) validatePayload(payload []byte, params AWSBedrockGuardrailPolicyParams, isResponse bool, metadata map[string]interface{}) interface{} {
+	// Transform response if redactPII is disabled and PIIs identified in request
+	if !params.RedactPII && isResponse {
+		if maskedPII, exists := metadata[MetadataKeyPIIEntities]; exists {
+			if maskedPIIMap, ok := maskedPII.(map[string]string); ok {
+				// Restore PII in response
+				restoredContent := p.restorePIIInResponse(string(payload), maskedPIIMap)
+				if restoredContent != string(payload) {
+					return policy.UpstreamResponseModifications{
+						Body: []byte(restoredContent),
+					}
+				}
+			}
+		}
+	}
+
+	if payload == nil {
+		if isResponse {
+			return policy.UpstreamResponseModifications{}
+		}
+		return policy.UpstreamRequestModifications{}
+	}
+
+	// Extract value using JSONPath
+	extractedValue, err := utils.ExtractStringValueFromJsonpath(payload, params.JsonPath)
+	if err != nil {
+		if params.PassthroughOnError {
+			slog.Debug("AWSBedrockGuardrail: JSONPath extraction error, passthrough enabled", "jsonPath", params.JsonPath, "error", err, "isResponse", isResponse)
+			if isResponse {
+				return policy.UpstreamResponseModifications{}
+			}
+			return policy.UpstreamRequestModifications{}
+		}
+		slog.Debug("AWSBedrockGuardrail: Error extracting value from JSONPath", "jsonPath", params.JsonPath, "error", err, "isResponse", isResponse)
+		return p.buildErrorResponse("Error extracting value from JSONPath", err, isResponse, params.ShowAssessment, nil)
+	}
+
+	// Clean and trim
+	extractedValue = textCleanRegexCompiled.ReplaceAllString(extractedValue, "")
+	extractedValue = strings.TrimSpace(extractedValue)
+
+	// Create AWS config
+	loadConfig := p.loadAWSConfigFunc
+	if loadConfig == nil {
+		loadConfig = p.loadAWSConfig
+	}
+
+	awsCfg, err := loadConfig(context.Background(), p.region)
+	if err != nil {
+		if params.PassthroughOnError {
+			slog.Debug("AWSBedrockGuardrail: AWS config error, passthrough enabled", "error", err, "isResponse", isResponse)
+			if isResponse {
+				return policy.UpstreamResponseModifications{}
+			}
+			return policy.UpstreamRequestModifications{}
+		}
+		slog.Debug("AWSBedrockGuardrail: Error loading AWS config", "error", err, "isResponse", isResponse)
+		return p.buildErrorResponse("Error loading AWS config", err, isResponse, params.ShowAssessment, nil)
+	}
+
+	// Call AWS Bedrock Guardrail
+	output, err := p.applyBedrockGuardrail(context.Background(), awsCfg, p.guardrailID, p.guardrailVersion, extractedValue)
+	if err != nil {
+		if params.PassthroughOnError {
+			slog.Debug("AWSBedrockGuardrail: Guardrail API error, passthrough enabled", "error", err, "isResponse", isResponse)
+			if isResponse {
+				return policy.UpstreamResponseModifications{}
+			}
+			return policy.UpstreamRequestModifications{}
+		}
+		slog.Debug("AWSBedrockGuardrail: Error calling AWS Bedrock Guardrail", "error", err, "isResponse", isResponse)
+		return p.buildErrorResponse("Error calling AWS Bedrock Guardrail", err, isResponse, params.ShowAssessment, nil)
+	}
+
+	// Evaluate guardrail response
+	var outputInterface interface{} = output
+	violation, modifiedContent, err := p.evaluateGuardrailResponse(outputInterface, extractedValue, params.RedactPII, !isResponse, metadata)
+	if err != nil {
+		if params.PassthroughOnError {
+			slog.Debug("AWSBedrockGuardrail: Guardrail evaluation error, passthrough enabled", "error", err, "isResponse", isResponse)
+			if isResponse {
+				return policy.UpstreamResponseModifications{}
+			}
+			return policy.UpstreamRequestModifications{}
+		}
+		slog.Debug("AWSBedrockGuardrail: Error evaluating guardrail response", "error", err, "isResponse", isResponse)
+		return p.buildErrorResponse("Error evaluating guardrail response", err, isResponse, params.ShowAssessment, output)
+	}
+
+	if violation {
+		slog.Debug("AWSBedrockGuardrail: Violation detected", "isResponse", isResponse)
+		return p.buildErrorResponse("Violation of AWS Bedrock Guardrails detected", nil, isResponse, params.ShowAssessment, output)
+	}
+
+	if modifiedContent != "" && modifiedContent != extractedValue {
+		slog.Debug("AWSBedrockGuardrail: Content modified by guardrail", "isResponse", isResponse)
+	}
+
+	// If content was modified, update the payload
+	if modifiedContent != "" && modifiedContent != extractedValue {
+		modifiedPayload := p.updatePayloadWithMaskedContent(payload, extractedValue, modifiedContent, params.JsonPath)
+		if isResponse {
+			return policy.UpstreamResponseModifications{
+				Body: modifiedPayload,
+			}
+		}
+		return policy.UpstreamRequestModifications{
+			Body: modifiedPayload,
+		}
+	}
+
+	slog.Debug("AWSBedrockGuardrail: Validation passed", "isResponse", isResponse)
+	if isResponse {
+		return policy.UpstreamResponseModifications{}
+	}
+	return policy.UpstreamRequestModifications{}
 }
 
 // loadAWSConfig creates AWS configuration with custom credentials and role assumption
@@ -713,6 +876,40 @@ func (p *AWSBedrockGuardrailPolicy) updatePayloadWithMaskedContent(originalPaylo
 	return updatedPayload
 }
 
+// buildErrorResponse builds an error response for both request and response phases
+func (p *AWSBedrockGuardrailPolicy) buildErrorResponse(reason string, validationError error, isResponse bool, showAssessment bool, output interface{}) interface{} {
+	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, output)
+
+	responseBody := map[string]interface{}{
+		"type":    "AWS_BEDROCK_GUARDRAIL",
+		"message": assessment,
+	}
+
+	bodyBytes, err := json.Marshal(responseBody)
+	if err != nil {
+		bodyBytes = []byte(`{"type":"AWS_BEDROCK_GUARDRAIL","message":"Internal error"}`)
+	}
+
+	if isResponse {
+		statusCode := GuardrailErrorCode
+		return policy.UpstreamResponseModifications{
+			StatusCode: &statusCode,
+			Body:       bodyBytes,
+			SetHeaders: map[string]string{
+				"Content-Type": "application/json",
+			},
+		}
+	}
+
+	return policy.ImmediateResponse{
+		StatusCode: GuardrailErrorCode,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body: bodyBytes,
+	}
+}
+
 // buildAssessmentObject builds the assessment object
 func (p *AWSBedrockGuardrailPolicy) buildAssessmentObject(reason string, validationError error, isResponse bool, showAssessment bool, output interface{}) map[string]interface{} {
 	assessment := map[string]interface{}{
@@ -849,9 +1046,9 @@ func (p *AWSBedrockGuardrailPolicy) convertBedrockAssessmentToMap(assessment typ
 }
 
 // OnRequestBody validates request body using AWS Bedrock Guardrail.
-func (p *AWSBedrockGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *AWSBedrockGuardrailPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ map[string]interface{}) policyv1alpha2.RequestAction {
 	if !p.hasRequestParams || !p.requestParams.Enabled {
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha2.UpstreamRequestModifications{}
 	}
 
 	if ctx.Metadata == nil {
@@ -862,30 +1059,30 @@ func (p *AWSBedrockGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ 
 	if ctx.Body != nil {
 		content = ctx.Body.Content
 	}
-	return p.validatePayload(content, p.requestParams, false, ctx.Metadata).(policy.RequestAction)
+	return p.validatePayloadV2(content, p.requestParams, false, ctx.Metadata).(policyv1alpha2.RequestAction)
 }
 
 // OnResponseBody validates response body using AWS Bedrock Guardrail.
-func (p *AWSBedrockGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+func (p *AWSBedrockGuardrailPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseContext, _ map[string]interface{}) policyv1alpha2.ResponseAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
-		return policy.DownstreamResponseModifications{}
+		return policyv1alpha2.DownstreamResponseModifications{}
 	}
 
 	var content []byte
 	if ctx.ResponseBody != nil {
 		content = ctx.ResponseBody.Content
 	}
-	return p.validatePayload(content, p.responseParams, true, ctx.Metadata).(policy.ResponseAction)
+	return p.validatePayloadV2(content, p.responseParams, true, ctx.Metadata).(policyv1alpha2.ResponseAction)
 }
 
-// validatePayload validates payload against AWS Bedrock Guardrail, returning policy actions.
-func (p *AWSBedrockGuardrailPolicy) validatePayload(payload []byte, params AWSBedrockGuardrailPolicyParams, isResponse bool, metadata map[string]interface{}) interface{} {
+// validatePayloadV2 validates payload against AWS Bedrock Guardrail, returning policyv1alpha2 actions.
+func (p *AWSBedrockGuardrailPolicy) validatePayloadV2(payload []byte, params AWSBedrockGuardrailPolicyParams, isResponse bool, metadata map[string]interface{}) interface{} {
 	if !params.RedactPII && isResponse {
 		if maskedPII, exists := metadata[MetadataKeyPIIEntities]; exists {
 			if maskedPIIMap, ok := maskedPII.(map[string]string); ok {
 				restoredContent := p.restorePIIInResponse(string(payload), maskedPIIMap)
 				if restoredContent != string(payload) {
-					return policy.DownstreamResponseModifications{
+					return policyv1alpha2.DownstreamResponseModifications{
 						Body: []byte(restoredContent),
 					}
 				}
@@ -895,9 +1092,9 @@ func (p *AWSBedrockGuardrailPolicy) validatePayload(payload []byte, params AWSBe
 
 	if payload == nil {
 		if isResponse {
-			return policy.DownstreamResponseModifications{}
+			return policyv1alpha2.DownstreamResponseModifications{}
 		}
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha2.UpstreamRequestModifications{}
 	}
 
 	extractedValue, err := utils.ExtractStringValueFromJsonpath(payload, params.JsonPath)
@@ -905,12 +1102,12 @@ func (p *AWSBedrockGuardrailPolicy) validatePayload(payload []byte, params AWSBe
 		if params.PassthroughOnError {
 			slog.Debug("AWSBedrockGuardrail: JSONPath extraction error, passthrough enabled", "jsonPath", params.JsonPath, "error", err, "isResponse", isResponse)
 			if isResponse {
-				return policy.DownstreamResponseModifications{}
+				return policyv1alpha2.DownstreamResponseModifications{}
 			}
-			return policy.UpstreamRequestModifications{}
+			return policyv1alpha2.UpstreamRequestModifications{}
 		}
 		slog.Debug("AWSBedrockGuardrail: Error extracting value from JSONPath", "jsonPath", params.JsonPath, "error", err, "isResponse", isResponse)
-		return p.buildErrorResponse("Error extracting value from JSONPath", err, isResponse, params.ShowAssessment, nil)
+		return p.buildErrorResponseV2("Error extracting value from JSONPath", err, isResponse, params.ShowAssessment, nil)
 	}
 
 	extractedValue = textCleanRegexCompiled.ReplaceAllString(extractedValue, "")
@@ -926,12 +1123,12 @@ func (p *AWSBedrockGuardrailPolicy) validatePayload(payload []byte, params AWSBe
 		if params.PassthroughOnError {
 			slog.Debug("AWSBedrockGuardrail: AWS config error, passthrough enabled", "error", err, "isResponse", isResponse)
 			if isResponse {
-				return policy.DownstreamResponseModifications{}
+				return policyv1alpha2.DownstreamResponseModifications{}
 			}
-			return policy.UpstreamRequestModifications{}
+			return policyv1alpha2.UpstreamRequestModifications{}
 		}
 		slog.Debug("AWSBedrockGuardrail: Error loading AWS config", "error", err, "isResponse", isResponse)
-		return p.buildErrorResponse("Error loading AWS config", err, isResponse, params.ShowAssessment, nil)
+		return p.buildErrorResponseV2("Error loading AWS config", err, isResponse, params.ShowAssessment, nil)
 	}
 
 	output, err := p.applyBedrockGuardrail(context.Background(), awsCfg, p.guardrailID, p.guardrailVersion, extractedValue)
@@ -939,12 +1136,12 @@ func (p *AWSBedrockGuardrailPolicy) validatePayload(payload []byte, params AWSBe
 		if params.PassthroughOnError {
 			slog.Debug("AWSBedrockGuardrail: Guardrail API error, passthrough enabled", "error", err, "isResponse", isResponse)
 			if isResponse {
-				return policy.DownstreamResponseModifications{}
+				return policyv1alpha2.DownstreamResponseModifications{}
 			}
-			return policy.UpstreamRequestModifications{}
+			return policyv1alpha2.UpstreamRequestModifications{}
 		}
 		slog.Debug("AWSBedrockGuardrail: Error calling AWS Bedrock Guardrail", "error", err, "isResponse", isResponse)
-		return p.buildErrorResponse("Error calling AWS Bedrock Guardrail", err, isResponse, params.ShowAssessment, nil)
+		return p.buildErrorResponseV2("Error calling AWS Bedrock Guardrail", err, isResponse, params.ShowAssessment, nil)
 	}
 
 	var outputInterface interface{} = output
@@ -953,37 +1150,37 @@ func (p *AWSBedrockGuardrailPolicy) validatePayload(payload []byte, params AWSBe
 		if params.PassthroughOnError {
 			slog.Debug("AWSBedrockGuardrail: Guardrail evaluation error, passthrough enabled", "error", err, "isResponse", isResponse)
 			if isResponse {
-				return policy.DownstreamResponseModifications{}
+				return policyv1alpha2.DownstreamResponseModifications{}
 			}
-			return policy.UpstreamRequestModifications{}
+			return policyv1alpha2.UpstreamRequestModifications{}
 		}
 		slog.Debug("AWSBedrockGuardrail: Error evaluating guardrail response", "error", err, "isResponse", isResponse)
-		return p.buildErrorResponse("Error evaluating guardrail response", err, isResponse, params.ShowAssessment, output)
+		return p.buildErrorResponseV2("Error evaluating guardrail response", err, isResponse, params.ShowAssessment, output)
 	}
 
 	if violation {
 		slog.Debug("AWSBedrockGuardrail: Violation detected", "isResponse", isResponse)
-		return p.buildErrorResponse("Violation of AWS Bedrock Guardrails detected", nil, isResponse, params.ShowAssessment, output)
+		return p.buildErrorResponseV2("Violation of AWS Bedrock Guardrails detected", nil, isResponse, params.ShowAssessment, output)
 	}
 
 	if modifiedContent != "" && modifiedContent != extractedValue {
 		slog.Debug("AWSBedrockGuardrail: Content modified by guardrail", "isResponse", isResponse)
 		modifiedPayload := p.updatePayloadWithMaskedContent(payload, extractedValue, modifiedContent, params.JsonPath)
 		if isResponse {
-			return policy.DownstreamResponseModifications{Body: modifiedPayload}
+			return policyv1alpha2.DownstreamResponseModifications{Body: modifiedPayload}
 		}
-		return policy.UpstreamRequestModifications{Body: modifiedPayload}
+		return policyv1alpha2.UpstreamRequestModifications{Body: modifiedPayload}
 	}
 
 	slog.Debug("AWSBedrockGuardrail: Validation passed", "isResponse", isResponse)
 	if isResponse {
-		return policy.DownstreamResponseModifications{}
+		return policyv1alpha2.DownstreamResponseModifications{}
 	}
-	return policy.UpstreamRequestModifications{}
+	return policyv1alpha2.UpstreamRequestModifications{}
 }
 
-// buildErrorResponse builds a policy error response for both request and response phases.
-func (p *AWSBedrockGuardrailPolicy) buildErrorResponse(reason string, validationError error, isResponse bool, showAssessment bool, output interface{}) interface{} {
+// buildErrorResponseV2 builds a policyv1alpha2 error response for both request and response phases.
+func (p *AWSBedrockGuardrailPolicy) buildErrorResponseV2(reason string, validationError error, isResponse bool, showAssessment bool, output interface{}) interface{} {
 	assessment := p.buildAssessmentObject(reason, validationError, isResponse, showAssessment, output)
 
 	responseBody := map[string]interface{}{
@@ -998,16 +1195,16 @@ func (p *AWSBedrockGuardrailPolicy) buildErrorResponse(reason string, validation
 
 	if isResponse {
 		statusCode := GuardrailErrorCode
-		return policy.DownstreamResponseModifications{
+		return policyv1alpha2.DownstreamResponseModifications{
 			StatusCode: &statusCode,
 			Body:       bodyBytes,
-			DownstreamResponseHeaderModifications: policy.DownstreamResponseHeaderModifications{
+			DownstreamResponseHeaderModifications: policyv1alpha2.DownstreamResponseHeaderModifications{
 				HeadersToSet: map[string]string{"Content-Type": "application/json"},
 			},
 		}
 	}
 
-	return policy.ImmediateResponse{
+	return policyv1alpha2.ImmediateResponse{
 		StatusCode: GuardrailErrorCode,
 		Headers:    map[string]string{"Content-Type": "application/json"},
 		Body:       bodyBytes,

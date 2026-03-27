@@ -26,8 +26,9 @@ import (
 	"strconv"
 	"strings"
 
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	utils "github.com/wso2/api-platform/sdk/core/utils"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
+	utils "github.com/wso2/api-platform/sdk/utils"
 )
 
 const (
@@ -61,7 +62,10 @@ type PIIMaskingRegexPolicyParams struct {
 	RedactPII   bool
 }
 
-// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
+// The returned concrete type also satisfies policyv1alpha2 phase interfaces
+// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
+// can discover those capabilities via type assertions even when using this factory.
 func GetPolicy(
 	metadata policy.PolicyMetadata,
 	params map[string]interface{},
@@ -76,6 +80,20 @@ func GetPolicy(
 	p.params = policyParams
 
 	return p, nil
+}
+
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
+	params map[string]interface{},
+) (policyv1alpha2.Policy, error) {
+	return GetPolicy(policy.PolicyMetadata{
+		RouteName:  metadata.RouteName,
+		APIId:      metadata.APIId,
+		APIName:    metadata.APIName,
+		APIVersion: metadata.APIVersion,
+		AttachedTo: policy.Level(metadata.AttachedTo),
+	}, params)
 }
 
 // parseParams parses and validates parameters from map to struct.
@@ -217,6 +235,85 @@ func (p *PIIMaskingRegexPolicy) Mode() policy.ProcessingMode {
 	}
 }
 
+// OnRequest masks PII in request body
+func (p *PIIMaskingRegexPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
+	if len(p.params.PIIEntities) == 0 {
+		// No PII entities configured, pass through
+		return policy.UpstreamRequestModifications{}
+	}
+
+	if ctx.Body == nil || ctx.Body.Content == nil {
+		return policy.UpstreamRequestModifications{}
+	}
+	payload := ctx.Body.Content
+
+	// Extract value using JSONPath
+	extractedValue, err := utils.ExtractStringValueFromJsonpath(payload, p.params.JsonPath)
+	if err != nil {
+		return p.buildErrorResponse(fmt.Sprintf("error extracting value from JSONPath: %v", err)).(policy.RequestAction)
+	}
+
+	// Clean and trim
+	extractedValue = textCleanRegexCompiled.ReplaceAllString(extractedValue, "")
+	extractedValue = strings.TrimSpace(extractedValue)
+
+	var modifiedContent string
+	if p.params.RedactPII {
+		// Redaction mode: replace with *****
+		modifiedContent = p.redactPIIFromContent(extractedValue, p.params.PIIEntities)
+	} else {
+		// Masking mode: replace with placeholders and store mappings
+		modifiedContent, err = p.maskPIIFromContent(extractedValue, p.params.PIIEntities, ctx.Metadata)
+		if err != nil {
+			return p.buildErrorResponse(fmt.Sprintf("error masking PII: %v", err)).(policy.RequestAction)
+		}
+	}
+
+	// If content was modified, update the payload
+	if modifiedContent != "" && modifiedContent != extractedValue {
+		modifiedPayload := p.updatePayloadWithMaskedContent(payload, extractedValue, modifiedContent, p.params.JsonPath)
+		return policy.UpstreamRequestModifications{
+			Body: modifiedPayload,
+		}
+	}
+
+	return policy.UpstreamRequestModifications{}
+}
+
+// OnResponse restores PII in response body (if redactPII is false)
+func (p *PIIMaskingRegexPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
+	// If redactPII is true, no restoration needed
+	if p.params.RedactPII {
+		return policy.UpstreamResponseModifications{}
+	}
+
+	// Check if PII entities were masked in request
+	maskedPII, exists := ctx.Metadata[MetadataKeyPIIEntities]
+	if !exists {
+		return policy.UpstreamResponseModifications{}
+	}
+
+	maskedPIIMap, ok := maskedPII.(map[string]string)
+	if !ok {
+		return policy.UpstreamResponseModifications{}
+	}
+
+	if ctx.ResponseBody == nil || ctx.ResponseBody.Content == nil {
+		return policy.UpstreamResponseModifications{}
+	}
+	payload := ctx.ResponseBody.Content
+
+	// Restore PII in response
+	restoredContent := p.restorePIIInResponse(string(payload), maskedPIIMap)
+	if restoredContent != string(payload) {
+		return policy.UpstreamResponseModifications{
+			Body: []byte(restoredContent),
+		}
+	}
+
+	return policy.UpstreamResponseModifications{}
+}
+
 // maskPIIFromContent masks PII from content using regex patterns
 func (p *PIIMaskingRegexPolicy) maskPIIFromContent(content string, piiEntities map[string]*regexp.Regexp, metadata map[string]interface{}) (string, error) {
 	if content == "" {
@@ -289,6 +386,23 @@ func (p *PIIMaskingRegexPolicy) redactPIIFromContent(content string, piiEntities
 	return ""
 }
 
+// restorePIIInResponse handles PII restoration in responses when redactPII is disabled
+func (p *PIIMaskingRegexPolicy) restorePIIInResponse(originalContent string, maskedPIIEntities map[string]string) string {
+	if len(maskedPIIEntities) == 0 {
+		return originalContent
+	}
+
+	transformedContent := originalContent
+
+	for original, placeholder := range maskedPIIEntities {
+		if strings.Contains(transformedContent, placeholder) {
+			transformedContent = strings.ReplaceAll(transformedContent, placeholder, original)
+		}
+	}
+
+	return transformedContent
+}
+
 // updatePayloadWithMaskedContent updates the original payload by replacing the extracted content
 func (p *PIIMaskingRegexPolicy) updatePayloadWithMaskedContent(originalPayload []byte, extractedValue, modifiedContent string, jsonPath string) []byte {
 	if jsonPath == "" {
@@ -320,20 +434,42 @@ func (p *PIIMaskingRegexPolicy) updatePayloadWithMaskedContent(originalPayload [
 	return updatedPayload
 }
 
+// buildErrorResponse builds an error response for both request and response phases
+func (p *PIIMaskingRegexPolicy) buildErrorResponse(reason string) interface{} {
+	responseBody := map[string]interface{}{
+		"code":    APIMInternalExceptionCode,
+		"message": "Error occurred during pii-masking-regex mediation: " + reason,
+	}
+
+	bodyBytes, err := json.Marshal(responseBody)
+	if err != nil {
+		bodyBytes = []byte(fmt.Sprintf(`{"code":%d,"type":"PII_MASKING_REGEX","message":"Internal error"}`, APIMInternalExceptionCode))
+	}
+
+	// For PII masking, errors typically occur in request phase, but return as ImmediateResponse
+	return policy.ImmediateResponse{
+		StatusCode: APIMInternalErrorCode,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body: bodyBytes,
+	}
+}
+
 // OnRequestHeaders implements v2alpha.RequestHeaderPolicy.
 // PII masking operates on the body, so headers are passed through unchanged.
-func (p *PIIMaskingRegexPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
-	return policy.UpstreamRequestHeaderModifications{}
+func (p *PIIMaskingRegexPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, params map[string]interface{}) policyv1alpha2.RequestHeaderAction {
+	return policyv1alpha2.UpstreamRequestHeaderModifications{}
 }
 
 // OnResponseHeaders implements v2alpha.ResponseHeaderPolicy.
 // PII masking operates on the body, so headers are passed through unchanged.
-func (p *PIIMaskingRegexPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
-	return policy.DownstreamResponseHeaderModifications{}
+func (p *PIIMaskingRegexPolicy) OnResponseHeaders(ctx *policyv1alpha2.ResponseHeaderContext, params map[string]interface{}) policyv1alpha2.ResponseHeaderAction {
+	return policyv1alpha2.DownstreamResponseHeaderModifications{}
 }
 
 // OnRequestBody masks PII in the request body before forwarding to upstream.
-func (p *PIIMaskingRegexPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *PIIMaskingRegexPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ map[string]interface{}) policyv1alpha2.RequestAction {
 	return p.processRequestBody(ctx, nil)
 }
 
@@ -341,23 +477,23 @@ func (p *PIIMaskingRegexPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[
 // Placeholders (e.g. [EMAIL_0000]) or redaction markers (*****) replace
 // detected PII. Placeholder→original mappings are stored in shared metadata
 // so processResponseBody can restore them.
-func (p *PIIMaskingRegexPolicy) processRequestBody(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
+func (p *PIIMaskingRegexPolicy) processRequestBody(ctx *policyv1alpha2.RequestContext, params map[string]interface{}) policyv1alpha2.RequestAction {
 	if len(p.params.PIIEntities) == 0 {
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha2.UpstreamRequestModifications{}
 	}
 
 	if ctx.Body == nil || ctx.Body.Content == nil {
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha2.UpstreamRequestModifications{}
 	}
 	payload := ctx.Body.Content
 
 	extractedValue, ok, err := extractStringFromPath(payload, p.params.JsonPath)
 	if err != nil {
-		return p.buildErrorResponse(fmt.Sprintf("error extracting value from JSONPath: %v", err)).(policy.RequestAction)
+		return p.buildErrorResponseV2(fmt.Sprintf("error extracting value from JSONPath: %v", err)).(policyv1alpha2.RequestAction)
 	}
 	if !ok {
 		// Value at path is not a scalar (e.g. multimodal content array); skip masking.
-		return policy.UpstreamRequestModifications{}
+		return policyv1alpha2.UpstreamRequestModifications{}
 	}
 
 	extractedValue = textCleanRegexCompiled.ReplaceAllString(extractedValue, "")
@@ -372,22 +508,22 @@ func (p *PIIMaskingRegexPolicy) processRequestBody(ctx *policy.RequestContext, p
 		}
 		modifiedContent, err = p.maskPIIFromContent(extractedValue, p.params.PIIEntities, ctx.Metadata)
 		if err != nil {
-			return p.buildErrorResponse(fmt.Sprintf("error masking PII: %v", err)).(policy.RequestAction)
+			return p.buildErrorResponseV2(fmt.Sprintf("error masking PII: %v", err)).(policyv1alpha2.RequestAction)
 		}
 	}
 
 	if modifiedContent != "" && modifiedContent != extractedValue {
 		modifiedPayload := p.updatePayloadWithMaskedContent(payload, extractedValue, modifiedContent, p.params.JsonPath)
-		return policy.UpstreamRequestModifications{
+		return policyv1alpha2.UpstreamRequestModifications{
 			Body: modifiedPayload,
 		}
 	}
 
-	return policy.UpstreamRequestModifications{}
+	return policyv1alpha2.UpstreamRequestModifications{}
 }
 
 // OnResponseBody restores PII placeholders in a buffered response body.
-func (p *PIIMaskingRegexPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+func (p *PIIMaskingRegexPolicy) OnResponseBody(ctx *policyv1alpha2.ResponseContext, _ map[string]interface{}) policyv1alpha2.ResponseAction {
 	return p.processResponseBody(ctx, nil)
 }
 
@@ -398,23 +534,23 @@ func (p *PIIMaskingRegexPolicy) OnResponseBody(ctx *policy.ResponseContext, _ ma
 //   - SSE-buffered (chunked transfer of streaming response that this chain could not
 //     process in streaming mode): multiple "data: {...}" lines, choices[*].delta.content.
 //     The same restoreSSEChunk logic used by OnResponseBodyChunk is reused here.
-func (p *PIIMaskingRegexPolicy) processResponseBody(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
+func (p *PIIMaskingRegexPolicy) processResponseBody(ctx *policyv1alpha2.ResponseContext, params map[string]interface{}) policyv1alpha2.ResponseAction {
 	if p.params.RedactPII {
-		return policy.DownstreamResponseModifications{}
+		return policyv1alpha2.DownstreamResponseModifications{}
 	}
 
 	maskedPII, exists := ctx.Metadata[MetadataKeyPIIEntities]
 	if !exists {
-		return policy.DownstreamResponseModifications{}
+		return policyv1alpha2.DownstreamResponseModifications{}
 	}
 
 	maskedPIIMap, ok := maskedPII.(map[string]string)
 	if !ok || len(maskedPIIMap) == 0 {
-		return policy.DownstreamResponseModifications{}
+		return policyv1alpha2.DownstreamResponseModifications{}
 	}
 
 	if ctx.ResponseBody == nil || ctx.ResponseBody.Content == nil {
-		return policy.DownstreamResponseModifications{}
+		return policyv1alpha2.DownstreamResponseModifications{}
 	}
 
 	bodyStr := string(ctx.ResponseBody.Content)
@@ -427,24 +563,24 @@ func (p *PIIMaskingRegexPolicy) processResponseBody(ctx *policy.ResponseContext,
 		// SSE-buffered: reuse the streaming restoration logic.
 		action := p.restoreSSEChunk(bodyStr, restoreMap)
 		if action.Body == nil {
-			return policy.DownstreamResponseModifications{}
+			return policyv1alpha2.DownstreamResponseModifications{}
 		}
-		return policy.DownstreamResponseModifications{Body: action.Body}
+		return policyv1alpha2.DownstreamResponseModifications{Body: action.Body}
 	}
 
 	// Plain JSON buffered response: try OpenAI choices[*].message.content first,
 	// then fall back to raw placeholder replacement for generic JSON structures.
 	updatedJSON, changed := restoreInChoices(bodyStr, restoreMap, "message")
 	if changed {
-		return policy.DownstreamResponseModifications{Body: []byte(updatedJSON)}
+		return policyv1alpha2.DownstreamResponseModifications{Body: []byte(updatedJSON)}
 	}
 
 	// Fallback: restore placeholders directly in the raw JSON bytes.
 	action := p.restoreJSONChunk(bodyStr, restoreMap)
 	if action.Body != nil {
-		return policy.DownstreamResponseModifications{Body: action.Body}
+		return policyv1alpha2.DownstreamResponseModifications{Body: action.Body}
 	}
-	return policy.DownstreamResponseModifications{}
+	return policyv1alpha2.DownstreamResponseModifications{}
 }
 
 // NeedsMoreResponseData implements v2alpha.StreamingResponsePolicy.
@@ -509,21 +645,21 @@ func (p *PIIMaskingRegexPolicy) NeedsMoreResponseData(accumulated []byte) bool {
 // LLMs always use Transfer-Encoding: chunked, so this method handles two formats:
 //   - SSE streaming: lines prefixed with "data: ", restores in choices[*].delta.content
 //   - Full JSON (non-streaming, chunked transfer): restores in raw JSON bytes
-func (p *PIIMaskingRegexPolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
+func (p *PIIMaskingRegexPolicy) OnResponseBodyChunk(ctx *policyv1alpha2.ResponseStreamContext, chunk *policyv1alpha2.StreamBody, params map[string]interface{}) policyv1alpha2.ResponseChunkAction {
 	if p.params.RedactPII {
-		return policy.ResponseChunkAction{}
+		return policyv1alpha2.ResponseChunkAction{}
 	}
 	if chunk == nil || len(chunk.Chunk) == 0 {
-		return policy.ResponseChunkAction{}
+		return policyv1alpha2.ResponseChunkAction{}
 	}
 
 	maskedPII, exists := ctx.Metadata[MetadataKeyPIIEntities]
 	if !exists {
-		return policy.ResponseChunkAction{}
+		return policyv1alpha2.ResponseChunkAction{}
 	}
 	maskedPIIMap, ok := maskedPII.(map[string]string)
 	if !ok || len(maskedPIIMap) == 0 {
-		return policy.ResponseChunkAction{}
+		return policyv1alpha2.ResponseChunkAction{}
 	}
 
 	chunkStr := string(chunk.Chunk)
@@ -535,10 +671,10 @@ func (p *PIIMaskingRegexPolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamCo
 	// Detect format: SSE responses have lines starting with "data: "
 	if isSSEChunk(chunkStr) {
 		v1result := p.restoreSSEChunk(chunkStr, restoreMap)
-		return policy.ResponseChunkAction{Body: v1result.Body}
+		return policyv1alpha2.ResponseChunkAction{Body: v1result.Body}
 	}
 	v1result := p.restoreJSONChunk(chunkStr, restoreMap)
-	return policy.ResponseChunkAction{Body: v1result.Body}
+	return policyv1alpha2.ResponseChunkAction{Body: v1result.Body}
 }
 
 // ─── SSE / Streaming helpers ─────────────────────────────────────────────────
@@ -561,7 +697,7 @@ func isSSEChunk(s string) bool {
 // delta.content values, restore on the full string, then redistribute: the
 // first content-bearing event gets the complete restored text, and all subsequent
 // events whose content has been merged into the first are dropped entirely.
-func (p *PIIMaskingRegexPolicy) restoreSSEChunk(chunkStr string, maskedMap map[string]string) policy.ResponseChunkAction {
+func (p *PIIMaskingRegexPolicy) restoreSSEChunk(chunkStr string, maskedMap map[string]string) policyv1alpha2.ResponseChunkAction {
 	lines := strings.Split(chunkStr, "\n")
 
 	// Collect every SSE data line that carries a non-empty delta.content.
@@ -584,7 +720,7 @@ func (p *PIIMaskingRegexPolicy) restoreSSEChunk(chunkStr string, maskedMap map[s
 	}
 
 	if len(contentLines) == 0 {
-		return policy.ResponseChunkAction{}
+		return policyv1alpha2.ResponseChunkAction{}
 	}
 
 	// Concatenate fragments and restore in one pass.
@@ -596,7 +732,7 @@ func (p *PIIMaskingRegexPolicy) restoreSSEChunk(chunkStr string, maskedMap map[s
 	restoredContent := restore(fullContent, maskedMap)
 
 	if restoredContent == fullContent {
-		return policy.ResponseChunkAction{}
+		return policyv1alpha2.ResponseChunkAction{}
 	}
 
 	// Redistribute: first content-bearing event gets the full restored text;
@@ -621,7 +757,7 @@ func (p *PIIMaskingRegexPolicy) restoreSSEChunk(chunkStr string, maskedMap map[s
 		filtered = append(filtered, line)
 	}
 
-	return policy.ResponseChunkAction{Body: []byte(strings.Join(filtered, "\n"))}
+	return policyv1alpha2.ResponseChunkAction{Body: []byte(strings.Join(filtered, "\n"))}
 }
 
 // extractFirstDeltaContent parses a single SSE JSON line and returns the
@@ -695,7 +831,7 @@ func updateDeltaContentInLine(line, newContent string) string {
 // restoreJSONChunk handles full JSON responses delivered via chunked transfer encoding.
 // Placeholders are replaced directly in the raw JSON bytes so that key order,
 // whitespace, and any trailing newline from the LLM are preserved exactly.
-func (p *PIIMaskingRegexPolicy) restoreJSONChunk(chunkStr string, maskedMap map[string]string) policy.ResponseChunkAction {
+func (p *PIIMaskingRegexPolicy) restoreJSONChunk(chunkStr string, maskedMap map[string]string) policyv1alpha2.ResponseChunkAction {
 	result := chunkStr
 	for placeholder, original := range maskedMap {
 		if !strings.Contains(result, placeholder) {
@@ -711,9 +847,9 @@ func (p *PIIMaskingRegexPolicy) restoreJSONChunk(chunkStr string, maskedMap map[
 		result = strings.ReplaceAll(result, placeholder, escapedOriginal)
 	}
 	if result == chunkStr {
-		return policy.ResponseChunkAction{}
+		return policyv1alpha2.ResponseChunkAction{}
 	}
-	return policy.ResponseChunkAction{Body: []byte(result)}
+	return policyv1alpha2.ResponseChunkAction{Body: []byte(result)}
 }
 
 // restoreInChoices parses a JSON string, restores PII placeholders in
@@ -913,7 +1049,7 @@ func extractStringFromPath(payload []byte, jsonPath string) (string, bool, error
 	}
 }
 
-func (p *PIIMaskingRegexPolicy) buildErrorResponse(reason string) interface{} {
+func (p *PIIMaskingRegexPolicy) buildErrorResponseV2(reason string) interface{} {
 	responseBody := map[string]interface{}{
 		"code":    APIMInternalExceptionCode,
 		"message": "Error occurred during pii-masking-regex mediation: " + reason,
@@ -925,7 +1061,7 @@ func (p *PIIMaskingRegexPolicy) buildErrorResponse(reason string) interface{} {
 	}
 
 	// For PII masking, errors typically occur in request phase, but return as ImmediateResponse
-	return policy.ImmediateResponse{
+	return policyv1alpha2.ImmediateResponse{
 		StatusCode: APIMInternalErrorCode,
 		Headers: map[string]string{
 			"Content-Type": "application/json",

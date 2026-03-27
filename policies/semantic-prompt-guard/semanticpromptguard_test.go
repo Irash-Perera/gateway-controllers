@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	embeddingproviders "github.com/wso2/api-platform/sdk/ai/embeddings"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	embeddingproviders "github.com/wso2/api-platform/sdk/utils/embeddingproviders"
 )
 
 type mockEmbeddingProvider struct {
@@ -46,11 +46,11 @@ func (m *mockEmbeddingProvider) GetEmbeddings(inputs []string) ([][]float32, err
 func TestSemanticPromptGuardPolicy_Mode(t *testing.T) {
 	p := &SemanticPromptGuardPolicy{}
 	got := p.Mode()
-	want := policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeSkip,
+	want := policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,
 	}
 	if got != want {
 		t.Fatalf("unexpected mode: got %+v, want %+v", got, want)
@@ -58,7 +58,7 @@ func TestSemanticPromptGuardPolicy_Mode(t *testing.T) {
 }
 
 func TestGetPolicy_InvalidEmbeddingConfig(t *testing.T) {
-	_, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{})
+	_, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, map[string]interface{}{})
 	if err == nil {
 		t.Fatalf("expected error for missing embedding config")
 	}
@@ -570,20 +570,20 @@ func TestSemanticPromptGuardPolicy_OnRequestAndValidatePayload(t *testing.T) {
 				params:            tt.params,
 			}
 
-			ctx := &policy.RequestContext{
-				SharedContext: &policy.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}},
-				Body:          &policy.Body{Content: []byte(tt.payload), Present: true, EndOfStream: true},
+			ctx := &policyv1alpha2.RequestContext{
+				SharedContext: &policyv1alpha2.SharedContext{RequestID: "r1", Metadata: map[string]interface{}{}},
+				Body:          &policyv1alpha2.Body{Content: []byte(tt.payload), Present: true, EndOfStream: true},
 			}
 
 			action := p.OnRequestBody(ctx, nil)
 			if !tt.wantImmediate {
-				if _, ok := action.(policy.UpstreamRequestModifications); !ok {
+				if _, ok := action.(policyv1alpha2.UpstreamRequestModifications); !ok {
 					t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 				}
 				return
 			}
 
-			resp, ok := action.(policy.ImmediateResponse)
+			resp, ok := action.(policyv1alpha2.ImmediateResponse)
 			if !ok {
 				t.Fatalf("expected ImmediateResponse, got %T", action)
 			}

@@ -1,16 +1,14 @@
 module github.com/wso2/gateway-controllers/policies/json-schema-guardrail
 
-go 1.26.1
+go 1.25.7
 
 require (
+	github.com/wso2/api-platform/sdk v0.4.5
 	github.com/wso2/api-platform/sdk/core v0.1.0
 	github.com/xeipuuv/gojsonschema v1.2.0
 )
 
 require (
-	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 )

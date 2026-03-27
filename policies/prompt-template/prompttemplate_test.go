@@ -7,18 +7,18 @@ import (
 	"sync"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 func TestPromptTemplatePolicy_Mode(t *testing.T) {
 	p := &PromptTemplatePolicy{}
 
 	got := p.Mode()
-	want := policy.ProcessingMode{
-		RequestHeaderMode:  policy.HeaderModeSkip,
-		RequestBodyMode:    policy.BodyModeBuffer,
-		ResponseHeaderMode: policy.HeaderModeSkip,
-		ResponseBodyMode:   policy.BodyModeSkip,
+	want := policyv1alpha2.ProcessingMode{
+		RequestHeaderMode:  policyv1alpha2.HeaderModeSkip,
+		RequestBodyMode:    policyv1alpha2.BodyModeBuffer,
+		ResponseHeaderMode: policyv1alpha2.HeaderModeSkip,
+		ResponseBodyMode:   policyv1alpha2.BodyModeSkip,
 	}
 
 	if got != want {
@@ -169,7 +169,7 @@ func TestPromptTemplatePolicy_GetPolicy_InvalidParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := GetPolicy(policy.PolicyMetadata{}, tt.params)
+			_, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, tt.params)
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}
@@ -204,12 +204,12 @@ func TestPromptTemplatePolicy_OnRequestBody_NoBodyOrEmptyBody(t *testing.T) {
 
 	tests := []struct {
 		name string
-		ctx  *policy.RequestContext
+		ctx  *policyv1alpha2.RequestContext
 	}{
 		{
 			name: "nil body",
-			ctx: &policy.RequestContext{
-				SharedContext: &policy.SharedContext{
+			ctx: &policyv1alpha2.RequestContext{
+				SharedContext: &policyv1alpha2.SharedContext{
 					RequestID: "test-request-id",
 					Metadata:  map[string]interface{}{},
 				},
@@ -218,12 +218,12 @@ func TestPromptTemplatePolicy_OnRequestBody_NoBodyOrEmptyBody(t *testing.T) {
 		},
 		{
 			name: "empty body",
-			ctx: &policy.RequestContext{
-				SharedContext: &policy.SharedContext{
+			ctx: &policyv1alpha2.RequestContext{
+				SharedContext: &policyv1alpha2.SharedContext{
 					RequestID: "test-request-id",
 					Metadata:  map[string]interface{}{},
 				},
-				Body: &policy.Body{
+				Body: &policyv1alpha2.Body{
 					Content: []byte{},
 					Present: false,
 				},
@@ -569,7 +569,7 @@ func TestPromptTemplatePolicy_OnRequestBody_ConcurrentAccess(t *testing.T) {
 			ctx := newRequestContextWithBody(fmt.Sprintf(`{"prompt":"template://greet?name=%s"}`, name))
 
 			action := p.OnRequestBody(ctx, nil)
-			mods, ok := action.(policy.UpstreamRequestModifications)
+			mods, ok := action.(policyv1alpha2.UpstreamRequestModifications)
 			if !ok {
 				errCh <- fmt.Errorf("expected UpstreamRequestModifications, got %T", action)
 				return
@@ -599,7 +599,7 @@ func TestPromptTemplatePolicy_OnRequestBody_ConcurrentAccess(t *testing.T) {
 func mustGetPromptTemplatePolicy(t *testing.T, params map[string]interface{}) *PromptTemplatePolicy {
 	t.Helper()
 
-	p, err := GetPolicy(policy.PolicyMetadata{}, params)
+	p, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, params)
 	if err != nil {
 		t.Fatalf("failed to create policy: %v", err)
 	}
@@ -610,20 +610,20 @@ func mustGetPromptTemplatePolicy(t *testing.T, params map[string]interface{}) *P
 	return policyImpl
 }
 
-func mustRequestMods(t *testing.T, action policy.RequestAction) policy.UpstreamRequestModifications {
+func mustRequestMods(t *testing.T, action policyv1alpha2.RequestAction) policyv1alpha2.UpstreamRequestModifications {
 	t.Helper()
 
-	mods, ok := action.(policy.UpstreamRequestModifications)
+	mods, ok := action.(policyv1alpha2.UpstreamRequestModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
 	return mods
 }
 
-func assertTemplateError(t *testing.T, action policy.RequestAction, wantMessagePrefix string) policy.ImmediateResponse {
+func assertTemplateError(t *testing.T, action policyv1alpha2.RequestAction, wantMessagePrefix string) policyv1alpha2.ImmediateResponse {
 	t.Helper()
 
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha2.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -667,13 +667,13 @@ func decodeJSONMapNoFail(payload []byte) map[string]interface{} {
 	return result
 }
 
-func newRequestContextWithBody(body string) *policy.RequestContext {
-	return &policy.RequestContext{
-		SharedContext: &policy.SharedContext{
+func newRequestContextWithBody(body string) *policyv1alpha2.RequestContext {
+	return &policyv1alpha2.RequestContext{
+		SharedContext: &policyv1alpha2.SharedContext{
 			RequestID: "test-request-id",
 			Metadata:  map[string]interface{}{},
 		},
-		Body: &policy.Body{
+		Body: &policyv1alpha2.Body{
 			Content: []byte(body),
 			Present: body != "",
 		},

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"strings"
 
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	policyenginev1 "github.com/wso2/api-platform/sdk/core/policyengine"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyenginev1 "github.com/wso2/api-platform/sdk/gateway/policyengine/v1"
 )
 
 // --- helpers -----------------------------------------------------------------
@@ -34,55 +34,55 @@ func defaultCfg() PolicyConfig {
 	}
 }
 
-func headerCtxWithToken(apiID, token, headerName string) *policy.RequestHeaderContext {
+func headerCtxWithToken(apiID, token, headerName string) *policyv1alpha2.RequestHeaderContext {
 	if headerName == "" {
 		headerName = defaultSubscriptionKeyHeader
 	}
-	return &policy.RequestHeaderContext{
-		SharedContext: &policy.SharedContext{
+	return &policyv1alpha2.RequestHeaderContext{
+		SharedContext: &policyv1alpha2.SharedContext{
 			APIId:    apiID,
 			Metadata: map[string]interface{}{},
 		},
-		Headers: policy.NewHeaders(map[string][]string{
+		Headers: policyv1alpha2.NewHeaders(map[string][]string{
 			headerName: {token},
 		}),
 	}
 }
 
-func headerCtxWithAppID(apiID, appID string) *policy.RequestHeaderContext {
-	return &policy.RequestHeaderContext{
-		SharedContext: &policy.SharedContext{
+func headerCtxWithAppID(apiID, appID string) *policyv1alpha2.RequestHeaderContext {
+	return &policyv1alpha2.RequestHeaderContext{
+		SharedContext: &policyv1alpha2.SharedContext{
 			APIId: apiID,
 			Metadata: map[string]interface{}{
 				applicationIDMetadataKey: appID,
 			},
 		},
-		Headers: policy.NewHeaders(nil),
+		Headers: policyv1alpha2.NewHeaders(nil),
 	}
 }
 
-func headerCtxWithCookie(apiID, token, cookieName string) *policy.RequestHeaderContext {
-	return &policy.RequestHeaderContext{
-		SharedContext: &policy.SharedContext{
+func headerCtxWithCookie(apiID, token, cookieName string) *policyv1alpha2.RequestHeaderContext {
+	return &policyv1alpha2.RequestHeaderContext{
+		SharedContext: &policyv1alpha2.SharedContext{
 			APIId:    apiID,
 			Metadata: map[string]interface{}{},
 		},
-		Headers: policy.NewHeaders(map[string][]string{
+		Headers: policyv1alpha2.NewHeaders(map[string][]string{
 			"Cookie": {cookieName + "=" + token},
 		}),
 	}
 }
 
-func assertSuccess(t *testing.T, action policy.RequestHeaderAction) {
+func assertSuccess(t *testing.T, action policyv1alpha2.RequestHeaderAction) {
 	t.Helper()
-	if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
+	if _, ok := action.(policyv1alpha2.UpstreamRequestHeaderModifications); !ok {
 		t.Fatalf("expected UpstreamRequestHeaderModifications (allow), got %#v", action)
 	}
 }
 
-func assertHeaderRemoved(t *testing.T, action policy.RequestHeaderAction, header string) {
+func assertHeaderRemoved(t *testing.T, action policyv1alpha2.RequestHeaderAction, header string) {
 	t.Helper()
-	mod, ok := action.(policy.UpstreamRequestHeaderModifications)
+	mod, ok := action.(policyv1alpha2.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamRequestHeaderModifications, got %#v", action)
 	}
@@ -95,9 +95,9 @@ func assertHeaderRemoved(t *testing.T, action policy.RequestHeaderAction, header
 	t.Fatalf("expected header %q to be removed; got HeadersToRemove=%v", header, mod.HeadersToRemove)
 }
 
-func assertCookieStripped(t *testing.T, action policy.RequestHeaderAction, cookieName string) {
+func assertCookieStripped(t *testing.T, action policyv1alpha2.RequestHeaderAction, cookieName string) {
 	t.Helper()
-	mod, ok := action.(policy.UpstreamRequestHeaderModifications)
+	mod, ok := action.(policyv1alpha2.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamRequestHeaderModifications, got %#v", action)
 	}
@@ -120,9 +120,9 @@ func assertCookieStripped(t *testing.T, action policy.RequestHeaderAction, cooki
 	}
 }
 
-func assertImmediate(t *testing.T, action policy.RequestHeaderAction, wantStatus int, wantErrorKey string) {
+func assertImmediate(t *testing.T, action policyv1alpha2.RequestHeaderAction, wantStatus int, wantErrorKey string) {
 	t.Helper()
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha2.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -138,7 +138,7 @@ func assertImmediate(t *testing.T, action policy.RequestHeaderAction, wantStatus
 	}
 }
 
-func assertRateLimitHeaders(t *testing.T, resp policy.ImmediateResponse, wantLimit, wantRemaining int) {
+func assertRateLimitHeaders(t *testing.T, resp policyv1alpha2.ImmediateResponse, wantLimit, wantRemaining int) {
 	t.Helper()
 	if resp.Headers == nil {
 		t.Fatalf("expected headers to be set")
@@ -301,12 +301,12 @@ func TestOnRequestHeaders_HeaderTakesPrecedenceOverCookie(t *testing.T) {
 	cfg := defaultCfg()
 	cfg.SubscriptionKeyCookie = "sub-key"
 	p := newPolicy(cfg, store)
-	ctx := &policy.RequestHeaderContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha2.RequestHeaderContext{
+		SharedContext: &policyv1alpha2.SharedContext{
 			APIId:    "api-1",
 			Metadata: map[string]interface{}{},
 		},
-		Headers: policy.NewHeaders(map[string][]string{
+		Headers: policyv1alpha2.NewHeaders(map[string][]string{
 			defaultSubscriptionKeyHeader: {"tok-1"},
 			"Cookie":                    {"sub-key=wrong-token"},
 		}),
@@ -330,7 +330,7 @@ func TestOnRequestHeaders_CookieUsedWhenHeaderMissing(t *testing.T) {
 	assertCookieStripped(t, action, "sub-key")
 }
 
-func TestGetCookieValue(t *testing.T) {
+func TestGetCookieValueV2(t *testing.T) {
 	tests := []struct {
 		name    string
 		headers map[string][]string
@@ -345,10 +345,10 @@ func TestGetCookieValue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := policy.NewHeaders(tt.headers)
-			got := getCookieValue(h, tt.cookie)
+			h := policyv1alpha2.NewHeaders(tt.headers)
+			got := getCookieValueV2(h, tt.cookie)
 			if got != tt.want {
-				t.Fatalf("getCookieValue(%q) = %q, want %q", tt.cookie, got, tt.want)
+				t.Fatalf("getCookieValueV2(%q) = %q, want %q", tt.cookie, got, tt.want)
 			}
 		})
 	}
@@ -379,12 +379,12 @@ func TestOnRequestHeaders_FallbackAppIdDenies(t *testing.T) {
 func TestOnRequestHeaders_DeniesWhenNoIdentity(t *testing.T) {
 	store := newStore(nil)
 	p := newPolicy(defaultCfg(), store)
-	ctx := &policy.RequestHeaderContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha2.RequestHeaderContext{
+		SharedContext: &policyv1alpha2.SharedContext{
 			APIId:    "api-1",
 			Metadata: map[string]interface{}{},
 		},
-		Headers: policy.NewHeaders(nil),
+		Headers: policyv1alpha2.NewHeaders(nil),
 	}
 	assertImmediate(t, p.OnRequestHeaders(ctx, nil), 403, "forbidden")
 }
@@ -394,12 +394,12 @@ func TestOnRequestHeaders_DeniesWhenNoIdentity(t *testing.T) {
 func TestOnRequestHeaders_FailsClosedWhenAPIIdMissing(t *testing.T) {
 	store := newStore(nil)
 	p := newPolicy(defaultCfg(), store)
-	ctx := &policy.RequestHeaderContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha2.RequestHeaderContext{
+		SharedContext: &policyv1alpha2.SharedContext{
 			APIId:    "",
 			Metadata: map[string]interface{}{},
 		},
-		Headers: policy.NewHeaders(nil),
+		Headers: policyv1alpha2.NewHeaders(nil),
 	}
 	assertImmediate(t, p.OnRequestHeaders(ctx, nil), 403, "forbidden")
 }
@@ -428,7 +428,7 @@ func TestOnRequestHeaders_RateLimitEnforced(t *testing.T) {
 
 	ctx := headerCtxWithToken("api-1", "tok-1", "")
 	action := p.OnRequestHeaders(ctx, nil)
-	resp, ok := action.(policy.ImmediateResponse)
+	resp, ok := action.(policyv1alpha2.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
 	}
@@ -461,7 +461,7 @@ func TestOnRequestHeaders_RateLimitNotEnforcedWhenStopOnQuotaFalse(t *testing.T)
 	for i := 0; i < 5; i++ {
 		ctx := headerCtxWithToken("api-1", "tok-1", "")
 		action := p.OnRequestHeaders(ctx, nil)
-		if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
+		if _, ok := action.(policyv1alpha2.UpstreamRequestHeaderModifications); !ok {
 			t.Fatalf("request %d should be allowed (stopOnQuotaReach=false), got %#v", i+1, action)
 		}
 	}
@@ -476,7 +476,7 @@ func TestOnRequestHeaders_NoRateLimitWithoutPlan(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		ctx := headerCtxWithToken("api-1", "tok-1", "")
 		action := p.OnRequestHeaders(ctx, nil)
-		if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
+		if _, ok := action.(policyv1alpha2.UpstreamRequestHeaderModifications); !ok {
 			t.Fatalf("request %d should be allowed (no throttle plan), got %#v", i+1, action)
 		}
 	}
@@ -491,14 +491,14 @@ func TestOnRequestHeaders_TokenTakesPrecedenceOverAppId(t *testing.T) {
 	})
 	p := newPolicy(defaultCfg(), store)
 
-	ctx := &policy.RequestHeaderContext{
-		SharedContext: &policy.SharedContext{
+	ctx := &policyv1alpha2.RequestHeaderContext{
+		SharedContext: &policyv1alpha2.SharedContext{
 			APIId: "api-1",
 			Metadata: map[string]interface{}{
 				applicationIDMetadataKey: "app-1",
 			},
 		},
-		Headers: policy.NewHeaders(map[string][]string{
+		Headers: policyv1alpha2.NewHeaders(map[string][]string{
 			defaultSubscriptionKeyHeader: {"wrong-token"},
 		}),
 	}

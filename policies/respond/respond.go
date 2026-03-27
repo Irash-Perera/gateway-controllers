@@ -22,7 +22,8 @@ import (
 	"fmt"
 	"regexp"
 
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 const (
@@ -41,12 +42,38 @@ type RespondPolicy struct{}
 
 var ins = &RespondPolicy{}
 
-// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
+// The returned concrete type also satisfies policyv1alpha2 phase interfaces
+// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
+// can discover those capabilities via type assertions even when using this factory.
 func GetPolicy(
 	metadata policy.PolicyMetadata,
 	params map[string]interface{},
 ) (policy.Policy, error) {
 	return ins, nil
+}
+
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
+	params map[string]interface{},
+) (policyv1alpha2.Policy, error) {
+	return ins, nil
+}
+
+// configError returns a 500 error response for configuration issues
+func configError(message string) policy.ImmediateResponse {
+	errBody, _ := json.Marshal(map[string]string{
+		"error":   "Configuration Error",
+		"message": message,
+	})
+	return policy.ImmediateResponse{
+		StatusCode: 500,
+		Headers: map[string]string{
+			"content-type": "application/json",
+		},
+		Body: errBody,
+	}
 }
 
 // Mode returns the processing mode for this policy
@@ -57,6 +84,93 @@ func (p *RespondPolicy) Mode() policy.ProcessingMode {
 		ResponseHeaderMode: policy.HeaderModeSkip,    // Returns immediate response
 		ResponseBodyMode:   policy.BodyModeSkip,      // Returns immediate response
 	}
+}
+
+// OnRequest returns an immediate response to the client
+func (p *RespondPolicy) OnRequest(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
+	// Extract statusCode (default to 200 OK)
+	statusCode := defaultStatusCode
+	if statusCodeRaw, ok := params["statusCode"]; ok {
+		parsedStatusCode, err := parseStatusCode(statusCodeRaw)
+		if err != nil {
+			return configError(err.Error())
+		}
+		statusCode = parsedStatusCode
+	}
+
+	// Extract body
+	body := []byte{}
+	if bodyRaw, ok := params["body"]; ok {
+		bodyString, ok := bodyRaw.(string)
+		if !ok {
+			return configError("body must be a string")
+		}
+		body = []byte(bodyString)
+	}
+
+	// Extract headers with fail-fast validation
+	headers := make(map[string]string)
+	if headersRaw, ok := params["headers"]; ok {
+		headersList, ok := headersRaw.([]interface{})
+		if !ok {
+			return configError("headers must be an array")
+		}
+		for i, headerRaw := range headersList {
+			headerMap, ok := headerRaw.(map[string]interface{})
+			if !ok {
+				return configError(fmt.Sprintf("headers[%d] must be an object", i))
+			}
+			if err := validateHeaderObjectKeys(headerMap, i); err != nil {
+				return configError(err.Error())
+			}
+
+			// Safe type assertion for name
+			nameRaw, ok := headerMap["name"]
+			if !ok {
+				return configError(fmt.Sprintf("headers[%d] missing required 'name' field", i))
+			}
+			name, ok := nameRaw.(string)
+			if !ok {
+				return configError(fmt.Sprintf("headers[%d].name must be a string", i))
+			}
+			if name == "" {
+				return configError(fmt.Sprintf("headers[%d].name cannot be empty", i))
+			}
+			if len(name) > headerNameMaxLen {
+				return configError(fmt.Sprintf("headers[%d].name must not exceed %d characters", i, headerNameMaxLen))
+			}
+			if !headerNamePattern.MatchString(name) {
+				return configError(fmt.Sprintf("headers[%d].name contains invalid characters", i))
+			}
+
+			// Safe type assertion for value
+			valueRaw, ok := headerMap["value"]
+			if !ok {
+				return configError(fmt.Sprintf("headers[%d] missing required 'value' field", i))
+			}
+			value, ok := valueRaw.(string)
+			if !ok {
+				return configError(fmt.Sprintf("headers[%d].value must be a string", i))
+			}
+			if len(value) > headerValueMaxLen {
+				return configError(fmt.Sprintf("headers[%d].value must not exceed %d characters", i, headerValueMaxLen))
+			}
+
+			headers[name] = value
+		}
+	}
+
+	// Return immediate response action
+	return policy.ImmediateResponse{
+		StatusCode: statusCode,
+		Headers:    headers,
+		Body:       body,
+	}
+}
+
+// OnResponse is not used by this policy (returns immediate response in request phase)
+func (p *RespondPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
+	return nil // No response processing needed
 }
 
 func parseStatusCode(statusCodeRaw interface{}) (int, error) {
@@ -98,12 +212,12 @@ func validateHeaderObjectKeys(headerMap map[string]interface{}, index int) error
 }
 
 // OnRequestHeaders returns an immediate response to the client in the request header phase.
-func (p *RespondPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *RespondPolicy) OnRequestHeaders(ctx *policyv1alpha2.RequestHeaderContext, params map[string]interface{}) policyv1alpha2.RequestHeaderAction {
 	statusCode := defaultStatusCode
 	if statusCodeRaw, ok := params["statusCode"]; ok {
 		parsedStatusCode, err := parseStatusCode(statusCodeRaw)
 		if err != nil {
-			return configError(err.Error())
+			return configErrorV2(err.Error())
 		}
 		statusCode = parsedStatusCode
 	}
@@ -112,7 +226,7 @@ func (p *RespondPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 	if bodyRaw, ok := params["body"]; ok {
 		bodyString, ok := bodyRaw.(string)
 		if !ok {
-			return configError("body must be a string")
+			return configErrorV2("body must be a string")
 		}
 		body = []byte(bodyString)
 	}
@@ -121,52 +235,52 @@ func (p *RespondPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 	if headersRaw, ok := params["headers"]; ok {
 		headersList, ok := headersRaw.([]interface{})
 		if !ok {
-			return configError("headers must be an array")
+			return configErrorV2("headers must be an array")
 		}
 		for i, headerRaw := range headersList {
 			headerMap, ok := headerRaw.(map[string]interface{})
 			if !ok {
-				return configError(fmt.Sprintf("headers[%d] must be an object", i))
+				return configErrorV2(fmt.Sprintf("headers[%d] must be an object", i))
 			}
 			if err := validateHeaderObjectKeys(headerMap, i); err != nil {
-				return configError(err.Error())
+				return configErrorV2(err.Error())
 			}
 
 			nameRaw, ok := headerMap["name"]
 			if !ok {
-				return configError(fmt.Sprintf("headers[%d] missing required 'name' field", i))
+				return configErrorV2(fmt.Sprintf("headers[%d] missing required 'name' field", i))
 			}
 			name, ok := nameRaw.(string)
 			if !ok {
-				return configError(fmt.Sprintf("headers[%d].name must be a string", i))
+				return configErrorV2(fmt.Sprintf("headers[%d].name must be a string", i))
 			}
 			if name == "" {
-				return configError(fmt.Sprintf("headers[%d].name cannot be empty", i))
+				return configErrorV2(fmt.Sprintf("headers[%d].name cannot be empty", i))
 			}
 			if len(name) > headerNameMaxLen {
-				return configError(fmt.Sprintf("headers[%d].name must not exceed %d characters", i, headerNameMaxLen))
+				return configErrorV2(fmt.Sprintf("headers[%d].name must not exceed %d characters", i, headerNameMaxLen))
 			}
 			if !headerNamePattern.MatchString(name) {
-				return configError(fmt.Sprintf("headers[%d].name contains invalid characters", i))
+				return configErrorV2(fmt.Sprintf("headers[%d].name contains invalid characters", i))
 			}
 
 			valueRaw, ok := headerMap["value"]
 			if !ok {
-				return configError(fmt.Sprintf("headers[%d] missing required 'value' field", i))
+				return configErrorV2(fmt.Sprintf("headers[%d] missing required 'value' field", i))
 			}
 			value, ok := valueRaw.(string)
 			if !ok {
-				return configError(fmt.Sprintf("headers[%d].value must be a string", i))
+				return configErrorV2(fmt.Sprintf("headers[%d].value must be a string", i))
 			}
 			if len(value) > headerValueMaxLen {
-				return configError(fmt.Sprintf("headers[%d].value must not exceed %d characters", i, headerValueMaxLen))
+				return configErrorV2(fmt.Sprintf("headers[%d].value must not exceed %d characters", i, headerValueMaxLen))
 			}
 
 			headers[name] = value
 		}
 	}
 
-	return policy.ImmediateResponse{
+	return policyv1alpha2.ImmediateResponse{
 		StatusCode: statusCode,
 		Headers:    headers,
 		Body:       body,
@@ -174,12 +288,12 @@ func (p *RespondPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 }
 
 // configError returns a 500 error response for configuration issues
-func configError(message string) policy.ImmediateResponse {
+func configErrorV2(message string) policyv1alpha2.ImmediateResponse {
 	errBody, _ := json.Marshal(map[string]string{
 		"error":   "Configuration Error",
 		"message": message,
 	})
-	return policy.ImmediateResponse{
+	return policyv1alpha2.ImmediateResponse{
 		StatusCode: 500,
 		Headers: map[string]string{
 			"content-type": "application/json",

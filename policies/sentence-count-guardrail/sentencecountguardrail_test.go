@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 func mustMessageMap(t *testing.T, body []byte) map[string]interface{} {
@@ -221,7 +221,7 @@ func TestParseParams_DisabledFlow_DoesNotRequireMinMax(t *testing.T) {
 
 func TestDisabledFlow_GetPolicyAndHandlers_NoRequiredParams(t *testing.T) {
 	t.Run("request flow disabled", func(t *testing.T) {
-		pRaw, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{
+		pRaw, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, map[string]interface{}{
 			"request": map[string]interface{}{"enabled": false},
 		})
 		if err != nil {
@@ -235,16 +235,16 @@ func TestDisabledFlow_GetPolicyAndHandlers_NoRequiredParams(t *testing.T) {
 			t.Fatalf("expected request params present and disabled, got hasRequest=%v enabled=%v", p.hasRequestParams, p.requestParams.Enabled)
 		}
 
-		action := p.OnRequestBody(&policy.RequestContext{
-			Body: &policy.Body{Content: []byte(`{"messages":[{"content":"Hi."}]}`)},
+		action := p.OnRequestBody(&policyv1alpha2.RequestContext{
+			Body: &policyv1alpha2.Body{Content: []byte(`{"messages":[{"content":"Hi."}]}`)},
 		}, nil)
-		if _, ok := action.(policy.UpstreamRequestModifications); !ok {
+		if _, ok := action.(policyv1alpha2.UpstreamRequestModifications); !ok {
 			t.Fatalf("expected request no-op when request.enabled=false, got %T", action)
 		}
 	})
 
 	t.Run("response flow disabled", func(t *testing.T) {
-		pRaw, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{
+		pRaw, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, map[string]interface{}{
 			"response": map[string]interface{}{"enabled": false},
 		})
 		if err != nil {
@@ -258,10 +258,10 @@ func TestDisabledFlow_GetPolicyAndHandlers_NoRequiredParams(t *testing.T) {
 			t.Fatalf("expected response params present and disabled, got hasResponse=%v enabled=%v", p.hasResponseParams, p.responseParams.Enabled)
 		}
 
-		action := p.OnResponseBody(&policy.ResponseContext{
-			ResponseBody: &policy.Body{Content: []byte(`{"choices":[{"message":{"content":"Hi."}}]}`)},
+		action := p.OnResponseBody(&policyv1alpha2.ResponseContext{
+			ResponseBody: &policyv1alpha2.Body{Content: []byte(`{"choices":[{"message":{"content":"Hi."}}]}`)},
 		}, nil)
-		if _, ok := action.(policy.DownstreamResponseModifications); !ok {
+		if _, ok := action.(policyv1alpha2.DownstreamResponseModifications); !ok {
 			t.Fatalf("expected response no-op when response.enabled=false, got %T", action)
 		}
 	})
@@ -287,7 +287,7 @@ func TestParseParams_DisabledFlow_IgnoresProvidedMinMax(t *testing.T) {
 
 func TestGetPolicy_EmptyFlowObject_IsIgnored(t *testing.T) {
 	t.Run("request configured with empty response object", func(t *testing.T) {
-		pRaw, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{
+		pRaw, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, map[string]interface{}{
 			"request":  map[string]interface{}{"min": 1, "max": 10},
 			"response": map[string]interface{}{},
 		})
@@ -308,7 +308,7 @@ func TestGetPolicy_EmptyFlowObject_IsIgnored(t *testing.T) {
 	})
 
 	t.Run("response configured with empty request object", func(t *testing.T) {
-		pRaw, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{
+		pRaw, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, map[string]interface{}{
 			"request":  map[string]interface{}{},
 			"response": map[string]interface{}{"enabled": true, "min": 1, "max": 10},
 		})
@@ -329,7 +329,7 @@ func TestGetPolicy_EmptyFlowObject_IsIgnored(t *testing.T) {
 	})
 
 	t.Run("both empty objects still fail", func(t *testing.T) {
-		_, err := GetPolicy(policy.PolicyMetadata{}, map[string]interface{}{
+		_, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, map[string]interface{}{
 			"request":  map[string]interface{}{},
 			"response": map[string]interface{}{},
 		})
@@ -444,7 +444,7 @@ func TestGetPolicy(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pRaw, err := GetPolicy(policy.PolicyMetadata{}, tc.params)
+			pRaw, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, tc.params)
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
@@ -474,16 +474,16 @@ func TestMode(t *testing.T) {
 	p := &SentenceCountGuardrailPolicy{}
 	mode := p.Mode()
 
-	if mode.RequestHeaderMode != policy.HeaderModeSkip {
+	if mode.RequestHeaderMode != policyv1alpha2.HeaderModeSkip {
 		t.Fatalf("expected RequestHeaderMode=Skip, got %v", mode.RequestHeaderMode)
 	}
-	if mode.RequestBodyMode != policy.BodyModeBuffer {
+	if mode.RequestBodyMode != policyv1alpha2.BodyModeBuffer {
 		t.Fatalf("expected RequestBodyMode=Buffer, got %v", mode.RequestBodyMode)
 	}
-	if mode.ResponseHeaderMode != policy.HeaderModeSkip {
+	if mode.ResponseHeaderMode != policyv1alpha2.HeaderModeSkip {
 		t.Fatalf("expected ResponseHeaderMode=Skip, got %v", mode.ResponseHeaderMode)
 	}
-	if mode.ResponseBodyMode != policy.BodyModeStream {
+	if mode.ResponseBodyMode != policyv1alpha2.BodyModeStream {
 		t.Fatalf("expected ResponseBodyMode=Stream, got %v", mode.ResponseBodyMode)
 	}
 }
@@ -491,13 +491,13 @@ func TestMode(t *testing.T) {
 func TestValidatePayload_RequestPaths(t *testing.T) {
 	p := &SentenceCountGuardrailPolicy{}
 
-	pass := p.validatePayload([]byte(`{"messages":"Hello."}`), SentenceCountGuardrailPolicyParams{Min: 1, Max: 10, JsonPath: "$.messages"}, false)
-	if _, ok := pass.(policy.UpstreamRequestModifications); !ok {
+	pass := p.validatePayloadV2([]byte(`{"messages":"Hello."}`), SentenceCountGuardrailPolicyParams{Min: 1, Max: 10, JsonPath: "$.messages"}, false)
+	if _, ok := pass.(policyv1alpha2.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications on valid payload, got %T", pass)
 	}
 
-	fail := p.validatePayload([]byte(`{"messages":""}`), SentenceCountGuardrailPolicyParams{Min: 1, Max: 10, JsonPath: "$.messages", ShowAssessment: true}, false)
-	imm, ok := fail.(policy.ImmediateResponse)
+	fail := p.validatePayloadV2([]byte(`{"messages":""}`), SentenceCountGuardrailPolicyParams{Min: 1, Max: 10, JsonPath: "$.messages", ShowAssessment: true}, false)
+	imm, ok := fail.(policyv1alpha2.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse on invalid payload, got %T", fail)
 	}
@@ -519,13 +519,13 @@ func TestValidatePayload_RequestPaths(t *testing.T) {
 func TestValidatePayload_ResponsePaths(t *testing.T) {
 	p := &SentenceCountGuardrailPolicy{}
 
-	pass := p.validatePayload([]byte(`{"messages":"Hello."}`), SentenceCountGuardrailPolicyParams{Min: 1, Max: 10, JsonPath: "$.messages"}, true)
-	if _, ok := pass.(policy.DownstreamResponseModifications); !ok {
+	pass := p.validatePayloadV2([]byte(`{"messages":"Hello."}`), SentenceCountGuardrailPolicyParams{Min: 1, Max: 10, JsonPath: "$.messages"}, true)
+	if _, ok := pass.(policyv1alpha2.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected UpstreamResponseModifications on valid response payload, got %T", pass)
 	}
 
-	fail := p.validatePayload([]byte(`{"messages":""}`), SentenceCountGuardrailPolicyParams{Min: 1, Max: 10, JsonPath: "$.messages", ShowAssessment: false}, true)
-	resp, ok := fail.(policy.DownstreamResponseModifications)
+	fail := p.validatePayloadV2([]byte(`{"messages":""}`), SentenceCountGuardrailPolicyParams{Min: 1, Max: 10, JsonPath: "$.messages", ShowAssessment: false}, true)
+	resp, ok := fail.(policyv1alpha2.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications on invalid response payload, got %T", fail)
 	}
@@ -554,14 +554,14 @@ func TestValidatePayload_InvertMode(t *testing.T) {
 	}
 
 	// In invert mode, content within range should fail.
-	within := p.validatePayload([]byte(`{"messages":"One."}`), params, false)
-	if _, ok := within.(policy.ImmediateResponse); !ok {
+	within := p.validatePayloadV2([]byte(`{"messages":"One."}`), params, false)
+	if _, ok := within.(policyv1alpha2.ImmediateResponse); !ok {
 		t.Fatalf("expected ImmediateResponse when in-range payload is rejected in invert mode, got %T", within)
 	}
 
 	// In invert mode, content outside range should pass.
-	outside := p.validatePayload([]byte(`{"messages":"One. Two. Three. Four."}`), params, false)
-	if _, ok := outside.(policy.UpstreamRequestModifications); !ok {
+	outside := p.validatePayloadV2([]byte(`{"messages":"One. Two. Three. Four."}`), params, false)
+	if _, ok := outside.(policyv1alpha2.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications when out-of-range payload passes in invert mode, got %T", outside)
 	}
 }
@@ -570,22 +570,22 @@ func TestValidatePayload_JSONPathExtraction(t *testing.T) {
 	p := &SentenceCountGuardrailPolicy{}
 	payload := []byte(`{"data":{"text":"First. Second."}}`)
 
-	pass := p.validatePayload(payload, SentenceCountGuardrailPolicyParams{
+	pass := p.validatePayloadV2(payload, SentenceCountGuardrailPolicyParams{
 		Min:      2,
 		Max:      2,
 		JsonPath: "$.data.text",
 	}, false)
-	if _, ok := pass.(policy.UpstreamRequestModifications); !ok {
+	if _, ok := pass.(policyv1alpha2.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected pass using jsonPath extraction, got %T", pass)
 	}
 
-	fail := p.validatePayload(payload, SentenceCountGuardrailPolicyParams{
+	fail := p.validatePayloadV2(payload, SentenceCountGuardrailPolicyParams{
 		Min:            1,
 		Max:            10,
 		JsonPath:       "$.missing",
 		ShowAssessment: true,
 	}, false)
-	imm, ok := fail.(policy.ImmediateResponse)
+	imm, ok := fail.(policyv1alpha2.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse on jsonPath extraction failure, got %T", fail)
 	}
@@ -627,28 +627,28 @@ func TestBuildAssessmentObject(t *testing.T) {
 func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 	// No request params configured -> no-op.
 	p := &SentenceCountGuardrailPolicy{hasRequestParams: false, hasResponseParams: false}
-	reqNoOp := p.OnRequestBody(&policy.RequestContext{}, nil)
-	if _, ok := reqNoOp.(policy.UpstreamRequestModifications); !ok {
+	reqNoOp := p.OnRequestBody(&policyv1alpha2.RequestContext{}, nil)
+	if _, ok := reqNoOp.(policyv1alpha2.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected request no-op modifications, got %T", reqNoOp)
 	}
-	respNoOp := p.OnResponseBody(&policy.ResponseContext{}, nil)
-	if _, ok := respNoOp.(policy.DownstreamResponseModifications); !ok {
+	respNoOp := p.OnResponseBody(&policyv1alpha2.ResponseContext{}, nil)
+	if _, ok := respNoOp.(policyv1alpha2.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected response no-op modifications, got %T", respNoOp)
 	}
 
 	// Request validation with nil body should fail when min > 0.
 	p.hasRequestParams = true
 	p.requestParams = SentenceCountGuardrailPolicyParams{Enabled: true, Min: 1, Max: 10, JsonPath: ""}
-	reqFail := p.OnRequestBody(&policy.RequestContext{Body: nil}, nil)
-	if _, ok := reqFail.(policy.ImmediateResponse); !ok {
+	reqFail := p.OnRequestBody(&policyv1alpha2.RequestContext{Body: nil}, nil)
+	if _, ok := reqFail.(policyv1alpha2.ImmediateResponse); !ok {
 		t.Fatalf("expected ImmediateResponse for request nil-body validation failure, got %T", reqFail)
 	}
 
 	// Response validation with nil body should fail when min > 0.
 	p.hasResponseParams = true
 	p.responseParams = SentenceCountGuardrailPolicyParams{Enabled: true, Min: 1, Max: 10, JsonPath: ""}
-	respFail := p.OnResponseBody(&policy.ResponseContext{ResponseBody: nil}, nil)
-	respMod, ok := respFail.(policy.DownstreamResponseModifications)
+	respFail := p.OnResponseBody(&policyv1alpha2.ResponseContext{ResponseBody: nil}, nil)
+	respMod, ok := respFail.(policyv1alpha2.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications for response nil-body validation failure, got %T", respFail)
 	}
@@ -657,14 +657,14 @@ func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 	}
 
 	p.requestParams.Enabled = false
-	reqDisabled := p.OnRequestBody(&policy.RequestContext{Body: &policy.Body{Content: []byte(`{"messages":[{"content":"Hi."}]}`)}}, nil)
-	if _, ok := reqDisabled.(policy.UpstreamRequestModifications); !ok {
+	reqDisabled := p.OnRequestBody(&policyv1alpha2.RequestContext{Body: &policyv1alpha2.Body{Content: []byte(`{"messages":[{"content":"Hi."}]}`)}}, nil)
+	if _, ok := reqDisabled.(policyv1alpha2.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected request no-op when request.enabled=false, got %T", reqDisabled)
 	}
 
 	p.responseParams.Enabled = false
-	respDisabled := p.OnResponseBody(&policy.ResponseContext{ResponseBody: &policy.Body{Content: []byte(`{"choices":[{"message":{"content":"Hi."}}]}`)}}, nil)
-	if _, ok := respDisabled.(policy.DownstreamResponseModifications); !ok {
+	respDisabled := p.OnResponseBody(&policyv1alpha2.ResponseContext{ResponseBody: &policyv1alpha2.Body{Content: []byte(`{"choices":[{"message":{"content":"Hi."}}]}`)}}, nil)
+	if _, ok := respDisabled.(policyv1alpha2.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected response no-op when response.enabled=false, got %T", respDisabled)
 	}
 }

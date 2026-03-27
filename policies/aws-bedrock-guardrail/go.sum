@@ -28,5 +28,7 @@ github.com/aws/aws-sdk-go-v2/service/sts v1.28.10 h1:69tpbPED7jKPyzMcrwSvhWcJ9bP
 github.com/aws/aws-sdk-go-v2/service/sts v1.28.10/go.mod h1:0Aqn1MnEuitqfsCNyKsdKLhDUOr4txD/g19EfiUqgws=
 github.com/aws/smithy-go v1.21.0 h1:H7L8dtDRk0P1Qm6y0ji7MCYMQObJ5R9CRpyPhRUkLYA=
 github.com/aws/smithy-go v1.21.0/go.mod h1:irrKGvNn1InZwb2d7fkIRNucdfwR8R+Ts3wxYa/cJHg=
+github.com/wso2/api-platform/sdk v0.4.5 h1:1T5bY4W0No8SKZiydg8dt/x0iFKWiRTgquzoQd7EXU4=
+github.com/wso2/api-platform/sdk v0.4.5/go.mod h1:Zoaj0dOuHmI96K9rY9w2qunjjT4Lcvlq9AYezL4a3/0=
 github.com/wso2/api-platform/sdk/core v0.1.0 h1:yxxlgmrZLztCqHzAW7GdRnUNBFOA2l8AX6fphMZaly0=
 github.com/wso2/api-platform/sdk/core v0.1.0/go.mod h1:R114dV8/EAl843+16zi97Cbd5+iPPYjHKdN7Nik3EUw=

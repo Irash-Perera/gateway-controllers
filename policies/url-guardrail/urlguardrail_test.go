@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
 
 func mustMessageMap(t *testing.T, body []byte) map[string]interface{} {
@@ -260,7 +260,7 @@ func TestGetPolicy(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pRaw, err := GetPolicy(policy.PolicyMetadata{}, tc.params)
+			pRaw, err := GetPolicyV2(policyv1alpha2.PolicyMetadata{}, tc.params)
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
@@ -290,16 +290,16 @@ func TestMode(t *testing.T) {
 	p := &URLGuardrailPolicy{}
 	mode := p.Mode()
 
-	if mode.RequestHeaderMode != policy.HeaderModeSkip {
+	if mode.RequestHeaderMode != policyv1alpha2.HeaderModeSkip {
 		t.Fatalf("expected RequestHeaderMode=Skip, got %v", mode.RequestHeaderMode)
 	}
-	if mode.RequestBodyMode != policy.BodyModeBuffer {
+	if mode.RequestBodyMode != policyv1alpha2.BodyModeBuffer {
 		t.Fatalf("expected RequestBodyMode=Buffer, got %v", mode.RequestBodyMode)
 	}
-	if mode.ResponseHeaderMode != policy.HeaderModeSkip {
+	if mode.ResponseHeaderMode != policyv1alpha2.HeaderModeSkip {
 		t.Fatalf("expected ResponseHeaderMode=Skip, got %v", mode.ResponseHeaderMode)
 	}
-	if mode.ResponseBodyMode != policy.BodyModeStream {
+	if mode.ResponseBodyMode != policyv1alpha2.BodyModeStream {
 		t.Fatalf("expected ResponseBodyMode=Stream, got %v", mode.ResponseBodyMode)
 	}
 }
@@ -345,13 +345,13 @@ func TestValidatePayload_RequestPaths(t *testing.T) {
 
 	p := &URLGuardrailPolicy{}
 
-	pass := p.validatePayload([]byte(`{"text":"`+server.URL+`"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 1000}, false)
-	if _, ok := pass.(policy.UpstreamRequestModifications); !ok {
+	pass := p.validatePayloadV2([]byte(`{"text":"`+server.URL+`"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 1000}, false)
+	if _, ok := pass.(policyv1alpha2.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications on valid URL payload, got %T", pass)
 	}
 
-	fail := p.validatePayload([]byte(`{"text":"http://127.0.0.1:1"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 200, ShowAssessment: true}, false)
-	imm, ok := fail.(policy.ImmediateResponse)
+	fail := p.validatePayloadV2([]byte(`{"text":"http://127.0.0.1:1"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 200, ShowAssessment: true}, false)
+	imm, ok := fail.(policyv1alpha2.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse on invalid URL payload, got %T", fail)
 	}
@@ -378,13 +378,13 @@ func TestValidatePayload_RequestPaths(t *testing.T) {
 func TestValidatePayload_ResponsePaths(t *testing.T) {
 	p := &URLGuardrailPolicy{}
 
-	pass := p.validatePayload([]byte(`{"text":"no urls here"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 100}, true)
-	if _, ok := pass.(policy.DownstreamResponseModifications); !ok {
+	pass := p.validatePayloadV2([]byte(`{"text":"no urls here"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 100}, true)
+	if _, ok := pass.(policyv1alpha2.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected UpstreamResponseModifications on no-url payload, got %T", pass)
 	}
 
-	fail := p.validatePayload([]byte(`{"text":"http://127.0.0.1:1"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 200, ShowAssessment: false}, true)
-	resp, ok := fail.(policy.DownstreamResponseModifications)
+	fail := p.validatePayloadV2([]byte(`{"text":"http://127.0.0.1:1"}`), URLGuardrailPolicyParams{JsonPath: "$.text", Timeout: 200, ShowAssessment: false}, true)
+	resp, ok := fail.(policyv1alpha2.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications on invalid response URL payload, got %T", fail)
 	}
@@ -406,16 +406,16 @@ func TestValidatePayload_ResponsePaths(t *testing.T) {
 func TestValidatePayload_OnlyDNSMode(t *testing.T) {
 	p := &URLGuardrailPolicy{}
 
-	pass := p.validatePayload([]byte(`{"text":"http://127.0.0.1"}`), URLGuardrailPolicyParams{JsonPath: "$.text", OnlyDNS: true, Timeout: 200}, false)
-	if _, ok := pass.(policy.UpstreamRequestModifications); !ok {
+	pass := p.validatePayloadV2([]byte(`{"text":"http://127.0.0.1"}`), URLGuardrailPolicyParams{JsonPath: "$.text", OnlyDNS: true, Timeout: 200}, false)
+	if _, ok := pass.(policyv1alpha2.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications for valid DNS-only check, got %T", pass)
 	}
 }
 
 func TestValidatePayload_JSONPathExtractionFailure(t *testing.T) {
 	p := &URLGuardrailPolicy{}
-	fail := p.validatePayload([]byte(`{"text":"hello"}`), URLGuardrailPolicyParams{JsonPath: "$.missing", Timeout: 100, ShowAssessment: true}, false)
-	imm, ok := fail.(policy.ImmediateResponse)
+	fail := p.validatePayloadV2([]byte(`{"text":"hello"}`), URLGuardrailPolicyParams{JsonPath: "$.missing", Timeout: 100, ShowAssessment: true}, false)
+	imm, ok := fail.(policyv1alpha2.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse on jsonPath extraction failure, got %T", fail)
 	}
@@ -457,28 +457,28 @@ func TestBuildAssessmentObject(t *testing.T) {
 func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 	// No params configured -> no-op.
 	p := &URLGuardrailPolicy{hasRequestParams: false, hasResponseParams: false}
-	reqNoOp := p.OnRequestBody(&policy.RequestContext{}, nil)
-	if _, ok := reqNoOp.(policy.UpstreamRequestModifications); !ok {
+	reqNoOp := p.OnRequestBody(&policyv1alpha2.RequestContext{}, nil)
+	if _, ok := reqNoOp.(policyv1alpha2.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected request no-op modifications, got %T", reqNoOp)
 	}
-	respNoOp := p.OnResponseBody(&policy.ResponseContext{}, nil)
-	if _, ok := respNoOp.(policy.DownstreamResponseModifications); !ok {
+	respNoOp := p.OnResponseBody(&policyv1alpha2.ResponseContext{}, nil)
+	if _, ok := respNoOp.(policyv1alpha2.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected response no-op modifications, got %T", respNoOp)
 	}
 
 	// Request validation with nil body and explicit jsonPath should fail extraction.
 	p.hasRequestParams = true
 	p.requestParams = URLGuardrailPolicyParams{Enabled: true, JsonPath: "$.text", Timeout: 100}
-	reqFail := p.OnRequestBody(&policy.RequestContext{Body: nil}, nil)
-	if _, ok := reqFail.(policy.ImmediateResponse); !ok {
+	reqFail := p.OnRequestBody(&policyv1alpha2.RequestContext{Body: nil}, nil)
+	if _, ok := reqFail.(policyv1alpha2.ImmediateResponse); !ok {
 		t.Fatalf("expected ImmediateResponse for request nil-body extraction failure, got %T", reqFail)
 	}
 
 	// Response validation with nil body and explicit jsonPath should fail extraction.
 	p.hasResponseParams = true
 	p.responseParams = URLGuardrailPolicyParams{Enabled: true, JsonPath: "$.text", Timeout: 100}
-	respFail := p.OnResponseBody(&policy.ResponseContext{ResponseBody: nil}, nil)
-	respMod, ok := respFail.(policy.DownstreamResponseModifications)
+	respFail := p.OnResponseBody(&policyv1alpha2.ResponseContext{ResponseBody: nil}, nil)
+	respMod, ok := respFail.(policyv1alpha2.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications for response nil-body extraction failure, got %T", respFail)
 	}
@@ -487,14 +487,14 @@ func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 	}
 
 	p.requestParams.Enabled = false
-	reqDisabled := p.OnRequestBody(&policy.RequestContext{Body: &policy.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
-	if _, ok := reqDisabled.(policy.UpstreamRequestModifications); !ok {
+	reqDisabled := p.OnRequestBody(&policyv1alpha2.RequestContext{Body: &policyv1alpha2.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
+	if _, ok := reqDisabled.(policyv1alpha2.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected request no-op when request.enabled=false, got %T", reqDisabled)
 	}
 
 	p.responseParams.Enabled = false
-	respDisabled := p.OnResponseBody(&policy.ResponseContext{ResponseBody: &policy.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
-	if _, ok := respDisabled.(policy.DownstreamResponseModifications); !ok {
+	respDisabled := p.OnResponseBody(&policyv1alpha2.ResponseContext{ResponseBody: &policyv1alpha2.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
+	if _, ok := respDisabled.(policyv1alpha2.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected response no-op when response.enabled=false, got %T", respDisabled)
 	}
 }

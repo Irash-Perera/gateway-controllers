@@ -25,7 +25,8 @@ import (
 	"strconv"
 	"strings"
 
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 )
 
 const (
@@ -73,10 +74,13 @@ type McpAuthzPolicy struct {
 	Rules []Rule
 }
 
-// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
+// The returned concrete type also satisfies policyv1alpha2 phase interfaces
+// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
+// can discover those capabilities via type assertions even when using this factory.
 func GetPolicy(
 	metadata policy.PolicyMetadata,
-	params map[string]interface{},
+	params map[string]any,
 ) (policy.Policy, error) {
 	slog.Debug("MCP Authorization Policy: GetPolicy called")
 
@@ -93,6 +97,20 @@ func GetPolicy(
 		"rulesCount", len(p.Rules))
 
 	return p, nil
+}
+
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
+	params map[string]interface{},
+) (policyv1alpha2.Policy, error) {
+	return GetPolicy(policy.PolicyMetadata{
+		RouteName:  metadata.RouteName,
+		APIId:      metadata.APIId,
+		APIName:    metadata.APIName,
+		APIVersion: metadata.APIVersion,
+		AttachedTo: policy.Level(metadata.AttachedTo),
+	}, params)
 }
 
 // parseRules extracts and validates rules from the 4 top-level arrays: tools, resources, prompts, methods
@@ -224,14 +242,13 @@ func (p *McpAuthzPolicy) Mode() policy.ProcessingMode {
 	}
 }
 
-func (p *McpAuthzPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]any) policy.RequestAction {
+func (p *McpAuthzPolicy) OnRequest(ctx *policy.RequestContext, params map[string]any) policy.RequestAction {
 	if strings.EqualFold(ctx.Method, "POST") && strings.Contains(ctx.Path, "/mcp") {
 		slog.Debug("MCP Authorization Policy: Processing MCP request for authorization")
 	} else {
 		slog.Debug("MCP Authorization Policy: Skipping authz...")
 		return nil
 	}
-
 	// Check AuthContext populated by an upstream auth policy
 	authCtx := ctx.SharedContext.AuthContext
 	if authCtx == nil || !authCtx.Authenticated {
@@ -262,9 +279,6 @@ func (p *McpAuthzPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]
 	attributeName := p.getAttributeNameFromParams(mcpReq.Method, mcpReq.Params)
 
 	// Set MCP metadata in context for other policies
-	if ctx.Metadata == nil {
-		ctx.Metadata = make(map[string]any)
-	}
 	ctx.Metadata[MetadataMcpMethod] = mcpReq.Method
 	ctx.Metadata[MetadataMcpCapabilityType] = attributeType
 	ctx.Metadata[MetadataMcpCapabilityName] = attributeName
@@ -279,6 +293,74 @@ func (p *McpAuthzPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]
 	}
 
 	slog.Debug("MCP Authorization Policy: Authorization check passed")
+	if authCtx := ctx.SharedContext.AuthContext; authCtx != nil {
+		authCtx.Authorized = true
+		if authCtx.AuthType == McpOAuthAuthType {
+			authCtx.AuthType = McpOAuthzAuthType
+		}
+	}
+	return nil
+}
+
+func (p *McpAuthzPolicy) OnResponse(ctx *policy.ResponseContext, params map[string]any) policy.ResponseAction {
+	return nil
+}
+
+func (p *McpAuthzPolicy) OnRequestBody(ctx *policyv1alpha2.RequestContext, _ map[string]any) policyv1alpha2.RequestAction {
+	if strings.EqualFold(ctx.Method, "POST") && strings.Contains(ctx.Path, "/mcp") {
+		slog.Debug("MCP Authorization Policy: Processing MCP request for authorization")
+	} else {
+		slog.Debug("MCP Authorization Policy: Skipping authz...")
+		return nil
+	}
+
+	// Check AuthContext populated by an upstream auth policy
+	authCtx := ctx.SharedContext.AuthContext
+	if authCtx == nil || !authCtx.Authenticated {
+		slog.Debug("MCP Authorization Policy: No authenticated context found")
+		return p.handleAuthFailureV2(ctx, "Unauthorized: scope/claim validation failed", nil)
+	}
+
+	// Parse MCP request to extract method and name
+	var mcpReq MCPRequest
+	if err := json.Unmarshal(ctx.Body.Content, &mcpReq); err != nil {
+		slog.Debug("MCP Authorization Policy: Failed to parse MCP request", "error", err)
+		return p.handleAuthFailureV2(ctx, "Invalid MCP request format", nil)
+	}
+
+	slog.Debug("MCP Authorization Policy: Extracted MCP attributes",
+		"method", mcpReq.Method,
+		"name", mcpReq.Params.Name,
+		"uri", mcpReq.Params.URI)
+
+	// Determine attribute type from method
+	attributeType, ok := p.getAttributeTypeFromMethod(mcpReq.Method)
+	if !ok {
+		slog.Debug("MCP Authorization Policy: Skipping since the method is not one of tools, resources, or prompts", "method", mcpReq.Method)
+		return nil
+	}
+
+	// Extract attribute name/identifier based on method type
+	attributeName := p.getAttributeNameFromParams(mcpReq.Method, mcpReq.Params)
+
+	// Set MCP metadata in context for other policies
+	if ctx.Metadata == nil {
+		ctx.Metadata = make(map[string]any)
+	}
+	ctx.Metadata[MetadataMcpMethod] = mcpReq.Method
+	ctx.Metadata[MetadataMcpCapabilityType] = attributeType
+	ctx.Metadata[MetadataMcpCapabilityName] = attributeName
+
+	// Check authorization rules
+	authorized, missingScopes := p.checkAuthorization(attributeType, attributeName, mcpReq.Method, toV1AuthContext(authCtx))
+	if !authorized {
+		slog.Debug("MCP Authorization Policy: Authorization check failed",
+			"attributeName", mcpReq.Params.Name,
+			"method", mcpReq.Method)
+		return p.handleAuthFailureV2(ctx, "Forbidden: insufficient permissions to access this MCP resource", missingScopes)
+	}
+
+	slog.Debug("MCP Authorization Policy: Authorization check passed")
 	authCtx.Authorized = true
 	if authCtx.AuthType == McpOAuthAuthType {
 		authCtx.AuthType = McpOAuthzAuthType
@@ -286,8 +368,8 @@ func (p *McpAuthzPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]
 	return nil
 }
 
-func (p *McpAuthzPolicy) handleAuthFailure(ctx *policy.RequestContext, errorMessage string, scopeMap map[string]struct{}) policy.RequestAction {
-	slog.Debug("MCP Authorization Policy: handleAuthFailure called",
+func (p *McpAuthzPolicy) handleAuthFailureV2(ctx *policyv1alpha2.RequestContext, errorMessage string, scopeMap map[string]struct{}) policyv1alpha2.RequestAction {
+	slog.Debug("MCP Authorization Policy: handleAuthFailureV2 called",
 		"errorMessage", errorMessage,
 	)
 
@@ -309,10 +391,28 @@ func (p *McpAuthzPolicy) handleAuthFailure(ctx *policy.RequestContext, errorMess
 	}
 	bodyBytes, _ := json.Marshal(errResponse)
 
-	return policy.ImmediateResponse{
+	return policyv1alpha2.ImmediateResponse{
 		StatusCode: 403,
 		Headers:    headers,
 		Body:       bodyBytes,
+	}
+}
+
+// toV1AuthContext converts a v1alpha2 AuthContext to a v1alpha AuthContext for use with existing helpers.
+func toV1AuthContext(ac *policyv1alpha2.AuthContext) *policy.AuthContext {
+	if ac == nil {
+		return nil
+	}
+	return &policy.AuthContext{
+		Authenticated: ac.Authenticated,
+		Authorized:    ac.Authorized,
+		AuthType:      ac.AuthType,
+		Subject:       ac.Subject,
+		Issuer:        ac.Issuer,
+		Audience:      ac.Audience,
+		Scopes:        ac.Scopes,
+		CredentialID:  ac.CredentialID,
+		Properties:    ac.Properties,
 	}
 }
 
@@ -607,3 +707,33 @@ func isStandardPort(scheme string, port int) bool {
 	return (scheme == "http" && port == 80) || (scheme == "https" && port == 443)
 }
 
+func (p *McpAuthzPolicy) handleAuthFailure(ctx *policy.RequestContext, errorMessage string, scopeMap map[string]struct{}) policy.RequestAction {
+	slog.Debug("MCP Authorization Policy: handleAuthFailure called",
+		"errorMessage", errorMessage,
+	)
+
+	var missingScopes []string
+	for s := range scopeMap {
+		missingScopes = append(missingScopes, s)
+	}
+
+	// Generate WWW-Authenticate header
+	wwwAuthHeader := generateWwwAuthenticateHeader(ctx.Scheme, ctx.Authority, ctx.Vhost, ctx.APIContext, ctx.Metadata, missingScopes, errorMessage)
+
+	headers := map[string]string{
+		"content-type":        "application/json",
+		WWWAuthenticateHeader: wwwAuthHeader,
+	}
+
+	errResponse := map[string]interface{}{
+		"error":   "Forbidden",
+		"message": errorMessage,
+	}
+	bodyBytes, _ := json.Marshal(errResponse)
+
+	return policy.ImmediateResponse{
+		StatusCode: 403,
+		Headers:    headers,
+		Body:       bodyBytes,
+	}
+}

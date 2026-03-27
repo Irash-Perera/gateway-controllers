@@ -19,7 +19,8 @@
 package basicratelimit
 
 import (
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policyv1alpha2 "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	policy "github.com/wso2/api-platform/sdk/gateway/policy/v1alpha"
 	ratelimit "github.com/wso2/gateway-controllers/policies/advanced-ratelimit"
 )
 
@@ -30,7 +31,10 @@ type BasicRateLimitPolicy struct {
 	delegate policy.Policy
 }
 
-// GetPolicy is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+// GetPolicy is the v1alpha factory entry point (loaded by v1alpha kernels).
+// The returned concrete type also satisfies policyv1alpha2 phase interfaces
+// (StreamingResponsePolicy, RequestPolicy, ResponsePolicy), so v1alpha2 kernels
+// can discover those capabilities via type assertions even when using this factory.
 func GetPolicy(
 	metadata policy.PolicyMetadata,
 	params map[string]interface{},
@@ -39,12 +43,26 @@ func GetPolicy(
 	rlParams := transformToRatelimitParams(params, metadata)
 
 	// Create the delegate ratelimit policy
-	delegate, err := ratelimit.GetPolicyV2(metadata, rlParams)
+	delegate, err := ratelimit.GetPolicy(metadata, rlParams)
 	if err != nil {
 		return nil, err
 	}
 
 	return &BasicRateLimitPolicy{delegate: delegate}, nil
+}
+
+// GetPolicyV2 is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
+func GetPolicyV2(
+	metadata policyv1alpha2.PolicyMetadata,
+	params map[string]interface{},
+) (policyv1alpha2.Policy, error) {
+	return GetPolicy(policy.PolicyMetadata{
+		RouteName:  metadata.RouteName,
+		APIId:      metadata.APIId,
+		APIName:    metadata.APIName,
+		APIVersion: metadata.APIVersion,
+		AttachedTo: policy.Level(metadata.AttachedTo),
+	}, params)
 }
 
 // transformToRatelimitParams converts the simple limits array to a full ratelimit
@@ -124,58 +142,74 @@ func (p *BasicRateLimitPolicy) Mode() policy.ProcessingMode {
 	}
 }
 
+// OnRequest delegates to the core ratelimit policy's OnRequest method.
+func (p *BasicRateLimitPolicy) OnRequest(
+	ctx *policy.RequestContext,
+	params map[string]interface{},
+) policy.RequestAction {
+	return p.delegate.OnRequest(ctx, params)
+}
+
+// OnResponse delegates to the core ratelimit policy's OnResponse method.
+func (p *BasicRateLimitPolicy) OnResponse(
+	ctx *policy.ResponseContext,
+	params map[string]interface{},
+) policy.ResponseAction {
+	return p.delegate.OnResponse(ctx, params)
+}
+
 // OnRequestHeaders delegates to the core ratelimit policy's OnRequestHeaders method if available.
 func (p *BasicRateLimitPolicy) OnRequestHeaders(
-	ctx *policy.RequestHeaderContext,
+	ctx *policyv1alpha2.RequestHeaderContext,
 	params map[string]interface{},
-) policy.RequestHeaderAction {
+) policyv1alpha2.RequestHeaderAction {
 	type requestHeaderPolicer interface {
-		OnRequestHeaders(*policy.RequestHeaderContext, map[string]interface{}) policy.RequestHeaderAction
+		OnRequestHeaders(*policyv1alpha2.RequestHeaderContext, map[string]interface{}) policyv1alpha2.RequestHeaderAction
 	}
 	if rl, ok := p.delegate.(requestHeaderPolicer); ok {
 		return rl.OnRequestHeaders(ctx, params)
 	}
-	return policy.UpstreamRequestHeaderModifications{}
+	return policyv1alpha2.UpstreamRequestHeaderModifications{}
 }
 
 // OnRequestBody delegates to the core ratelimit policy's OnRequestBody method if available.
 func (p *BasicRateLimitPolicy) OnRequestBody(
-	ctx *policy.RequestContext,
+	ctx *policyv1alpha2.RequestContext,
 	params map[string]interface{},
-) policy.RequestAction {
+) policyv1alpha2.RequestAction {
 	type requestBodyPolicer interface {
-		OnRequestBody(*policy.RequestContext, map[string]interface{}) policy.RequestAction
+		OnRequestBody(*policyv1alpha2.RequestContext, map[string]interface{}) policyv1alpha2.RequestAction
 	}
 	if rl, ok := p.delegate.(requestBodyPolicer); ok {
 		return rl.OnRequestBody(ctx, params)
 	}
-	return policy.UpstreamRequestModifications{}
+	return policyv1alpha2.UpstreamRequestModifications{}
 }
 
 // OnResponseHeaders delegates to the core ratelimit policy's OnResponseHeaders method if available.
 func (p *BasicRateLimitPolicy) OnResponseHeaders(
-	ctx *policy.ResponseHeaderContext,
+	ctx *policyv1alpha2.ResponseHeaderContext,
 	params map[string]interface{},
-) policy.ResponseHeaderAction {
+) policyv1alpha2.ResponseHeaderAction {
 	type responseHeaderPolicer interface {
-		OnResponseHeaders(*policy.ResponseHeaderContext, map[string]interface{}) policy.ResponseHeaderAction
+		OnResponseHeaders(*policyv1alpha2.ResponseHeaderContext, map[string]interface{}) policyv1alpha2.ResponseHeaderAction
 	}
 	if rl, ok := p.delegate.(responseHeaderPolicer); ok {
 		return rl.OnResponseHeaders(ctx, params)
 	}
-	return policy.DownstreamResponseHeaderModifications{}
+	return policyv1alpha2.DownstreamResponseHeaderModifications{}
 }
 
 // OnResponseBody delegates to the core ratelimit policy's OnResponseBody method if available.
 func (p *BasicRateLimitPolicy) OnResponseBody(
-	ctx *policy.ResponseContext,
+	ctx *policyv1alpha2.ResponseContext,
 	params map[string]interface{},
-) policy.ResponseAction {
+) policyv1alpha2.ResponseAction {
 	type responseBodyPolicer interface {
-		OnResponseBody(*policy.ResponseContext, map[string]interface{}) policy.ResponseAction
+		OnResponseBody(*policyv1alpha2.ResponseContext, map[string]interface{}) policyv1alpha2.ResponseAction
 	}
 	if rl, ok := p.delegate.(responseBodyPolicer); ok {
 		return rl.OnResponseBody(ctx, params)
 	}
-	return policy.DownstreamResponseModifications{}
+	return policyv1alpha2.DownstreamResponseModifications{}
 }
