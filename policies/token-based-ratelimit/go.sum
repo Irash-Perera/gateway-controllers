@@ -35,8 +35,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/wso2/api-platform/sdk/core v0.2.0 h1:nv4Xa4l0cRZYdk5GU1d1gZkxLk5czb7tBjp4zKI3aCU=
 github.com/wso2/api-platform/sdk/core v0.2.0/go.mod h1:vgNVzR16g9k5cun3VXZ7wDg8UGbPxsVU2TW8EbRCv0o=
-github.com/wso2/gateway-controllers/policies/advanced-ratelimit v0.10.4 h1:zqprAMNwu4fB42PjRkwwGYnf2lS1tKSKs/InDqniWRo=
-github.com/wso2/gateway-controllers/policies/advanced-ratelimit v0.10.4/go.mod h1:IB+HLLADI3of9MuMf80PzMuRpwvfYuTZ1mCMUfpNu5E=
+github.com/wso2/gateway-controllers/policies/advanced-ratelimit v0.10.7 h1:fKt+T+jZZGBUVhFfdHY00U+iAQLdd9DxIydk4NFVu14=
+github.com/wso2/gateway-controllers/policies/advanced-ratelimit v0.10.7/go.mod h1:IB+HLLADI3of9MuMf80PzMuRpwvfYuTZ1mCMUfpNu5E=
 golang.org/x/exp v0.0.0-20260112195511-716be5621a96 h1:Z/6YuSHTLOHfNFdb8zVZomZr7cqNgTJvA8+Qz75D8gU=
 golang.org/x/exp v0.0.0-20260112195511-716be5621a96/go.mod h1:nzimsREAkjBCIEFtHiYkrJyT+2uy9YZJB7H1k68CXZU=
 golang.org/x/sync v0.20.0 h1:e0PTpb7pjO8GAtTs2dQ6jYa5BWYlMuX047Dco/pItO4=
