@@ -18,6 +18,7 @@
 package logmessage
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"strings"
@@ -152,7 +153,7 @@ func (p *LogMessagePolicy) logMessage(record LogRecord) {
 }
 
 // OnRequestHeaders logs request headers in the header phase.
-func (p *LogMessagePolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *LogMessagePolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	config := p.parseFlowConfig(params, "request")
 
 	if !config.logHeaders {
@@ -161,10 +162,10 @@ func (p *LogMessagePolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, pa
 
 	logRecord := LogRecord{
 		MediationFlow: MediationFlowRequest,
-		RequestID:     p.getRequestID(ctx.Headers),
-		HTTPMethod:    ctx.Method,
-		ResourcePath:  ctx.Path,
-		Headers:       p.buildHeadersMap(ctx.Headers, config.excludedHeaders),
+		RequestID:     p.getRequestID(reqCtx.Headers),
+		HTTPMethod:    reqCtx.Method,
+		ResourcePath:  reqCtx.Path,
+		Headers:       p.buildHeadersMap(reqCtx.Headers, config.excludedHeaders),
 	}
 
 	p.logMessage(logRecord)
@@ -173,7 +174,7 @@ func (p *LogMessagePolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, pa
 }
 
 // OnResponseHeaders logs response headers in the header phase.
-func (p *LogMessagePolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
+func (p *LogMessagePolicy) OnResponseHeaders(ctx context.Context, respCtx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
 	config := p.parseFlowConfig(params, "response")
 
 	if !config.logHeaders {
@@ -182,10 +183,10 @@ func (p *LogMessagePolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, 
 
 	logRecord := LogRecord{
 		MediationFlow: MediationFlowResponse,
-		RequestID:     p.getResponseRequestIDv2(ctx.ResponseHeaders),
-		HTTPMethod:    ctx.RequestMethod,
-		ResourcePath:  ctx.RequestPath,
-		Headers:       p.buildHeadersMap(ctx.ResponseHeaders, config.excludedHeaders),
+		RequestID:     p.getResponseRequestIDv2(respCtx.ResponseHeaders),
+		HTTPMethod:    respCtx.RequestMethod,
+		ResourcePath:  respCtx.RequestPath,
+		Headers:       p.buildHeadersMap(respCtx.ResponseHeaders, config.excludedHeaders),
 	}
 
 	p.logMessage(logRecord)
@@ -195,7 +196,7 @@ func (p *LogMessagePolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, 
 
 // OnRequestBody logs the request payload.
 // Header logging is handled by OnRequestHeaders.
-func (p *LogMessagePolicy) OnRequestBody(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
+func (p *LogMessagePolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
 	config := p.parseFlowConfig(params, "request")
 
 	// Skip logging if payload logging is disabled.
@@ -206,14 +207,14 @@ func (p *LogMessagePolicy) OnRequestBody(ctx *policy.RequestContext, params map[
 	// Create log record
 	logRecord := LogRecord{
 		MediationFlow: MediationFlowRequest,
-		RequestID:     p.getRequestID(ctx.Headers),
-		HTTPMethod:    ctx.Method,
-		ResourcePath:  ctx.Path,
+		RequestID:     p.getRequestID(reqCtx.Headers),
+		HTTPMethod:    reqCtx.Method,
+		ResourcePath:  reqCtx.Path,
 	}
 
 	// Log payload if present.
-	if ctx.Body != nil && ctx.Body.Present && len(ctx.Body.Content) > 0 {
-		logRecord.Payload = string(ctx.Body.Content)
+	if reqCtx.Body != nil && reqCtx.Body.Present && len(reqCtx.Body.Content) > 0 {
+		logRecord.Payload = string(reqCtx.Body.Content)
 	}
 
 	// Log the message.
@@ -225,7 +226,7 @@ func (p *LogMessagePolicy) OnRequestBody(ctx *policy.RequestContext, params map[
 
 // OnResponseBody logs the response payload.
 // Header logging is handled by OnResponseHeaders.
-func (p *LogMessagePolicy) OnResponseBody(ctx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
+func (p *LogMessagePolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext, params map[string]interface{}) policy.ResponseAction {
 	config := p.parseFlowConfig(params, "response")
 
 	// Skip logging if payload logging is disabled.
@@ -236,14 +237,14 @@ func (p *LogMessagePolicy) OnResponseBody(ctx *policy.ResponseContext, params ma
 	// Create log record
 	logRecord := LogRecord{
 		MediationFlow: MediationFlowResponse,
-		RequestID:     p.getResponseRequestIDv2(ctx.ResponseHeaders),
-		HTTPMethod:    ctx.RequestMethod,
-		ResourcePath:  ctx.RequestPath,
+		RequestID:     p.getResponseRequestIDv2(respCtx.ResponseHeaders),
+		HTTPMethod:    respCtx.RequestMethod,
+		ResourcePath:  respCtx.RequestPath,
 	}
 
 	// Log payload if present.
-	if ctx.ResponseBody != nil && ctx.ResponseBody.Present && len(ctx.ResponseBody.Content) > 0 {
-		logRecord.Payload = string(ctx.ResponseBody.Content)
+	if respCtx.ResponseBody != nil && respCtx.ResponseBody.Present && len(respCtx.ResponseBody.Content) > 0 {
+		logRecord.Payload = string(respCtx.ResponseBody.Content)
 	}
 
 	// Log the message.
@@ -274,7 +275,7 @@ func (p *LogMessagePolicy) NeedsMoreRequestData(accumulated []byte) bool {
 // OnRequestBodyChunk implements StreamingRequestPolicy.
 // Logs each streaming request chunk as it arrives. The full request body is
 // logged incrementally across chunks rather than buffered into a single record.
-func (p *LogMessagePolicy) OnRequestBodyChunk(ctx *policy.RequestStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.RequestChunkAction {
+func (p *LogMessagePolicy) OnRequestBodyChunk(ctx context.Context, reqCtx *policy.RequestStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.RequestChunkAction {
 	config := p.parseFlowConfig(params, "request")
 	if !config.logPayload || chunk == nil || len(chunk.Chunk) == 0 {
 		return policy.RequestChunkAction{}
@@ -282,9 +283,9 @@ func (p *LogMessagePolicy) OnRequestBodyChunk(ctx *policy.RequestStreamContext, 
 
 	logRecord := LogRecord{
 		MediationFlow: MediationFlowRequest,
-		RequestID:     p.getRequestID(ctx.Headers),
-		HTTPMethod:    ctx.Method,
-		ResourcePath:  ctx.Path,
+		RequestID:     p.getRequestID(reqCtx.Headers),
+		HTTPMethod:    reqCtx.Method,
+		ResourcePath:  reqCtx.Path,
 		Payload:       string(chunk.Chunk),
 	}
 	p.logMessage(logRecord)
@@ -301,7 +302,7 @@ func (p *LogMessagePolicy) NeedsMoreResponseData(accumulated []byte) bool {
 // OnResponseBodyChunk implements StreamingResponsePolicy.
 // Logs each streaming response chunk as it arrives, providing real-time
 // visibility into SSE token streams without buffering or latency overhead.
-func (p *LogMessagePolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
+func (p *LogMessagePolicy) OnResponseBodyChunk(ctx context.Context, respCtx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
 	config := p.parseFlowConfig(params, "response")
 	if !config.logPayload || chunk == nil || len(chunk.Chunk) == 0 {
 		return policy.ResponseChunkAction{}
@@ -309,9 +310,9 @@ func (p *LogMessagePolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamContext
 
 	logRecord := LogRecord{
 		MediationFlow: MediationFlowResponse,
-		RequestID:     p.getResponseRequestIDv2(ctx.ResponseHeaders),
-		HTTPMethod:    ctx.RequestMethod,
-		ResourcePath:  ctx.RequestPath,
+		RequestID:     p.getResponseRequestIDv2(respCtx.ResponseHeaders),
+		HTTPMethod:    respCtx.RequestMethod,
+		ResourcePath:  respCtx.RequestPath,
 		Payload:       string(chunk.Chunk),
 	}
 	p.logMessage(logRecord)

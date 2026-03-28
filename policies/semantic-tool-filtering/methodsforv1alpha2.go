@@ -18,6 +18,7 @@
 package semantictoolfiltering
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -28,14 +29,14 @@ import (
 )
 
 // OnRequestBody is the v1alpha2 factory entry point (loaded by v1alpha2 kernels).
-func (p *SemanticToolFilteringPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
-	return p.processRequestBody(ctx)
+func (p *SemanticToolFilteringPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+	return p.processRequestBody(reqCtx)
 }
 
-func (p *SemanticToolFilteringPolicy) processRequestBody(ctx *policy.RequestContext) policy.RequestAction {
+func (p *SemanticToolFilteringPolicy) processRequestBody(reqCtx *policy.RequestContext) policy.RequestAction {
 	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
 
 	if len(content) == 0 {
@@ -46,18 +47,18 @@ func (p *SemanticToolFilteringPolicy) processRequestBody(ctx *policy.RequestCont
 	// Handle based on format type (JSON or Text)
 	if p.userQueryIsJson && p.toolsIsJson {
 		// Pure JSON mode
-		return p.handleJSONRequest(ctx, content)
+		return p.handleJSONRequest(reqCtx, content)
 	} else if !p.userQueryIsJson && !p.toolsIsJson {
 		// Pure Text mode
-		return p.handleTextRequest(ctx, content)
+		return p.handleTextRequest(reqCtx, content)
 	} else {
 		// Mixed mode
-		return p.handleMixedRequest(ctx, content)
+		return p.handleMixedRequest(reqCtx, content)
 	}
 }
 
 // handleJSONRequest handles requests where both user query and tools are in JSON format (v1alpha2)
-func (p *SemanticToolFilteringPolicy) handleJSONRequest(ctx *policy.RequestContext, content []byte) policy.RequestAction {
+func (p *SemanticToolFilteringPolicy) handleJSONRequest(reqCtx *policy.RequestContext, content []byte) policy.RequestAction {
 	// Parse request body as JSON
 	var requestBody map[string]interface{}
 	if err := json.Unmarshal(content, &requestBody); err != nil {
@@ -114,7 +115,7 @@ func (p *SemanticToolFilteringPolicy) handleJSONRequest(ctx *policy.RequestConte
 
 	// Get embedding cache instance
 	embeddingCache := GetEmbeddingCacheStoreInstance()
-	apiId := ctx.APIId
+	apiId := reqCtx.APIId
 
 	embeddingCache.AddAPICache(apiId)
 
@@ -203,7 +204,7 @@ func (p *SemanticToolFilteringPolicy) handleJSONRequest(ctx *policy.RequestConte
 }
 
 // handleTextRequest handles requests where both user query and tools are in text format with tags (v1alpha2)
-func (p *SemanticToolFilteringPolicy) handleTextRequest(ctx *policy.RequestContext, content []byte) policy.RequestAction {
+func (p *SemanticToolFilteringPolicy) handleTextRequest(reqCtx *policy.RequestContext, content []byte) policy.RequestAction {
 	contentStr := string(content)
 
 	// Extract user query from <userq> tags
@@ -238,7 +239,7 @@ func (p *SemanticToolFilteringPolicy) handleTextRequest(ctx *policy.RequestConte
 
 	// Get embedding cache instance
 	embeddingCache := GetEmbeddingCacheStoreInstance()
-	apiId := ctx.APIId
+	apiId := reqCtx.APIId
 
 	embeddingCache.AddAPICache(apiId)
 
@@ -332,7 +333,7 @@ func (p *SemanticToolFilteringPolicy) handleTextRequest(ctx *policy.RequestConte
 }
 
 // handleMixedRequest handles requests where user query and tools have different formats (v1alpha2)
-func (p *SemanticToolFilteringPolicy) handleMixedRequest(ctx *policy.RequestContext, content []byte) policy.RequestAction {
+func (p *SemanticToolFilteringPolicy) handleMixedRequest(reqCtx *policy.RequestContext, content []byte) policy.RequestAction {
 	// For mixed mode, parse based on each component's format
 	contentStr := string(content)
 	var userQuery string
@@ -369,7 +370,7 @@ func (p *SemanticToolFilteringPolicy) handleMixedRequest(ctx *policy.RequestCont
 
 	// Get embedding cache instance
 	embeddingCache := GetEmbeddingCacheStoreInstance()
-	apiId := ctx.APIId
+	apiId := reqCtx.APIId
 
 	embeddingCache.AddAPICache(apiId)
 

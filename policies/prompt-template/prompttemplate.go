@@ -18,6 +18,7 @@
 package prompttemplate
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -336,10 +337,10 @@ func (p *PromptTemplatePolicy) extractStringAtPath(payload []byte, jsonPath stri
 }
 
 // OnRequestBody applies the configured template to the request body.
-func (p *PromptTemplatePolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *PromptTemplatePolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
 
 	if len(content) == 0 {

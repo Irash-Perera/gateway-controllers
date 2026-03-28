@@ -1,6 +1,7 @@
 package semanticpromptguard
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math"
@@ -561,7 +562,7 @@ func TestSemanticPromptGuardPolicy_OnRequestAndValidatePayload(t *testing.T) {
 				Body:          &policy.Body{Content: []byte(tt.payload), Present: true, EndOfStream: true},
 			}
 
-			action := p.OnRequestBody(ctx, nil)
+			action := p.OnRequestBody(context.Background(), ctx, nil)
 			if !tt.wantImmediate {
 				if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 					t.Fatalf("expected UpstreamRequestModifications, got %T", action)

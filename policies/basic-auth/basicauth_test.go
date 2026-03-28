@@ -1,6 +1,7 @@
 package basicauth
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -56,7 +57,7 @@ func TestBasicAuthPolicy_OnRequestHeaders_ValidCredentials(t *testing.T) {
 		"authorization": {basicAuthHeader("admin", "secret")},
 	})
 
-	action := p.OnRequestHeaders(ctx, defaultParams())
+	action := p.OnRequestHeaders(context.Background(), ctx, defaultParams())
 
 	if ctx.SharedContext.AuthContext == nil {
 		t.Fatal("expected AuthContext to be set")
@@ -81,7 +82,7 @@ func TestBasicAuthPolicy_OnRequestHeaders_WrongPassword(t *testing.T) {
 		"authorization": {basicAuthHeader("admin", "wrong-password")},
 	})
 
-	action := p.OnRequestHeaders(ctx, defaultParams())
+	action := p.OnRequestHeaders(context.Background(), ctx, defaultParams())
 
 	if ctx.SharedContext.AuthContext == nil {
 		t.Fatal("expected AuthContext to be set")
@@ -106,7 +107,7 @@ func TestBasicAuthPolicy_OnRequestHeaders_MissingAuthorizationHeader(t *testing.
 	p := &BasicAuthPolicy{}
 	ctx := newBasicRequestHeaderContext(nil)
 
-	action := p.OnRequestHeaders(ctx, defaultParams())
+	action := p.OnRequestHeaders(context.Background(), ctx, defaultParams())
 
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
@@ -136,7 +137,7 @@ func TestBasicAuthPolicy_OnRequestHeaders_MalformedAuthorizationHeader(t *testin
 				"authorization": {tt.header},
 			})
 
-			action := p.OnRequestHeaders(ctx, defaultParams())
+			action := p.OnRequestHeaders(context.Background(), ctx, defaultParams())
 
 			if ctx.SharedContext.AuthContext == nil {
 				t.Fatal("expected AuthContext to be set on failure")
@@ -166,7 +167,7 @@ func TestBasicAuthPolicy_OnRequestHeaders_AllowUnauthenticated(t *testing.T) {
 		"allowUnauthenticated": true,
 	}
 
-	action := p.OnRequestHeaders(ctx, params)
+	action := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	// Should allow through even without credentials
 	if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
@@ -191,7 +192,7 @@ func TestBasicAuthPolicy_OnRequestHeaders_CustomRealm(t *testing.T) {
 		"realm":    "My API",
 	}
 
-	action := p.OnRequestHeaders(ctx, params)
+	action := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
@@ -212,7 +213,7 @@ func TestBasicAuthPolicy_OnRequestHeaders_InvalidConfig_NoUsername(t *testing.T)
 		"password": "secret",
 	}
 
-	action := p.OnRequestHeaders(ctx, params)
+	action := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
@@ -231,7 +232,7 @@ func TestBasicAuthPolicy_OnRequestHeaders_InvalidConfig_NoPassword(t *testing.T)
 		"username": "admin",
 	}
 
-	action := p.OnRequestHeaders(ctx, params)
+	action := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {

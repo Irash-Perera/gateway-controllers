@@ -18,6 +18,7 @@
 package jsonxmlmediation
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -393,12 +394,12 @@ type XMLNode struct {
 
 // OnRequestBody converts the request body from the downstream payload format to
 // the upstream payload format before forwarding to the upstream service.
-func (p *JSONXMLMediationPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
-	if ctx.Body == nil || !ctx.Body.Present || len(ctx.Body.Content) == 0 {
+func (p *JSONXMLMediationPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+	if reqCtx.Body == nil || !reqCtx.Body.Present || len(reqCtx.Body.Content) == 0 {
 		return policy.UpstreamRequestModifications{}
 	}
 
-	contentType := getFirstHeader(ctx.Headers, "content-type")
+	contentType := getFirstHeader(reqCtx.Headers, "content-type")
 	if !matchesContentType(contentType, p.downstreamPayloadFormat) {
 		return p.handleInternalServerError(fmt.Sprintf(
 			"Content-Type must be %s for downstream payload format %s",
@@ -408,7 +409,7 @@ func (p *JSONXMLMediationPolicy) OnRequestBody(ctx *policy.RequestContext, _ map
 	}
 
 	convertedBody, convertedContentType, convErr := p.convertBetweenFormats(
-		ctx.Body.Content,
+		reqCtx.Body.Content,
 		p.downstreamPayloadFormat,
 		p.upstreamPayloadFormat,
 	)
@@ -426,8 +427,8 @@ func (p *JSONXMLMediationPolicy) OnRequestBody(ctx *policy.RequestContext, _ map
 }
 
 // OnResponseBody converts the upstream response body to the downstream payload format.
-func (p *JSONXMLMediationPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
-	if ctx.ResponseBody == nil || !ctx.ResponseBody.Present || len(ctx.ResponseBody.Content) == 0 {
+func (p *JSONXMLMediationPolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+	if respCtx.ResponseBody == nil || !respCtx.ResponseBody.Present || len(respCtx.ResponseBody.Content) == 0 {
 		return policy.DownstreamResponseModifications{}
 	}
 
@@ -436,13 +437,13 @@ func (p *JSONXMLMediationPolicy) OnResponseBody(ctx *policy.ResponseContext, _ m
 	// different structure from the full chat.completion JSON returned by
 	// non-streaming calls. Pass through and warn so operators know to disable
 	// streaming if they need format conversion.
-	if isSSEResponse(string(ctx.ResponseBody.Content)) {
+	if isSSEResponse(string(respCtx.ResponseBody.Content)) {
 		slog.Warn("json-xml-mediator: SSE response detected — passing through without conversion. " +
 			"Set stream: false on the upstream request to enable JSON↔XML mediation.")
 		return policy.DownstreamResponseModifications{}
 	}
 
-	contentType := getFirstHeader(ctx.ResponseHeaders, "content-type")
+	contentType := getFirstHeader(respCtx.ResponseHeaders, "content-type")
 	if !matchesContentType(contentType, p.upstreamPayloadFormat) {
 		return p.handleInternalServerErrorResponse(fmt.Sprintf(
 			"Content-Type must be %s in response for upstream payload format %s",
@@ -452,7 +453,7 @@ func (p *JSONXMLMediationPolicy) OnResponseBody(ctx *policy.ResponseContext, _ m
 	}
 
 	convertedBody, convertedContentType, convErr := p.convertBetweenFormats(
-		ctx.ResponseBody.Content,
+		respCtx.ResponseBody.Content,
 		p.upstreamPayloadFormat,
 		p.downstreamPayloadFormat,
 	)

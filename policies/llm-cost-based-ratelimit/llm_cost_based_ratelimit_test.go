@@ -19,6 +19,7 @@
 package llmcostratelimit
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -106,7 +107,7 @@ func TestLLMCostRateLimitPolicy_OnRequestHeaders_NoProvider(t *testing.T) {
 		},
 	}
 
-	action := p.(*LLMCostRateLimitPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*LLMCostRateLimitPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	// Should return UpstreamRequestHeaderModifications (skip) when no provider is found
 	if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
@@ -144,7 +145,7 @@ func TestLLMCostRateLimitPolicy_OnRequestHeaders_EmptyProvider(t *testing.T) {
 		},
 	}
 
-	action := p.(*LLMCostRateLimitPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*LLMCostRateLimitPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	// Should return UpstreamRequestHeaderModifications (skip) when provider name is empty
 	if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
@@ -343,7 +344,7 @@ func TestLLMCostRateLimitPolicy_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			ctx := createTestRequestHeaderContext("test-provider")
-			action := costPolicy.OnRequestHeaders(ctx, params)
+			action := costPolicy.OnRequestHeaders(context.Background(), ctx, params)
 			// action should be UpstreamRequestHeaderModifications, shouldn't panic
 			if _, ok := action.(policy.UpstreamRequestHeaderModifications); ok {
 				successCount.Add(1)
@@ -385,7 +386,7 @@ func TestLLMCostRateLimitPolicy_MultipleProviders(t *testing.T) {
 
 	for _, provider := range providers {
 		ctx := createTestRequestHeaderContext(provider)
-		action := costPolicy.OnRequestHeaders(ctx, params)
+		action := costPolicy.OnRequestHeaders(context.Background(), ctx, params)
 		// May return default modifications, but shouldn't panic
 		_ = action
 	}
@@ -419,7 +420,7 @@ func TestLLMCostRateLimitPolicy_Integration_NoBudgetLimits(t *testing.T) {
 	}
 
 	ctx := createTestRequestHeaderContext("any-provider")
-	action := p.(*LLMCostRateLimitPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*LLMCostRateLimitPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications when no budget limits configured, got %T", action)

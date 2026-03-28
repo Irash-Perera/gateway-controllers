@@ -19,6 +19,7 @@
 package modelroundrobin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -236,7 +237,6 @@ func extractInt(value interface{}) (int, error) {
 	}
 }
 
-
 // selectNextAvailableModel selects the next available model in round-robin fashion
 func (p *ModelRoundRobinPolicy) selectNextAvailableModel(models []ModelConfig) *ModelConfig {
 	p.mu.Lock()
@@ -274,7 +274,7 @@ func (p *ModelRoundRobinPolicy) selectNextAvailableModel(models []ModelConfig) *
 // OnRequestHeaders selects the next model and applies the modification for header/queryParam/pathParam
 // locations in the request header phase. For payload location, the model is pre-selected and
 // stored in metadata for OnRequest to apply to the body.
-func (p *ModelRoundRobinPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *ModelRoundRobinPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	location := p.params.RequestModel.Location
 	identifier := p.params.RequestModel.Identifier
 
@@ -288,32 +288,32 @@ func (p *ModelRoundRobinPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContex
 		}
 	}
 
-	ctx.Metadata[MetadataKeySelectedModel] = selectedModel.Model
-	ctx.Metadata[MetadataKeyHeadersProcessed] = true
+	reqCtx.Metadata[MetadataKeySelectedModel] = selectedModel.Model
+	reqCtx.Metadata[MetadataKeyHeadersProcessed] = true
 	slog.Debug("ModelRoundRobin: OnRequestHeaders selected model", "model", selectedModel.Model)
 
 	switch location {
 	case "header":
-		if ctx.Headers != nil {
-			values := ctx.Headers.Get(identifier)
+		if reqCtx.Headers != nil {
+			values := reqCtx.Headers.Get(identifier)
 			if len(values) > 0 && values[0] != "" {
-				ctx.Metadata[MetadataKeyOriginalModel] = values[0]
+				reqCtx.Metadata[MetadataKeyOriginalModel] = values[0]
 			}
 		}
 		return policy.UpstreamRequestHeaderModifications{
 			HeadersToSet: map[string]string{identifier: selectedModel.Model},
 		}
 	case "queryParam":
-		newPath := p.modifyQueryParamInPath(ctx.Path, identifier, selectedModel.Model)
-		if newPath != ctx.Path {
+		newPath := p.modifyQueryParamInPath(reqCtx.Path, identifier, selectedModel.Model)
+		if newPath != reqCtx.Path {
 			return policy.UpstreamRequestHeaderModifications{
 				HeadersToSet: map[string]string{":path": newPath},
 			}
 		}
 		return policy.UpstreamRequestHeaderModifications{}
 	case "pathParam":
-		newPath := p.modifyPathParamInPath(ctx.Path, identifier, selectedModel.Model)
-		if newPath != ctx.Path {
+		newPath := p.modifyPathParamInPath(reqCtx.Path, identifier, selectedModel.Model)
+		if newPath != reqCtx.Path {
 			return policy.UpstreamRequestHeaderModifications{
 				HeadersToSet: map[string]string{":path": newPath},
 			}
@@ -324,10 +324,10 @@ func (p *ModelRoundRobinPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContex
 }
 
 // OnResponseHeaders suspends a model in the response header phase when an error is detected.
-func (p *ModelRoundRobinPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
-	if ctx.ResponseStatus >= 500 || ctx.ResponseStatus == 429 {
+func (p *ModelRoundRobinPolicy) OnResponseHeaders(ctx context.Context, respCtx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
+	if respCtx.ResponseStatus >= 500 || respCtx.ResponseStatus == 429 {
 		selectedModel := ""
-		if model, ok := ctx.Metadata[MetadataKeySelectedModel]; ok {
+		if model, ok := respCtx.Metadata[MetadataKeySelectedModel]; ok {
 			if modelStr, ok := model.(string); ok {
 				selectedModel = modelStr
 			}
@@ -345,18 +345,18 @@ func (p *ModelRoundRobinPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderCont
 // OnRequestBody processes the request body in the v1alpha2 engine.
 // Since OnRequestHeaders always runs first in the v1alpha2 engine, only the payload
 // location case requires body-phase processing.
-func (p *ModelRoundRobinPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *ModelRoundRobinPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	if p.params.RequestModel.Location != "payload" {
 		// Non-payload locations were handled in OnRequestHeaders
 		return policy.UpstreamRequestModifications{}
 	}
 
-	selectedModel, _ := ctx.Metadata[MetadataKeySelectedModel].(string)
+	selectedModel, _ := reqCtx.Metadata[MetadataKeySelectedModel].(string)
 	if selectedModel == "" {
 		return policy.UpstreamRequestModifications{}
 	}
 
-	if ctx.Body == nil || ctx.Body.Content == nil {
+	if reqCtx.Body == nil || reqCtx.Body.Content == nil {
 		return policy.ImmediateResponse{
 			StatusCode: 400,
 			Headers:    map[string]string{"Content-Type": "application/json"},
@@ -365,7 +365,7 @@ func (p *ModelRoundRobinPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[
 	}
 
 	var payloadData map[string]interface{}
-	if err := json.Unmarshal(ctx.Body.Content, &payloadData); err != nil {
+	if err := json.Unmarshal(reqCtx.Body.Content, &payloadData); err != nil {
 		return policy.ImmediateResponse{
 			StatusCode: 400,
 			Headers:    map[string]string{"Content-Type": "application/json"},

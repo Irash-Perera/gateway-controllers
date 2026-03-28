@@ -1,6 +1,7 @@
 package piimaskingregex
 
 import (
+	"context"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -171,7 +172,7 @@ func TestPIIMaskingRegexPolicy_OnRequest_MaskAndStoreMetadata(t *testing.T) {
 	})
 
 	ctx := piiRequestContext(`{"messages":[{"content":"Contact me at a.user@example.com please"}]}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustPIIRequestMods(t, action)
 	if len(mods.Body) == 0 {
 		t.Fatalf("expected modified body")
@@ -204,7 +205,7 @@ func TestPIIMaskingRegexPolicy_OnRequest_RedactMode(t *testing.T) {
 	})
 
 	ctx := piiRequestContext(`{"messages":[{"content":"email a.user@example.com"}]}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustPIIRequestMods(t, action)
 	out := decodeJSONMapPII(t, mods.Body)
 	msg := mustGetLastMessageContent(t, out)
@@ -222,7 +223,7 @@ func TestPIIMaskingRegexPolicy_OnRequest_NoMatch_NoOp(t *testing.T) {
 	})
 
 	ctx := piiRequestContext(`{"messages":[{"content":"no pii here"}]}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustPIIRequestMods(t, action)
 	if mods.Body != nil {
 		t.Fatalf("expected no modifications when no pii match, got body=%s", string(mods.Body))
@@ -236,7 +237,7 @@ func TestPIIMaskingRegexPolicy_OnRequest_JSONPathError(t *testing.T) {
 	})
 
 	ctx := piiRequestContext(`{"messages":"a.user@example.com"}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse for extraction error, got %T", action)
@@ -265,7 +266,7 @@ func TestPIIMaskingRegexPolicy_OnResponse_RestoreMaskedPII(t *testing.T) {
 			Present: true,
 		},
 	}
-	action := p.OnResponseBody(ctx, nil)
+	action := p.OnResponseBody(context.Background(), ctx, nil)
 	mods, ok := action.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected DownstreamResponseModifications, got %T", action)
@@ -291,7 +292,7 @@ func TestPIIMaskingRegexPolicy_OnResponse_NoOpCases(t *testing.T) {
 			Present: true,
 		},
 	}
-	a1 := p.OnResponseBody(ctx1, nil)
+	a1 := p.OnResponseBody(context.Background(), ctx1, nil)
 	if _, ok := a1.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected DownstreamResponseModifications, got %T", a1)
 	}
@@ -313,7 +314,7 @@ func TestPIIMaskingRegexPolicy_OnResponse_NoOpCases(t *testing.T) {
 			Present: true,
 		},
 	}
-	a2 := pRedact.OnResponseBody(ctx2, nil)
+	a2 := pRedact.OnResponseBody(context.Background(), ctx2, nil)
 	if _, ok := a2.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected DownstreamResponseModifications, got %T", a2)
 	}

@@ -19,6 +19,7 @@ package logmessage
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"regexp"
@@ -276,7 +277,7 @@ func TestOnRequestHeaders_NoRequestConfig_DoesNotLog(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		result := p.OnRequestHeaders(ctx, map[string]interface{}{
+		result := p.OnRequestHeaders(context.Background(), ctx, map[string]interface{}{
 			"response": map[string]interface{}{"headers": true},
 		})
 		if _, ok := result.(policy.UpstreamRequestHeaderModifications); !ok {
@@ -303,7 +304,7 @@ func TestOnRequestHeaders_LogsHeaders(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		result := p.OnRequestHeaders(ctx, map[string]interface{}{
+		result := p.OnRequestHeaders(context.Background(), ctx, map[string]interface{}{
 			"request": map[string]interface{}{
 				"headers":        true,
 				"excludeHeaders": toInterfaceSlice([]string{"x-api-key"}),
@@ -350,7 +351,7 @@ func TestOnRequestHeaders_InvalidRequestConfigType_DoesNotLog(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		p.OnRequestHeaders(ctx, map[string]interface{}{"request": true})
+		p.OnRequestHeaders(context.Background(), ctx, map[string]interface{}{"request": true})
 	})
 
 	if len(records) != 0 {
@@ -370,7 +371,7 @@ func TestOnRequestBody_NoRequestConfig_DoesNotLog(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		result := p.OnRequestBody(ctx, map[string]interface{}{
+		result := p.OnRequestBody(context.Background(), ctx, map[string]interface{}{
 			"response": map[string]interface{}{"payload": true},
 		})
 		if _, ok := result.(policy.UpstreamRequestModifications); !ok {
@@ -395,7 +396,7 @@ func TestOnRequestBody_LogsPayload(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		result := p.OnRequestBody(ctx, map[string]interface{}{
+		result := p.OnRequestBody(context.Background(), ctx, map[string]interface{}{
 			"request": map[string]interface{}{
 				"payload": true,
 			},
@@ -435,7 +436,7 @@ func TestOnRequestBody_InvalidRequestConfigType_DoesNotLog(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		p.OnRequestBody(ctx, map[string]interface{}{"request": true})
+		p.OnRequestBody(context.Background(), ctx, map[string]interface{}{"request": true})
 	})
 
 	if len(records) != 0 {
@@ -452,7 +453,7 @@ func TestOnResponseHeaders_NoResponseConfig_DoesNotLog(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		result := p.OnResponseHeaders(ctx, map[string]interface{}{
+		result := p.OnResponseHeaders(context.Background(), ctx, map[string]interface{}{
 			"request": map[string]interface{}{"headers": true},
 		})
 		if _, ok := result.(policy.DownstreamResponseHeaderModifications); !ok {
@@ -478,7 +479,7 @@ func TestOnResponseHeaders_LogsHeaders(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		result := p.OnResponseHeaders(ctx, map[string]interface{}{
+		result := p.OnResponseHeaders(context.Background(), ctx, map[string]interface{}{
 			"response": map[string]interface{}{
 				"headers":        true,
 				"excludeHeaders": toInterfaceSlice([]string{"set-cookie"}),
@@ -521,7 +522,7 @@ func TestOnResponseHeaders_InvalidResponseConfigType_DoesNotLog(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		p.OnResponseHeaders(ctx, map[string]interface{}{"response": "invalid"})
+		p.OnResponseHeaders(context.Background(), ctx, map[string]interface{}{"response": "invalid"})
 	})
 
 	if len(records) != 0 {
@@ -539,7 +540,7 @@ func TestOnResponseBody_NoResponseConfig_DoesNotLog(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		result := p.OnResponseBody(ctx, map[string]interface{}{
+		result := p.OnResponseBody(context.Background(), ctx, map[string]interface{}{
 			"request": map[string]interface{}{"payload": true},
 		})
 		if _, ok := result.(policy.DownstreamResponseModifications); !ok {
@@ -564,7 +565,7 @@ func TestOnResponseBody_LogsPayload(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		result := p.OnResponseBody(ctx, map[string]interface{}{
+		result := p.OnResponseBody(context.Background(), ctx, map[string]interface{}{
 			"response": map[string]interface{}{
 				"payload": true,
 			},
@@ -604,7 +605,7 @@ func TestOnResponseBody_InvalidResponseConfigType_DoesNotLog(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		p.OnResponseBody(ctx, map[string]interface{}{"response": "invalid"})
+		p.OnResponseBody(context.Background(), ctx, map[string]interface{}{"response": "invalid"})
 	})
 
 	if len(records) != 0 {
@@ -622,7 +623,7 @@ func TestOnResponseBody_LogsWithMissingRequestID(t *testing.T) {
 	}
 
 	records := captureLogRecords(t, func() {
-		p.OnResponseBody(ctx, map[string]interface{}{
+		p.OnResponseBody(context.Background(), ctx, map[string]interface{}{
 			"response": map[string]interface{}{"payload": true},
 		})
 	})

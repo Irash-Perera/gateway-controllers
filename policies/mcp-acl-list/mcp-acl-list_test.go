@@ -19,6 +19,7 @@
 package mcpacllist
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -273,7 +274,7 @@ func TestOnRequest_DenyWhenException(t *testing.T) {
 	ctx.OperationPath = "/mcp"
 	ctx.Body = &policy.Body{Content: body, Present: true}
 
-	action := p.(*McpAclListPolicy).OnRequestBody(ctx, params)
+	action := p.(*McpAclListPolicy).OnRequestBody(context.Background(), ctx, params)
 	if _, ok := action.(policy.ImmediateResponse); !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
 	}
@@ -307,7 +308,7 @@ func TestOnRequest_AllowWhenNotException(t *testing.T) {
 	ctx.OperationPath = "/mcp"
 	ctx.Body = &policy.Body{Content: body, Present: true}
 
-	action := p.(*McpAclListPolicy).OnRequestBody(ctx, params)
+	action := p.(*McpAclListPolicy).OnRequestBody(context.Background(), ctx, params)
 	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("Expected UpstreamRequestModifications (continue), got %T", action)
 	}
@@ -345,7 +346,7 @@ func TestOnRequest_DenySSERequestWithSessionHeader(t *testing.T) {
 	ctx.OperationPath = "/mcp"
 	ctx.Body = &policy.Body{Content: streamBody, Present: true}
 
-	action := p.(*McpAclListPolicy).OnRequestBody(ctx, params)
+	action := p.(*McpAclListPolicy).OnRequestBody(context.Background(), ctx, params)
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
@@ -414,7 +415,7 @@ func TestOnResponse_FilterList_DenyMode(t *testing.T) {
 	ctx.Metadata[metadataMcpCapabilityType] = "tools"
 	ctx.Metadata[metadataMcpAction] = "list"
 
-	action := p.(*McpAclListPolicy).OnResponseBody(ctx, params)
+	action := p.(*McpAclListPolicy).OnResponseBody(context.Background(), ctx, params)
 	mods, ok := action.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamResponseModifications, got %T", action)
@@ -467,7 +468,7 @@ func TestOnResponse_FilterList_ResourcesUri(t *testing.T) {
 	ctx.Metadata[metadataMcpCapabilityType] = "resources"
 	ctx.Metadata[metadataMcpAction] = "list"
 
-	action := p.(*McpAclListPolicy).OnResponseBody(ctx, params)
+	action := p.(*McpAclListPolicy).OnResponseBody(context.Background(), ctx, params)
 	mods, ok := action.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamResponseModifications, got %T", action)
@@ -537,7 +538,7 @@ func TestOnResponse_SSEFilterOnlyListEvents(t *testing.T) {
 	ctx.Metadata[metadataMcpCapabilityType] = "tools"
 	ctx.Metadata[metadataMcpAction] = "list"
 
-	action := p.(*McpAclListPolicy).OnResponseBody(ctx, params)
+	action := p.(*McpAclListPolicy).OnResponseBody(context.Background(), ctx, params)
 	mods, ok := action.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamResponseModifications, got %T", action)

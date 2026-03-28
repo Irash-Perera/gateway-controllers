@@ -18,6 +18,7 @@
 package semanticpromptguard
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -407,10 +408,10 @@ func cosineSimilarity(a, b []float32) (float64, error) {
 }
 
 // OnRequestBody performs semantic filtering of the incoming prompt.
-func (p *SemanticPromptGuardPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *SemanticPromptGuardPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
 	return p.validatePayload(content, p.params).(policy.RequestAction)
 }

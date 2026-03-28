@@ -1,6 +1,7 @@
 package prompttemplate
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -171,7 +172,7 @@ func TestPromptTemplatePolicy_GetPolicy_TemplatesJSONStringWorks(t *testing.T) {
 	p := mustGetPromptTemplatePolicy(t, params)
 
 	ctx := newRequestContextWithBody(`{"prompt":"template://greet?name=Sam"}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 
 	if len(mods.Body) == 0 {
@@ -217,7 +218,7 @@ func TestPromptTemplatePolicy_OnRequestBody_NoBodyOrEmptyBody(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			action := p.OnRequestBody(tt.ctx, nil)
+			action := p.OnRequestBody(context.Background(), tt.ctx, nil)
 			mods := mustRequestMods(t, action)
 			if mods.Body != nil {
 				t.Fatalf("expected no body modifications, got %s", string(mods.Body))
@@ -230,7 +231,7 @@ func TestPromptTemplatePolicy_OnRequestBody_FullPayloadSingleReplacement(t *test
 	p := mustGetPromptTemplatePolicy(t, baseParams())
 
 	ctx := newRequestContextWithBody(`{"prompt":"template://greet?name=Ann"}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 
 	body := decodeJSONMap(t, mods.Body)
@@ -243,7 +244,7 @@ func TestPromptTemplatePolicy_OnRequestBody_NoTemplateReferences_NoChanges(t *te
 	p := mustGetPromptTemplatePolicy(t, baseParams())
 
 	ctx := newRequestContextWithBody(`{"prompt":"plain prompt text"}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 
 	if mods.Body != nil {
@@ -265,7 +266,7 @@ func TestPromptTemplatePolicy_OnRequestBody_FullPayloadMultipleReplacements(t *t
 		"b":"template://greet?name=Bob",
 		"c":"template://bye?name=Ann"
 	}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 	body := decodeJSONMap(t, mods.Body)
 
@@ -289,7 +290,7 @@ func TestPromptTemplatePolicy_OnRequestBody_URLQueryDecoding(t *testing.T) {
 	p := mustGetPromptTemplatePolicy(t, params)
 
 	ctx := newRequestContextWithBody(`{"prompt":"template://intro?name=John+Doe&city=New%20York"}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 	body := decodeJSONMap(t, mods.Body)
 
@@ -310,7 +311,7 @@ func TestPromptTemplatePolicy_OnRequestBody_EscapesQuotesAndNewlines(t *testing.
 	p := mustGetPromptTemplatePolicy(t, params)
 
 	ctx := newRequestContextWithBody(`{"prompt":"template://multi?text=hello%20world"}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 	body := decodeJSONMap(t, mods.Body)
 
@@ -324,7 +325,7 @@ func TestPromptTemplatePolicy_OnRequestBody_MissingTemplate_DefaultError(t *test
 	p := mustGetPromptTemplatePolicy(t, baseParams())
 
 	ctx := newRequestContextWithBody(`{"prompt":"template://unknown?name=Ann"}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	assertTemplateError(t, action, "Error resolving templates")
 }
 
@@ -341,7 +342,7 @@ func TestPromptTemplatePolicy_OnRequestBody_MissingTemplate_Passthrough(t *testi
 		"a":"template://greet?name=Ann",
 		"b":"template://unknown?name=Bob"
 	}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 	body := decodeJSONMap(t, mods.Body)
 
@@ -362,7 +363,7 @@ func TestPromptTemplatePolicy_OnRequestBody_UnresolvedPlaceholder_DefaultKeep(t 
 	p := mustGetPromptTemplatePolicy(t, params)
 
 	ctx := newRequestContextWithBody(`{"prompt":"template://greet?name=Ann"}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 	body := decodeJSONMap(t, mods.Body)
 
@@ -381,7 +382,7 @@ func TestPromptTemplatePolicy_OnRequestBody_UnresolvedPlaceholder_Empty(t *testi
 	p := mustGetPromptTemplatePolicy(t, params)
 
 	ctx := newRequestContextWithBody(`{"prompt":"template://greet?name=Ann"}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 	body := decodeJSONMap(t, mods.Body)
 
@@ -400,7 +401,7 @@ func TestPromptTemplatePolicy_OnRequestBody_UnresolvedPlaceholder_ErrorDetermini
 	p := mustGetPromptTemplatePolicy(t, params)
 
 	ctx := newRequestContextWithBody(`{"prompt":"template://greet"}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	resp := assertTemplateError(t, action, "Error resolving templates")
 
 	var body map[string]interface{}
@@ -427,7 +428,7 @@ func TestPromptTemplatePolicy_OnRequestBody_JSONPath_UpdatesOnlyTarget(t *testin
 		"other":"template://greet?name=Bob",
 		"nested":{"value":"template://greet?name=Cat"}
 	}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 	body := decodeJSONMap(t, mods.Body)
 
@@ -456,7 +457,7 @@ func TestPromptTemplatePolicy_OnRequestBody_JSONPath_InvalidPathReturnsError(t *
 	p := mustGetPromptTemplatePolicy(t, params)
 
 	ctx := newRequestContextWithBody(`{"target":"template://greet?name=Ann"}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	assertTemplateError(t, action, "Error extracting value from JSONPath")
 }
 
@@ -470,7 +471,7 @@ func TestPromptTemplatePolicy_OnRequestBody_JSONPath_NonStringTargetReturnsError
 	p := mustGetPromptTemplatePolicy(t, params)
 
 	ctx := newRequestContextWithBody(`{"target":{"value":"template://greet?name=Ann"}}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	assertTemplateError(t, action, "Error extracting value from JSONPath")
 }
 
@@ -484,7 +485,7 @@ func TestPromptTemplatePolicy_OnRequestBody_JSONPath_InvalidJSONReturnsError(t *
 	p := mustGetPromptTemplatePolicy(t, params)
 
 	ctx := newRequestContextWithBody(`{"target":"template://greet?name=Ann"`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	assertTemplateError(t, action, "Error parsing JSON payload")
 }
 
@@ -512,7 +513,7 @@ func TestPromptTemplatePolicy_OnRequestBody_StressManyTemplatesAndReferences(t *
 	})
 
 	ctx := newRequestContextWithBody(string(payload))
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 	body := decodeJSONMap(t, mods.Body)
 
@@ -552,7 +553,7 @@ func TestPromptTemplatePolicy_OnRequestBody_ConcurrentAccess(t *testing.T) {
 			name := fmt.Sprintf("User%d", i)
 			ctx := newRequestContextWithBody(fmt.Sprintf(`{"prompt":"template://greet?name=%s"}`, name))
 
-			action := p.OnRequestBody(ctx, nil)
+			action := p.OnRequestBody(context.Background(), ctx, nil)
 			mods, ok := action.(policy.UpstreamRequestModifications)
 			if !ok {
 				errCh <- fmt.Errorf("expected UpstreamRequestModifications, got %T", action)

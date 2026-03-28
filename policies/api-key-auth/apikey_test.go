@@ -1,6 +1,7 @@
 package apikey
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -33,7 +34,7 @@ func TestAPIKeyPolicy_OnRequestHeaders_SuccessFromHeader(t *testing.T) {
 		http.CanonicalHeaderKey("x-api-key"): {"header-secret"},
 	}, "api-1", "OrdersAPI", "v1", "/orders")
 
-	action := p.OnRequestHeaders(ctx, map[string]interface{}{
+	action := p.OnRequestHeaders(context.Background(), ctx, map[string]interface{}{
 		"key": "x-api-key",
 		"in":  "header",
 	})
@@ -66,7 +67,7 @@ func TestAPIKeyPolicy_OnRequestHeaders_SuccessFromQuery(t *testing.T) {
 	p := &APIKeyPolicy{}
 	ctx := newRequestHeaderContext(t, "GET", "/orders?x_api_key=query-secret", nil, "api-2", "OrdersAPI", "v1", "/orders")
 
-	action := p.OnRequestHeaders(ctx, map[string]interface{}{
+	action := p.OnRequestHeaders(context.Background(), ctx, map[string]interface{}{
 		"key": "x_api_key",
 		"in":  "query",
 	})
@@ -123,7 +124,7 @@ func TestAPIKeyPolicy_OnRequestHeaders_MissingOrInvalidConfig(t *testing.T) {
 				"x-api-key": {"header-secret"},
 			}, "api-1", "OrdersAPI", "v1", "/orders")
 
-			action := p.OnRequestHeaders(ctx, tt.params)
+			action := p.OnRequestHeaders(context.Background(), ctx, tt.params)
 			assertUnauthorizedJSON(t, action)
 
 			if ctx.SharedContext.AuthContext == nil || ctx.SharedContext.AuthContext.Authenticated {
@@ -138,7 +139,7 @@ func TestAPIKeyPolicy_OnRequestHeaders_FailsWhenAPIKeyMissing(t *testing.T) {
 	p := &APIKeyPolicy{}
 	ctx := newRequestHeaderContext(t, "GET", "/orders?foo=bar", nil, "api-1", "OrdersAPI", "v1", "/orders")
 
-	action := p.OnRequestHeaders(ctx, map[string]interface{}{
+	action := p.OnRequestHeaders(context.Background(), ctx, map[string]interface{}{
 		"key": "x_api_key",
 		"in":  "query",
 	})
@@ -153,7 +154,7 @@ func TestAPIKeyPolicy_OnRequestHeaders_FailsWhenAPIDetailsMissing(t *testing.T) 
 		"x-api-key": {"header-secret"},
 	}, "api-1", "", "v1", "/orders")
 
-	action := p.OnRequestHeaders(ctx, map[string]interface{}{
+	action := p.OnRequestHeaders(context.Background(), ctx, map[string]interface{}{
 		"key": "x-api-key",
 		"in":  "header",
 	})
@@ -170,7 +171,7 @@ func TestAPIKeyPolicy_OnRequestHeaders_FailsWhenValidationReturnsFalse(t *testin
 		"x-api-key": {"wrong-secret"},
 	}, "api-1", "OrdersAPI", "v1", "/orders")
 
-	action := p.OnRequestHeaders(ctx, map[string]interface{}{
+	action := p.OnRequestHeaders(context.Background(), ctx, map[string]interface{}{
 		"key": "x-api-key",
 		"in":  "header",
 	})
@@ -187,7 +188,7 @@ func TestAPIKeyPolicy_OnRequestHeaders_FailsWhenValidationErrors(t *testing.T) {
 		"x-api-key": {"no-matching-key"},
 	}, "api-1", "OrdersAPI", "v1", "/orders")
 
-	action := p.OnRequestHeaders(ctx, map[string]interface{}{
+	action := p.OnRequestHeaders(context.Background(), ctx, map[string]interface{}{
 		"key": "x-api-key",
 		"in":  "header",
 	})
@@ -302,7 +303,7 @@ func TestAPIKeyPolicy_AuthContext_PreviousPreserved_OnSuccess(t *testing.T) {
 	}, "api-1", "OrdersAPI", "v1", "/orders")
 	ctx.SharedContext.AuthContext = prior
 
-	action := p.OnRequestHeaders(ctx, map[string]interface{}{
+	action := p.OnRequestHeaders(context.Background(), ctx, map[string]interface{}{
 		"key": "x-api-key",
 		"in":  "header",
 	})

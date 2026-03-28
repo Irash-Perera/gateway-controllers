@@ -19,6 +19,7 @@
 package tokenbasedratelimit
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -394,18 +395,17 @@ func convertLimits(rawLimits interface{}) []interface{} {
 // RequestContext built from the available header-phase data. This means request-header cost
 // sources (e.g. X-Token-Cost) are extracted and consumed immediately, before the upstream
 // is called, without requiring body buffering.
-func (p *TokenBasedRateLimitPolicy) OnRequestHeaders(
-	ctx *policy.RequestHeaderContext,
+func (p *TokenBasedRateLimitPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext,
 	params map[string]interface{},
 ) policy.RequestHeaderAction {
 	type requestHeaderPolicer interface {
-		OnRequestHeaders(*policy.RequestHeaderContext, map[string]interface{}) policy.RequestHeaderAction
+		OnRequestHeaders(context.Context, *policy.RequestHeaderContext, map[string]interface{}) policy.RequestHeaderAction
 	}
 
 	slog.Debug("OnRequestHeaders: processing token-based rate limit",
 		"route", p.metadata.RouteName)
 
-	providerName, ok := ctx.SharedContext.Metadata[MetadataKeyProviderName].(string)
+	providerName, ok := reqCtx.SharedContext.Metadata[MetadataKeyProviderName].(string)
 	if !ok || providerName == "" {
 		slog.Debug("OnRequestHeaders: provider name not found in metadata; skipping token-based rate limit",
 			"route", p.metadata.RouteName)
@@ -430,7 +430,7 @@ func (p *TokenBasedRateLimitPolicy) OnRequestHeaders(
 
 	// Phase 1: header pre-check — blocks if quota is already at zero.
 	if rl, ok := delegate.(requestHeaderPolicer); ok {
-		if action := rl.OnRequestHeaders(ctx, params); isBlockingHeaderAction(action) {
+		if action := rl.OnRequestHeaders(ctx, reqCtx, params); isBlockingHeaderAction(action) {
 			return action
 		}
 	}
@@ -450,15 +450,14 @@ func isBlockingHeaderAction(action policy.RequestHeaderAction) bool {
 
 // OnResponseHeaders delegates to the provider-specific ratelimit instance's OnResponseHeaders
 // if a delegate is already cached for the provider.
-func (p *TokenBasedRateLimitPolicy) OnResponseHeaders(
-	ctx *policy.ResponseHeaderContext,
+func (p *TokenBasedRateLimitPolicy) OnResponseHeaders(ctx context.Context, respCtx *policy.ResponseHeaderContext,
 	params map[string]interface{},
 ) policy.ResponseHeaderAction {
 	type responseHeaderPolicer interface {
-		OnResponseHeaders(*policy.ResponseHeaderContext, map[string]interface{}) policy.ResponseHeaderAction
+		OnResponseHeaders(context.Context, *policy.ResponseHeaderContext, map[string]interface{}) policy.ResponseHeaderAction
 	}
 
-	providerName, ok := ctx.Metadata[MetadataKeyProviderName].(string)
+	providerName, ok := respCtx.Metadata[MetadataKeyProviderName].(string)
 	if !ok || providerName == "" {
 		slog.Debug("OnResponseHeaders: provider name not found in metadata; skipping token-based rate limit",
 			"route", p.metadata.RouteName)
@@ -467,7 +466,7 @@ func (p *TokenBasedRateLimitPolicy) OnResponseHeaders(
 
 	if delegate, ok := p.delegates.Load(providerName); ok {
 		if rl, ok := delegate.(responseHeaderPolicer); ok {
-			return rl.OnResponseHeaders(ctx, params)
+			return rl.OnResponseHeaders(ctx, respCtx, params)
 		}
 	}
 
@@ -475,14 +474,13 @@ func (p *TokenBasedRateLimitPolicy) OnResponseHeaders(
 }
 
 // OnResponseBody processes the response body phase by delegating to the provider-specific instance.
-func (p *TokenBasedRateLimitPolicy) OnResponseBody(
-	ctx *policy.ResponseContext,
+func (p *TokenBasedRateLimitPolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext,
 	_ map[string]interface{},
 ) policy.ResponseAction {
 	slog.Debug("OnResponseBody: processing token-based rate limit",
 		"route", p.metadata.RouteName)
 
-	providerName, ok := ctx.SharedContext.Metadata[MetadataKeyProviderName].(string)
+	providerName, ok := respCtx.SharedContext.Metadata[MetadataKeyProviderName].(string)
 	if !ok || providerName == "" {
 		slog.Debug("OnResponseBody: provider name not found in metadata; skipping",
 			"route", p.metadata.RouteName)
@@ -498,10 +496,10 @@ func (p *TokenBasedRateLimitPolicy) OnResponseBody(
 			"route", p.metadata.RouteName,
 			"provider", providerName)
 		type responseBodyPolicer interface {
-			OnResponseBody(*policy.ResponseContext, map[string]interface{}) policy.ResponseAction
+			OnResponseBody(context.Context, *policy.ResponseContext, map[string]interface{}) policy.ResponseAction
 		}
 		if rl, ok := delegate.(responseBodyPolicer); ok {
-			return rl.OnResponseBody(ctx, nil)
+			return rl.OnResponseBody(ctx, respCtx, nil)
 		}
 		return nil
 	}

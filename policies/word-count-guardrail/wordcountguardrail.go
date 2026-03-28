@@ -18,6 +18,7 @@
 package wordcountguardrail
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -381,14 +382,14 @@ func (p *WordCountGuardrailPolicy) buildAssessmentObject(reason string, validati
 	return assessment
 }
 
-func (p *WordCountGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *WordCountGuardrailPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	if !p.hasRequestParams || !p.requestParams.Enabled {
 		return policy.UpstreamRequestModifications{}
 	}
 
 	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
 	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
 }
@@ -398,14 +399,14 @@ func (p *WordCountGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ m
 // SSE (stream: true) responses are also handled here
 // response headers are not yet committed, so a normal 422 error
 // response can still be returned (no SSE error-event workaround needed).
-func (p *WordCountGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+func (p *WordCountGuardrailPolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.DownstreamResponseModifications{}
 	}
 
 	var content []byte
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
+	if respCtx.ResponseBody != nil {
+		content = respCtx.ResponseBody.Content
 	}
 
 	// For SSE responses, reconstruct the full assistant text from delta events
@@ -683,7 +684,7 @@ func (p *WordCountGuardrailPolicy) NeedsMoreResponseData(accumulated []byte) boo
 // OnResponseBodyChunk implements StreamingResponsePolicy.
 // Receives flushed batches from the kernel accumulator and validates them.
 // ctx.Metadata tracks the full accumulated text across windows for accuracy.
-func (p *WordCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
+func (p *WordCountGuardrailPolicy) OnResponseBodyChunk(ctx context.Context, respCtx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.ResponseChunkAction{}
 	}
@@ -691,15 +692,15 @@ func (p *WordCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStrea
 		return policy.ResponseChunkAction{}
 	}
 	chunkStr := string(chunk.Chunk)
-	if ctx.Metadata == nil {
-		ctx.Metadata = make(map[string]interface{})
+	if respCtx.Metadata == nil {
+		respCtx.Metadata = make(map[string]interface{})
 	}
 	if !isSSEChunk(chunkStr) {
 		// Plain JSON via chunked transfer (e.g. OpenAI stream:false with Transfer-Encoding: chunked).
 		// Accumulate all chunks and validate the complete body at end of stream.
-		prev, _ := ctx.Metadata[metaKeyAccJsonBody].(string)
+		prev, _ := respCtx.Metadata[metaKeyAccJsonBody].(string)
 		full := prev + chunkStr
-		ctx.Metadata[metaKeyAccJsonBody] = full
+		respCtx.Metadata[metaKeyAccJsonBody] = full
 		if !chunk.EndOfStream {
 			return policy.ResponseChunkAction{}
 		}
@@ -708,7 +709,7 @@ func (p *WordCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStrea
 		// the final SSE min/invert check on accumulated SSE content instead of JSONPath extraction.
 		if strings.TrimSpace(full) == "" {
 			rp := p.responseParams
-			accContent, _ := ctx.Metadata[metaKeyAccContent].(string)
+			accContent, _ := respCtx.Metadata[metaKeyAccContent].(string)
 			count := countWords(accContent)
 			if !rp.Invert {
 				if count < rp.Min {
@@ -734,13 +735,13 @@ func (p *WordCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStrea
 	// so that countWords always operates on the full text seen so far,
 	// avoiding off-by-one errors at flush-window boundaries.
 	prev := ""
-	if v, ok := ctx.Metadata[metaKeyAccContent]; ok {
+	if v, ok := respCtx.Metadata[metaKeyAccContent]; ok {
 		if s, ok := v.(string); ok {
 			prev = s
 		}
 	}
 	fullContent := prev + extractSSEDeltaContent(chunkStr, rp.StreamingJsonPath)
-	ctx.Metadata[metaKeyAccContent] = fullContent
+	respCtx.Metadata[metaKeyAccContent] = fullContent
 	count := countWords(fullContent)
 	isDone := chunk.EndOfStream
 

@@ -380,7 +380,7 @@ func TestOnRequest_NoRequestParams_ReturnsNoOp(t *testing.T) {
 		},
 	}
 
-	result := p.OnRequestBody(ctx, map[string]interface{}{})
+	result := p.OnRequestBody(context.Background(), ctx, map[string]interface{}{})
 	mod, ok := result.(policy.UpstreamRequestModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", result)
@@ -407,7 +407,7 @@ func TestOnRequest_DisabledRequestFlow_ReturnsNoOp(t *testing.T) {
 		},
 	}
 
-	result := p.OnRequestBody(ctx, map[string]interface{}{})
+	result := p.OnRequestBody(context.Background(), ctx, map[string]interface{}{})
 	if _, ok := result.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", result)
 	}
@@ -431,7 +431,7 @@ func TestOnRequest_BlockAndPassthroughOnJSONPathError(t *testing.T) {
 			PassthroughOnError: false,
 		},
 	}
-	blockResult := blockPolicy.OnRequestBody(ctx, map[string]interface{}{})
+	blockResult := blockPolicy.OnRequestBody(context.Background(), ctx, map[string]interface{}{})
 	imm, ok := blockResult.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", blockResult)
@@ -448,7 +448,7 @@ func TestOnRequest_BlockAndPassthroughOnJSONPathError(t *testing.T) {
 			PassthroughOnError: true,
 		},
 	}
-	passthroughResult := passthroughPolicy.OnRequestBody(ctx, map[string]interface{}{})
+	passthroughResult := passthroughPolicy.OnRequestBody(context.Background(), ctx, map[string]interface{}{})
 	if _, ok := passthroughResult.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", passthroughResult)
 	}
@@ -468,7 +468,7 @@ func TestOnResponse_NoResponseParams_ReturnsNoOp(t *testing.T) {
 		},
 	}
 
-	result := p.OnResponseBody(ctx, map[string]interface{}{})
+	result := p.OnResponseBody(context.Background(), ctx, map[string]interface{}{})
 	mod, ok := result.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", result)
@@ -495,7 +495,7 @@ func TestOnResponse_DisabledResponseFlow_ReturnsNoOp(t *testing.T) {
 		},
 	}
 
-	result := p.OnResponseBody(ctx, map[string]interface{}{})
+	result := p.OnResponseBody(context.Background(), ctx, map[string]interface{}{})
 	if _, ok := result.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", result)
 	}
@@ -523,7 +523,7 @@ func TestOnResponse_RestoreAndBlockPaths(t *testing.T) {
 		},
 	}
 
-	restoreResult := restorePolicy.OnResponseBody(restoreCtx, map[string]interface{}{})
+	restoreResult := restorePolicy.OnResponseBody(context.Background(), restoreCtx, map[string]interface{}{})
 	restoreMod, ok := restoreResult.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", restoreResult)
@@ -550,7 +550,7 @@ func TestOnResponse_RestoreAndBlockPaths(t *testing.T) {
 		},
 	}
 
-	blockResult := blockPolicy.OnResponseBody(blockCtx, map[string]interface{}{})
+	blockResult := blockPolicy.OnResponseBody(context.Background(), blockCtx, map[string]interface{}{})
 	blockMod, ok := blockResult.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", blockResult)
@@ -594,7 +594,7 @@ func TestOnRequest_WithMockedBedrockNoViolation(t *testing.T) {
 		},
 	}
 
-	result := p.OnRequestBody(ctx, map[string]interface{}{})
+	result := p.OnRequestBody(context.Background(), ctx, map[string]interface{}{})
 	mod, ok := result.(policy.UpstreamRequestModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", result)
@@ -644,7 +644,7 @@ func TestOnRequest_WithMockedBedrockViolation(t *testing.T) {
 		},
 	}
 
-	result := p.OnRequestBody(ctx, map[string]interface{}{})
+	result := p.OnRequestBody(context.Background(), ctx, map[string]interface{}{})
 	imm, ok := result.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", result)
@@ -685,7 +685,7 @@ func TestOnRequest_WithMockedBedrockErrorPassthrough(t *testing.T) {
 		},
 	}
 
-	result := p.OnRequestBody(ctx, map[string]interface{}{})
+	result := p.OnRequestBody(context.Background(), ctx, map[string]interface{}{})
 	if _, ok := result.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications on passthrough, got %T", result)
 	}
@@ -723,7 +723,7 @@ func TestOnResponse_WithMockedBedrockPIIRedaction(t *testing.T) {
 		},
 	}
 
-	result := p.OnResponseBody(ctx, map[string]interface{}{})
+	result := p.OnResponseBody(context.Background(), ctx, map[string]interface{}{})
 	mod, ok := result.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", result)

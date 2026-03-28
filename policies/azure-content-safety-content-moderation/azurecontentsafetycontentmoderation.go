@@ -19,6 +19,7 @@ package azurecontentsafetycontentmoderation
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -276,27 +277,27 @@ func validateAzureConfigParams(params map[string]interface{}) error {
 }
 
 // OnRequestBody validates request body content
-func (p *AzureContentSafetyContentModerationPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *AzureContentSafetyContentModerationPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	if !p.hasRequestParams {
 		return policy.UpstreamRequestModifications{}
 	}
 
 	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
 	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
 }
 
 // OnResponseBody validates response body content
-func (p *AzureContentSafetyContentModerationPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+func (p *AzureContentSafetyContentModerationPolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
 	if !p.hasResponseParams {
 		return policy.DownstreamResponseModifications{}
 	}
 
 	var content []byte
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
+	if respCtx.ResponseBody != nil {
+		content = respCtx.ResponseBody.Content
 	}
 	return p.validatePayload(content, p.responseParams, true).(policy.ResponseAction)
 }

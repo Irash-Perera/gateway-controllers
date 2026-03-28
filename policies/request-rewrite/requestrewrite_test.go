@@ -18,6 +18,7 @@
 package requestrewrite
 
 import (
+	"context"
 	"testing"
 
 	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
@@ -33,7 +34,7 @@ func makeCtx(apiContext, operationPath, requestPath string, headers map[string][
 		SharedContext: &policy.SharedContext{
 			RequestID:     "req-test",
 			Metadata:      map[string]interface{}{},
-			APIContext:     apiContext,
+			APIContext:    apiContext,
 			OperationPath: operationPath,
 		},
 		Path:    requestPath,
@@ -105,7 +106,7 @@ func TestReplaceFullPath_keepsAPIContextPrefix(t *testing.T) {
 			"replaceFullPath": "/fixed/path",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/req-transform-full/v1.0/fixed/path")
 }
 
@@ -118,7 +119,7 @@ func TestReplaceFullPath_singleSegment(t *testing.T) {
 			"replaceFullPath": "/new",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/new")
 }
 
@@ -131,7 +132,7 @@ func TestReplaceFullPath_deepOperationPath(t *testing.T) {
 			"replaceFullPath": "/x/y",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/svc/v2/x/y")
 }
 
@@ -144,7 +145,7 @@ func TestReplaceFullPath_withQueryParams(t *testing.T) {
 			"replaceFullPath": "/find",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/find?limit=10&q=foo")
 }
 
@@ -158,7 +159,7 @@ func TestReplaceFullPath_noChangeWhenSameRelativePath(t *testing.T) {
 			"replaceFullPath": "/items",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertNoPathChange(t, result)
 }
 
@@ -173,7 +174,7 @@ func TestReplacePrefixMatch_basic(t *testing.T) {
 			"replacePrefixMatch": "/animals",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/animals")
 }
 
@@ -186,7 +187,7 @@ func TestReplacePrefixMatch_withSuffix(t *testing.T) {
 			"replacePrefixMatch": "/animals",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/animals/123")
 }
 
@@ -200,7 +201,7 @@ func TestReplacePrefixMatch_operationPrefixNotInPath(t *testing.T) {
 			"replacePrefixMatch": "/animals",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertNoPathChange(t, result)
 }
 
@@ -218,7 +219,7 @@ func TestReplaceRegexMatch_basic(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/v2/users")
 }
 
@@ -234,7 +235,7 @@ func TestReplaceRegexMatch_withCaptureGroup(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/svc/v1/items/123")
 }
 
@@ -255,7 +256,7 @@ func TestReplaceRegexMatch_reordersCapturedSegments(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/req-transform-regex-capture/v1.0/v1/api/instance/foo")
 }
 
@@ -275,7 +276,7 @@ func TestReplaceRegexMatch_caseInsensitive(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/req-transform-regex-ci/v1.0/aaa/yyy/bbb")
 }
 
@@ -295,7 +296,7 @@ func TestReplaceRegexMatch_replacesAllMatches(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/req-transform-regex-multi/v1.0/xxx/two/yyy/two/zzz")
 }
 
@@ -311,7 +312,7 @@ func TestReplaceRegexMatch_invalidPattern(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	// Invalid regex — path is unchanged
 	assertNoPathChange(t, result)
 }
@@ -325,7 +326,7 @@ func TestMethodRewrite_postToGet(t *testing.T) {
 	params := map[string]interface{}{
 		"methodRewrite": "GET",
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertMethod(t, result, "GET")
 }
 
@@ -335,7 +336,7 @@ func TestMethodRewrite_caseInsensitiveInput(t *testing.T) {
 	params := map[string]interface{}{
 		"methodRewrite": "post",
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertMethod(t, result, "POST")
 }
 
@@ -345,7 +346,7 @@ func TestMethodRewrite_unsupportedMethod(t *testing.T) {
 	params := map[string]interface{}{
 		"methodRewrite": "CONNECT",
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertImmediateResponse(t, result, 500)
 }
 
@@ -359,7 +360,7 @@ func TestMethodRewrite_withPathRewrite(t *testing.T) {
 		},
 		"methodRewrite": "POST",
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/new")
 	assertMethod(t, result, "POST")
 }
@@ -380,7 +381,7 @@ func TestQueryRewrite_replace(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/search?env=staging")
 }
 
@@ -397,7 +398,7 @@ func TestQueryRewrite_remove(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/search?q=foo")
 }
 
@@ -415,7 +416,7 @@ func TestQueryRewrite_add(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/items?page=1&sort=asc")
 }
 
@@ -434,7 +435,7 @@ func TestQueryRewrite_append(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/search?tags=go%2Ctest")
 }
 
@@ -453,7 +454,7 @@ func TestQueryRewrite_replaceRegexMatch(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/list?version=v1")
 }
 
@@ -472,7 +473,7 @@ func TestQueryRewrite_invalidQueryRegex(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertImmediateResponse(t, result, 500)
 }
 
@@ -492,7 +493,7 @@ func TestQueryRewrite_addReplaceRemoveCombined(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/search?q=new-value&source=legacy")
 }
 
@@ -513,7 +514,7 @@ func TestQueryRewrite_pathAndQueryTogether(t *testing.T) {
 			},
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/new")
 }
 
@@ -535,7 +536,7 @@ func TestMatch_headerExact_matches(t *testing.T) {
 			"replaceFullPath": "/new",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/new")
 }
 
@@ -555,7 +556,7 @@ func TestMatch_headerExact_noMatch(t *testing.T) {
 			"replaceFullPath": "/new",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertNoPathChange(t, result)
 }
 
@@ -575,7 +576,7 @@ func TestMatch_headerRegex_matches(t *testing.T) {
 			"replaceFullPath": "/v2",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/v2")
 }
 
@@ -595,7 +596,7 @@ func TestMatch_headerPresent_matches(t *testing.T) {
 			"replaceFullPath": "/debug",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/debug")
 }
 
@@ -613,7 +614,7 @@ func TestMatch_headerPresent_absent(t *testing.T) {
 			"replaceFullPath": "/debug",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertNoPathChange(t, result)
 }
 
@@ -631,7 +632,7 @@ func TestMatch_queryParam_exact_matches(t *testing.T) {
 			"replaceFullPath": "/fast-data",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/api/v1/fast-data?mode=fast")
 }
 
@@ -649,7 +650,7 @@ func TestMatch_queryParam_exact_noMatch(t *testing.T) {
 			"replaceFullPath": "/fast-data",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertNoPathChange(t, result)
 }
 
@@ -671,7 +672,7 @@ func TestMatch_multipleHeaders_allMustMatch(t *testing.T) {
 			"replaceFullPath": "/matched",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertNoPathChange(t, result)
 }
 
@@ -689,7 +690,7 @@ func TestAPILevelPolicy_rewritesPrefixMatch(t *testing.T) {
 			"replacePrefixMatch": "/api/v2",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/req-transform-api-prefix/v1.0/api/v2")
 }
 
@@ -701,7 +702,7 @@ func TestAPILevelPolicy_rewritesMethod(t *testing.T) {
 	params := map[string]interface{}{
 		"methodRewrite": "POST",
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertMethod(t, result, "POST")
 }
 
@@ -710,14 +711,14 @@ func TestAPILevelPolicy_rewritesMethod(t *testing.T) {
 func TestPassThrough_nilParams(t *testing.T) {
 	p := &RequestRewritePolicy{}
 	ctx := makeCtx("/api/v1", "/data", "/api/v1/data", nil)
-	result := p.OnRequestHeaders(ctx, nil)
+	result := p.OnRequestHeaders(context.Background(), ctx, nil)
 	assertNoPathChange(t, result)
 }
 
 func TestPassThrough_emptyParams(t *testing.T) {
 	p := &RequestRewritePolicy{}
 	ctx := makeCtx("/api/v1", "/data", "/api/v1/data", nil)
-	result := p.OnRequestHeaders(ctx, map[string]interface{}{})
+	result := p.OnRequestHeaders(context.Background(), ctx, map[string]interface{}{})
 	assertNoPathChange(t, result)
 }
 
@@ -733,7 +734,7 @@ func TestPassThrough_noAPIContext(t *testing.T) {
 			"replaceFullPath": "/new",
 		},
 	}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	assertPath(t, result, "/new")
 }
 
@@ -748,27 +749,27 @@ func TestSplitBasePath(t *testing.T) {
 		wantRelative string
 	}{
 		{
-			name: "normal split",
+			name:       "normal split",
 			apiContext: "/api/v1", path: "/api/v1/pets",
 			wantBase: "/api/v1", wantRelative: "/pets",
 		},
 		{
-			name: "trailing slash on context",
+			name:       "trailing slash on context",
 			apiContext: "/api/v1/", path: "/api/v1/pets",
 			wantBase: "/api/v1", wantRelative: "/pets",
 		},
 		{
-			name: "empty context",
+			name:       "empty context",
 			apiContext: "", path: "/pets",
 			wantBase: "", wantRelative: "/pets",
 		},
 		{
-			name: "path equals context",
+			name:       "path equals context",
 			apiContext: "/api/v1", path: "/api/v1",
 			wantBase: "/api/v1", wantRelative: "/",
 		},
 		{
-			name: "context not in path",
+			name:       "context not in path",
 			apiContext: "/other", path: "/api/v1/pets",
 			wantBase: "", wantRelative: "/api/v1/pets",
 		},

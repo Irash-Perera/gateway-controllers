@@ -1,6 +1,7 @@
 package cors
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -151,7 +152,7 @@ func TestCorsPolicy_OnRequestHeaders_PreflightSuccess(t *testing.T) {
 		},
 	})
 
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, nil)
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
@@ -191,7 +192,7 @@ func TestCorsPolicy_OnRequestHeaders_PreflightFailure_NotForwarded(t *testing.T)
 		},
 	})
 
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, nil)
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
@@ -220,7 +221,7 @@ func TestCorsPolicy_OnRequestHeaders_PreflightFailure_Forwarded(t *testing.T) {
 		},
 	})
 
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, nil)
 	if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
 		t.Fatalf("expected UpstreamRequestHeaderModifications, got %T", action)
 	}
@@ -237,7 +238,7 @@ func TestCorsPolicy_OnRequestHeaders_NonPreflightAllowedOrigin(t *testing.T) {
 		"Origin": {"https://allowed.example.com"},
 	})
 
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, nil)
 	if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
 		t.Fatalf("expected UpstreamRequestHeaderModifications for non-preflight request, got %T", action)
 	}
@@ -269,7 +270,7 @@ func TestCorsPolicy_OnRequestHeaders_NonPreflightDisallowedOriginSetsStrip(t *te
 		"Origin": {"https://blocked.example.com"},
 	})
 
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, nil)
 	if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
 		t.Fatalf("expected UpstreamRequestHeaderModifications for non-preflight request, got %T", action)
 	}
@@ -287,7 +288,7 @@ func TestCorsPolicy_OnRequestHeaders_NonPreflightWithoutOriginNoStrip(t *testing
 	})
 
 	ctx := newCorsRequestHeaderContext("GET", nil)
-	_ = p.OnRequestHeaders(ctx, nil)
+	_ = p.OnRequestHeaders(context.Background(), ctx, nil)
 
 	if _, ok := ctx.Metadata["cors_strip"]; ok {
 		t.Fatalf("did not expect cors_strip metadata when Origin is absent")
@@ -310,7 +311,7 @@ func TestCorsPolicy_OnResponseHeaders_FromCorsHeadersMetadata(t *testing.T) {
 		},
 	}
 
-	action := p.OnResponseHeaders(ctx, nil)
+	action := p.OnResponseHeaders(context.Background(), ctx, nil)
 	mods, ok := action.(policy.DownstreamResponseHeaderModifications)
 	if !ok {
 		t.Fatalf("expected DownstreamResponseHeaderModifications, got %T", action)
@@ -331,7 +332,7 @@ func TestCorsPolicy_OnResponseHeaders_FromCorsStripMetadata(t *testing.T) {
 		},
 	}
 
-	action := p.OnResponseHeaders(ctx, nil)
+	action := p.OnResponseHeaders(context.Background(), ctx, nil)
 	mods, ok := action.(policy.DownstreamResponseHeaderModifications)
 	if !ok {
 		t.Fatalf("expected DownstreamResponseHeaderModifications, got %T", action)
@@ -355,7 +356,7 @@ func TestCorsPolicy_OnResponseHeaders_NoMetadata(t *testing.T) {
 		},
 	}
 
-	action := p.OnResponseHeaders(ctx, nil)
+	action := p.OnResponseHeaders(context.Background(), ctx, nil)
 	if _, ok := action.(policy.DownstreamResponseHeaderModifications); !ok {
 		t.Fatalf("expected DownstreamResponseHeaderModifications, got %T", action)
 	}
@@ -376,7 +377,7 @@ func TestCorsPolicy_OnRequestHeaders_PreflightSpecificAllowedHeadersCaseInsensit
 		},
 	})
 
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, nil)
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)

@@ -18,6 +18,7 @@
 package promptdecorator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -287,18 +288,18 @@ func (p *PromptDecoratorPolicy) setValueAtPath(current interface{}, key string, 
 }
 
 // OnRequestBody decorates the request body.
-func (p *PromptDecoratorPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
-	return p.processRequestBody(ctx)
+func (p *PromptDecoratorPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+	return p.processRequestBody(reqCtx)
 }
 
-func (p *PromptDecoratorPolicy) processRequestBody(ctx *policy.RequestContext) policy.RequestAction {
+func (p *PromptDecoratorPolicy) processRequestBody(reqCtx *policy.RequestContext) policy.RequestAction {
 	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
 
 	// Check for empty or nil content before unmarshaling
-	if ctx.Body == nil || len(content) == 0 {
+	if reqCtx.Body == nil || len(content) == 0 {
 		return p.buildErrorResponse("Empty request body", nil)
 	}
 

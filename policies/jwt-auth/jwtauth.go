@@ -18,6 +18,7 @@
 package jwtauth
 
 import (
+	"context"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -1103,7 +1104,7 @@ func parsePublicKeyFromString(pemData string) (*rsa.PublicKey, error) {
 }
 
 // OnRequestHeaders performs JWT validation in the request header phase.
-func (p *JwtAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *JwtAuthPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	slog.Debug("JWT Auth Policy: OnRequestHeaders started")
 
 	headerName := getStringParam(params, "headerName", "Authorization")
@@ -1181,7 +1182,7 @@ func (p *JwtAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 	keyManagersRaw, ok := params["keyManagers"]
 	if !ok {
 		slog.Debug("JWT Auth Policy: Key managers not configured in params")
-		return p.handleAuthFailureHeaders(ctx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "key managers not configured")
+		return p.handleAuthFailureHeaders(reqCtx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "key managers not configured")
 	}
 
 	slog.Debug("JWT Auth Policy: Starting to parse key managers configuration")
@@ -1302,7 +1303,7 @@ func (p *JwtAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 
 	if len(keyManagers) == 0 {
 		slog.Debug("JWT Auth Policy: No key managers configured after parsing")
-		return p.handleAuthFailureHeaders(ctx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "no key managers configured")
+		return p.handleAuthFailureHeaders(reqCtx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "no key managers configured")
 	}
 
 	slog.Debug("JWT Auth Policy: Key managers configured",
@@ -1335,12 +1336,12 @@ func (p *JwtAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 		authHeaderScheme = userAuthHeaderPrefix
 	}
 
-	authHeaders := ctx.Headers.Get(strings.ToLower(headerName))
+	authHeaders := reqCtx.Headers.Get(strings.ToLower(headerName))
 	if len(authHeaders) == 0 {
 		slog.Debug("JWT Auth Policy: Missing authorization header",
 			"headerName", headerName,
 		)
-		return p.handleAuthFailureHeaders(ctx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "missing authorization header")
+		return p.handleAuthFailureHeaders(reqCtx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "missing authorization header")
 	}
 
 	authHeader := authHeaders[0]
@@ -1354,7 +1355,7 @@ func (p *JwtAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 		slog.Debug("JWT Auth Policy: Failed to extract token from authorization header",
 			"authHeaderScheme", authHeaderScheme,
 		)
-		return p.handleAuthFailureHeaders(ctx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "invalid authorization header format")
+		return p.handleAuthFailureHeaders(reqCtx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "invalid authorization header format")
 	}
 
 	slog.Debug("JWT Auth Policy: Token extracted successfully",
@@ -1366,7 +1367,7 @@ func (p *JwtAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 		slog.Debug("JWT Auth Policy: Failed to parse token",
 			"error", err,
 		)
-		return p.handleAuthFailureHeaders(ctx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "invalid token format")
+		return p.handleAuthFailureHeaders(reqCtx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "invalid token format")
 	}
 
 	slog.Debug("JWT Auth Policy: Token parsed successfully",
@@ -1381,7 +1382,7 @@ func (p *JwtAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 		slog.Debug("JWT Auth Policy: Token validation failed",
 			"error", err,
 		)
-		return p.handleAuthFailureHeaders(ctx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, fmt.Sprintf("token validation failed: %v", err))
+		return p.handleAuthFailureHeaders(reqCtx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, fmt.Sprintf("token validation failed: %v", err))
 	}
 
 	slog.Debug("JWT Auth Policy: Token signature validated successfully")
@@ -1408,7 +1409,7 @@ func (p *JwtAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 			slog.Debug("JWT Auth Policy: No valid audience found in token",
 				"tokenAudiences", aud,
 			)
-			return p.handleAuthFailureHeaders(ctx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "no valid audience found in token")
+			return p.handleAuthFailureHeaders(reqCtx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, "no valid audience found in token")
 		}
 		slog.Debug("JWT Auth Policy: Audience validation passed")
 	}
@@ -1432,7 +1433,7 @@ func (p *JwtAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 					"missingScope", requiredScope,
 					"tokenScopes", scopes,
 				)
-				return p.handleAuthFailureHeaders(ctx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, fmt.Sprintf("required scope '%s' not found", requiredScope))
+				return p.handleAuthFailureHeaders(reqCtx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, fmt.Sprintf("required scope '%s' not found", requiredScope))
 			}
 		}
 		slog.Debug("JWT Auth Policy: Scope validation passed")
@@ -1456,13 +1457,13 @@ func (p *JwtAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, param
 				"expectedValue", expectedValue,
 				"actualValue", claimValue,
 			)
-			return p.handleAuthFailureHeaders(ctx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, fmt.Sprintf("claim '%s' validation failed", claimName))
+			return p.handleAuthFailureHeaders(reqCtx.SharedContext, onFailureStatusCode, errorMessageFormat, errorMessage, fmt.Sprintf("claim '%s' validation failed", claimName))
 		}
 	}
 
 	slog.Debug("JWT Auth Policy: All validations passed, authentication successful")
 
-	return p.handleAuthSuccessHeaders(ctx.SharedContext, claims, userClaimMappings, userIdClaim)
+	return p.handleAuthSuccessHeaders(reqCtx.SharedContext, claims, userClaimMappings, userIdClaim)
 }
 
 // handleAuthSuccessHeaders handles successful JWT authentication in the header phase.

@@ -857,33 +857,33 @@ func (p *AWSBedrockGuardrailPolicy) convertBedrockAssessmentToMap(assessment typ
 }
 
 // OnRequestBody validates request body using AWS Bedrock Guardrail.
-func (p *AWSBedrockGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *AWSBedrockGuardrailPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	if !p.hasRequestParams || !p.requestParams.Enabled {
 		return policy.UpstreamRequestModifications{}
 	}
 
-	if ctx.Metadata == nil {
-		ctx.Metadata = make(map[string]interface{})
+	if reqCtx.Metadata == nil {
+		reqCtx.Metadata = make(map[string]interface{})
 	}
 
 	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
-	return p.validatePayload(content, p.requestParams, false, ctx.Metadata).(policy.RequestAction)
+	return p.validatePayload(content, p.requestParams, false, reqCtx.Metadata).(policy.RequestAction)
 }
 
 // OnResponseBody validates response body using AWS Bedrock Guardrail.
-func (p *AWSBedrockGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+func (p *AWSBedrockGuardrailPolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.DownstreamResponseModifications{}
 	}
 
 	var content []byte
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
+	if respCtx.ResponseBody != nil {
+		content = respCtx.ResponseBody.Content
 	}
-	return p.validatePayload(content, p.responseParams, true, ctx.Metadata).(policy.ResponseAction)
+	return p.validatePayload(content, p.responseParams, true, respCtx.Metadata).(policy.ResponseAction)
 }
 
 // validatePayload validates payload against AWS Bedrock Guardrail, returning policy actions.

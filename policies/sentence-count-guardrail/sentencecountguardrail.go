@@ -18,6 +18,7 @@
 package sentencecountguardrail
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -374,14 +375,14 @@ func (p *SentenceCountGuardrailPolicy) buildAssessmentObject(reason string, vali
 }
 
 // OnRequestBody validates request body sentence count.
-func (p *SentenceCountGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *SentenceCountGuardrailPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	if !p.hasRequestParams || !p.requestParams.Enabled {
 		return policy.UpstreamRequestModifications{}
 	}
 
 	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
 	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
 }
@@ -392,14 +393,14 @@ func (p *SentenceCountGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext,
 // by extracting the full assistant text from delta events and validating that
 // directly, bypassing the JSONPath extraction (which targets the non-streaming
 // response structure).
-func (p *SentenceCountGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+func (p *SentenceCountGuardrailPolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.DownstreamResponseModifications{}
 	}
 
 	var content []byte
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
+	if respCtx.ResponseBody != nil {
+		content = respCtx.ResponseBody.Content
 	}
 
 	contentStr := string(content)
@@ -571,7 +572,7 @@ func (p *SentenceCountGuardrailPolicy) NeedsMoreResponseData(accumulated []byte)
 // OnResponseBodyChunk implements StreamingResponsePolicy.
 // Receives flushed batches from the kernel accumulator and validates them.
 // ctx.Metadata tracks the full accumulated text across windows for accuracy.
-func (p *SentenceCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
+func (p *SentenceCountGuardrailPolicy) OnResponseBodyChunk(ctx context.Context, respCtx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.ResponseChunkAction{}
 	}
@@ -579,15 +580,15 @@ func (p *SentenceCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseS
 		return policy.ResponseChunkAction{}
 	}
 	chunkStr := string(chunk.Chunk)
-	if ctx.Metadata == nil {
-		ctx.Metadata = make(map[string]interface{})
+	if respCtx.Metadata == nil {
+		respCtx.Metadata = make(map[string]interface{})
 	}
 	if !isSSEChunk(chunkStr) {
 		// Plain JSON via chunked transfer (e.g. OpenAI stream:false with Transfer-Encoding: chunked).
 		// Accumulate all chunks and validate the complete body at end of stream.
-		prev, _ := ctx.Metadata[metaKeyAccJsonBody].(string)
+		prev, _ := respCtx.Metadata[metaKeyAccJsonBody].(string)
 		full := prev + chunkStr
-		ctx.Metadata[metaKeyAccJsonBody] = full
+		respCtx.Metadata[metaKeyAccJsonBody] = full
 		if !chunk.EndOfStream {
 			return policy.ResponseChunkAction{}
 		}
@@ -597,7 +598,7 @@ func (p *SentenceCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseS
 		// an empty body. Instead, run the final SSE min/invert check on accumulated SSE content.
 		if strings.TrimSpace(full) == "" {
 			rp := p.responseParams
-			accContent, _ := ctx.Metadata[metaKeyAccContent].(string)
+			accContent, _ := respCtx.Metadata[metaKeyAccContent].(string)
 			count := countSentences(accContent)
 			if !rp.Invert {
 				if count < rp.Min {
@@ -623,13 +624,13 @@ func (p *SentenceCountGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseS
 	// so that countSentences always operates on the full text seen so far,
 	// avoiding off-by-one errors at flush-window boundaries.
 	prev := ""
-	if v, ok := ctx.Metadata[metaKeyAccContent]; ok {
+	if v, ok := respCtx.Metadata[metaKeyAccContent]; ok {
 		if s, ok := v.(string); ok {
 			prev = s
 		}
 	}
 	fullContent := prev + extractSSEDeltaContent(chunkStr, rp.StreamingJsonPath)
-	ctx.Metadata[metaKeyAccContent] = fullContent
+	respCtx.Metadata[metaKeyAccContent] = fullContent
 	count := countSentences(fullContent)
 	isDone := chunk.EndOfStream
 

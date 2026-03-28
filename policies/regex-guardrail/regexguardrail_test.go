@@ -1,6 +1,7 @@
 package regexguardrail
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -247,7 +248,7 @@ func TestRegexGuardrailPolicy_DisabledFlow_GetPolicyAndHandlers_NoRequiredParams
 			t.Fatalf("expected request params present and disabled, got hasRequest=%v enabled=%v", p.hasRequestParams, p.requestParams.Enabled)
 		}
 
-		action := p.OnRequestBody(newRequestContextWithBody(`{"messages":[{"content":"hello"}]}`), nil)
+		action := p.OnRequestBody(context.Background(), newRequestContextWithBody(`{"messages":[{"content":"hello"}]}`), nil)
 		if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 			t.Fatalf("expected request no-op when request.enabled=false, got %T", action)
 		}
@@ -268,7 +269,7 @@ func TestRegexGuardrailPolicy_DisabledFlow_GetPolicyAndHandlers_NoRequiredParams
 			t.Fatalf("expected response params present and disabled, got hasResponse=%v enabled=%v", p.hasResponseParams, p.responseParams.Enabled)
 		}
 
-		action := p.OnResponseBody(newResponseContextWithBody(`{"status":"ok"}`), nil)
+		action := p.OnResponseBody(context.Background(), newResponseContextWithBody(`{"status":"ok"}`), nil)
 		if _, ok := action.(policy.DownstreamResponseModifications); !ok {
 			t.Fatalf("expected response no-op when response.enabled=false, got %T", action)
 		}
@@ -282,7 +283,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_NoRequestConfig_NoOp(t *testing.T) {
 		},
 	})
 
-	action := p.OnRequestBody(newRequestContextWithBody(`{"message":"hello"}`), nil)
+	action := p.OnRequestBody(context.Background(), newRequestContextWithBody(`{"message":"hello"}`), nil)
 	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
@@ -296,7 +297,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_Disabled_NoOp(t *testing.T) {
 		},
 	})
 
-	action := p.OnRequestBody(newRequestContextWithBody(`{"messages":[{"content":"hello"}]}`), nil)
+	action := p.OnRequestBody(context.Background(), newRequestContextWithBody(`{"messages":[{"content":"hello"}]}`), nil)
 	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
@@ -309,7 +310,7 @@ func TestRegexGuardrailPolicy_OnResponseBody_NoResponseConfig_NoOp(t *testing.T)
 		},
 	})
 
-	action := p.OnResponseBody(newResponseContextWithBody(`{"message":"hello"}`), nil)
+	action := p.OnResponseBody(context.Background(), newResponseContextWithBody(`{"message":"hello"}`), nil)
 	if _, ok := action.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected DownstreamResponseModifications, got %T", action)
 	}
@@ -323,7 +324,7 @@ func TestRegexGuardrailPolicy_OnResponseBody_Disabled_NoOp(t *testing.T) {
 		},
 	})
 
-	action := p.OnResponseBody(newResponseContextWithBody(`{"message":"hello"}`), nil)
+	action := p.OnResponseBody(context.Background(), newResponseContextWithBody(`{"message":"hello"}`), nil)
 	if _, ok := action.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected DownstreamResponseModifications, got %T", action)
 	}
@@ -346,7 +347,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_EmptyBody_NoOp(t *testing.T) {
 			Present: false,
 		},
 	}
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
@@ -369,7 +370,7 @@ func TestRegexGuardrailPolicy_OnResponseBody_EmptyBody_NoOp(t *testing.T) {
 			Present: false,
 		},
 	}
-	action := p.OnResponseBody(ctx, nil)
+	action := p.OnResponseBody(context.Background(), ctx, nil)
 	if _, ok := action.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected DownstreamResponseModifications, got %T", action)
 	}
@@ -382,7 +383,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_DefaultJSONPath_Success(t *testing.T
 		},
 	})
 
-	action := p.OnRequestBody(newRequestContextWithBody(`{"messages":[{"content":"hello world"}]}`), nil)
+	action := p.OnRequestBody(context.Background(), newRequestContextWithBody(`{"messages":[{"content":"hello world"}]}`), nil)
 	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
@@ -396,7 +397,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_CustomJSONPath_Success(t *testing.T)
 		},
 	})
 
-	action := p.OnRequestBody(newRequestContextWithBody(`{"messages":[{"content":"my secret token"}]}`), nil)
+	action := p.OnRequestBody(context.Background(), newRequestContextWithBody(`{"messages":[{"content":"my secret token"}]}`), nil)
 	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
@@ -410,7 +411,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_EmptyJSONPath_UsesWholePayload(t *te
 		},
 	})
 
-	action := p.OnRequestBody(newRequestContextWithBody(`{"name":"sam"}`), nil)
+	action := p.OnRequestBody(context.Background(), newRequestContextWithBody(`{"name":"sam"}`), nil)
 	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
@@ -424,7 +425,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_InvertBehavior(t *testing.T) {
 			"invert":   true,
 		},
 	})
-	passAction := passPolicy.OnRequestBody(newRequestContextWithBody(`{"messages":"allowed content"}`), nil)
+	passAction := passPolicy.OnRequestBody(context.Background(), newRequestContextWithBody(`{"messages":"allowed content"}`), nil)
 	if _, ok := passAction.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected pass with invert=true on non-match, got %T", passAction)
 	}
@@ -436,7 +437,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_InvertBehavior(t *testing.T) {
 			"invert":   true,
 		},
 	})
-	failAction := failPolicy.OnRequestBody(newRequestContextWithBody(`{"messages":"contains forbidden term"}`), nil)
+	failAction := failPolicy.OnRequestBody(context.Background(), newRequestContextWithBody(`{"messages":"contains forbidden term"}`), nil)
 	assertRequestErrorResponse(t, failAction, false, "REQUEST")
 }
 
@@ -449,7 +450,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_RegexViolation_ShowAssessmentFalse(t
 		},
 	})
 
-	action := p.OnRequestBody(newRequestContextWithBody(`{"messages":"does not match"}`), nil)
+	action := p.OnRequestBody(context.Background(), newRequestContextWithBody(`{"messages":"does not match"}`), nil)
 	body := assertRequestErrorResponse(t, action, false, "REQUEST")
 
 	message := extractMessageAssessment(t, body)
@@ -467,7 +468,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_RegexViolation_ShowAssessmentTrue(t 
 		},
 	})
 
-	action := p.OnRequestBody(newRequestContextWithBody(`{"messages":"does not match"}`), nil)
+	action := p.OnRequestBody(context.Background(), newRequestContextWithBody(`{"messages":"does not match"}`), nil)
 	body := assertRequestErrorResponse(t, action, true, "REQUEST")
 
 	message := extractMessageAssessment(t, body)
@@ -486,7 +487,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_ExtractionError_ShowAssessmentTrue(t
 		},
 	})
 
-	action := p.OnRequestBody(newRequestContextWithBody(`{"message":"abc"}`), nil)
+	action := p.OnRequestBody(context.Background(), newRequestContextWithBody(`{"message":"abc"}`), nil)
 	body := assertRequestErrorResponse(t, action, true, "REQUEST")
 	message := extractMessageAssessment(t, body)
 
@@ -505,7 +506,7 @@ func TestRegexGuardrailPolicy_OnRequestBody_DefaultJSONPath_ArrayPayload_Extract
 
 	// Default jsonPath is $.messages[-1].content; this payload has messages as a string,
 	// so indexed extraction fails.
-	action := p.OnRequestBody(newRequestContextWithBody(`{"messages":"hello"}`), nil)
+	action := p.OnRequestBody(context.Background(), newRequestContextWithBody(`{"messages":"hello"}`), nil)
 	assertRequestErrorResponse(t, action, false, "REQUEST")
 }
 
@@ -518,7 +519,7 @@ func TestRegexGuardrailPolicy_OnResponseBody_Success(t *testing.T) {
 		},
 	})
 
-	action := p.OnResponseBody(newResponseContextWithBody(`{"status":"ok"}`), nil)
+	action := p.OnResponseBody(context.Background(), newResponseContextWithBody(`{"status":"ok"}`), nil)
 	if _, ok := action.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected DownstreamResponseModifications, got %T", action)
 	}
@@ -534,7 +535,7 @@ func TestRegexGuardrailPolicy_OnResponseBody_RegexViolation_ShowAssessmentFalse(
 		},
 	})
 
-	action := p.OnResponseBody(newResponseContextWithBody(`{"status":"failed"}`), nil)
+	action := p.OnResponseBody(context.Background(), newResponseContextWithBody(`{"status":"failed"}`), nil)
 	body := assertResponseErrorResponse(t, action, false, "RESPONSE")
 	message := extractMessageAssessment(t, body)
 	if _, exists := message["assessments"]; exists {
@@ -552,7 +553,7 @@ func TestRegexGuardrailPolicy_OnResponseBody_RegexViolation_ShowAssessmentTrue(t
 		},
 	})
 
-	action := p.OnResponseBody(newResponseContextWithBody(`{"status":"failed"}`), nil)
+	action := p.OnResponseBody(context.Background(), newResponseContextWithBody(`{"status":"failed"}`), nil)
 	body := assertResponseErrorResponse(t, action, true, "RESPONSE")
 	message := extractMessageAssessment(t, body)
 	if _, exists := message["assessments"]; !exists {
@@ -630,8 +631,8 @@ func assertResponseErrorResponse(t *testing.T, action policy.ResponseAction, exp
 	if resp.StatusCode == nil || *resp.StatusCode != GuardrailErrorCode {
 		t.Fatalf("unexpected status code: got %v, want %d", resp.StatusCode, GuardrailErrorCode)
 	}
-	if resp.DownstreamResponseHeaderModifications.HeadersToSet["Content-Type"] != "application/json" {
-		t.Fatalf("unexpected content type header: %v", resp.DownstreamResponseHeaderModifications.HeadersToSet["Content-Type"])
+	if resp.HeadersToSet["Content-Type"] != "application/json" {
+		t.Fatalf("unexpected content type header: %v", resp.HeadersToSet["Content-Type"])
 	}
 
 	body := decodeJSONMap(t, resp.Body)

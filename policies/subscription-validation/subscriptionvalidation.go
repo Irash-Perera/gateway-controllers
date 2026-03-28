@@ -1,6 +1,7 @@
 package subscriptionvalidation
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -207,12 +208,12 @@ func (p *SubscriptionValidationPolicy) Mode() policy.ProcessingMode {
 }
 
 // OnRequestHeaders validates the subscription in the request header phase.
-func (p *SubscriptionValidationPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
-	if ctx == nil || ctx.SharedContext == nil {
+func (p *SubscriptionValidationPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+	if ctx == nil || reqCtx == nil || reqCtx.SharedContext == nil {
 		return p.forbiddenResponse("request context is missing").(policy.ImmediateResponse)
 	}
 
-	apiID := ctx.SharedContext.APIId
+	apiID := reqCtx.SharedContext.APIId
 	if strings.TrimSpace(apiID) == "" {
 		slog.Error("subscriptionValidation: APIId is empty in SharedContext; failing validation")
 		return p.forbiddenResponse("API id is missing").(policy.ImmediateResponse)
@@ -223,8 +224,8 @@ func (p *SubscriptionValidationPolicy) OnRequestHeaders(ctx *policy.RequestHeade
 		return p.forbiddenResponse("subscription store is not available").(policy.ImmediateResponse)
 	}
 
-	if ctx.Headers != nil {
-		headerValues := ctx.Headers.Get(p.cfg.SubscriptionKeyHeader)
+	if reqCtx.Headers != nil {
+		headerValues := reqCtx.Headers.Get(p.cfg.SubscriptionKeyHeader)
 		if len(headerValues) > 0 {
 			token := strings.TrimSpace(headerValues[0])
 			if token != "" {
@@ -238,10 +239,10 @@ func (p *SubscriptionValidationPolicy) OnRequestHeaders(ctx *policy.RequestHeade
 			}
 		}
 		if p.cfg.SubscriptionKeyCookie != "" {
-			if token := getCookieValue(ctx.Headers, p.cfg.SubscriptionKeyCookie); token != "" {
+			if token := getCookieValue(reqCtx.Headers, p.cfg.SubscriptionKeyCookie); token != "" {
 				result := p.validateByToken(apiID, token)
 				if result == nil {
-					cookieValues := ctx.Headers.Get("Cookie")
+					cookieValues := reqCtx.Headers.Get("Cookie")
 					updated, removed := stripCookie(cookieValues, p.cfg.SubscriptionKeyCookie)
 					if removed {
 						if updated == "" {
@@ -260,7 +261,7 @@ func (p *SubscriptionValidationPolicy) OnRequestHeaders(ctx *policy.RequestHeade
 		}
 	}
 
-	metadata := ctx.SharedContext.Metadata
+	metadata := reqCtx.SharedContext.Metadata
 	if metadata != nil {
 		if rawAppID, ok := metadata[applicationIDMetadataKey]; ok {
 			appID := strings.TrimSpace(fmt.Sprint(rawAppID))

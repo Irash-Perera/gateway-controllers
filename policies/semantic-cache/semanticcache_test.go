@@ -423,7 +423,7 @@ func TestSemanticCachePolicy_OnRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			action := tt.policy.OnRequestBody(tt.ctx, nil)
+			action := tt.policy.OnRequestBody(context.Background(), tt.ctx, nil)
 
 			if !tt.wantImmediate {
 				if _, ok := action.(policy.UpstreamRequestModifications); !ok {
@@ -570,7 +570,7 @@ func TestSemanticCachePolicy_OnResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			action := tt.policy.OnResponseBody(tt.ctx, nil)
+			action := tt.policy.OnResponseBody(context.Background(), tt.ctx, nil)
 			tt.assertion(t, action)
 		})
 	}
@@ -694,7 +694,7 @@ func TestSemanticCachePolicy_OnResponse_SSE(t *testing.T) {
 		ResponseHeaders: &policy.Headers{},
 	}
 
-	action := p.OnResponseBody(ctx, nil)
+	action := p.OnResponseBody(context.Background(), ctx, nil)
 	if _, ok := action.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected DownstreamResponseModifications, got %T", action)
 	}

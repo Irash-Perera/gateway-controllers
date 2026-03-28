@@ -18,6 +18,7 @@
 package setheaders
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -65,7 +66,7 @@ func TestSetHeadersPolicy_OnRequestHeaders_NoHeaders(t *testing.T) {
 
 	// No requestHeaders parameter
 	params := map[string]interface{}{}
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	// Should return empty modifications
 	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
@@ -99,7 +100,7 @@ func TestSetHeadersPolicy_OnRequestHeaders_SingleHeader(t *testing.T) {
 		},
 	}
 
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
@@ -146,7 +147,7 @@ func TestSetHeadersPolicy_OnRequestHeaders_MultipleHeaders(t *testing.T) {
 		},
 	}
 
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
@@ -190,7 +191,7 @@ func TestSetHeadersPolicy_OnRequestHeaders_HeaderNameNormalization(t *testing.T)
 		},
 	}
 
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
@@ -218,7 +219,7 @@ func TestSetHeadersPolicy_OnResponseHeaders_NoHeaders(t *testing.T) {
 
 	// No responseHeaders parameter
 	params := map[string]interface{}{}
-	result := p.OnResponseHeaders(ctx, params)
+	result := p.OnResponseHeaders(context.Background(), ctx, params)
 
 	// Should return empty modifications
 	mods, ok := result.(policy.DownstreamResponseHeaderModifications)
@@ -252,7 +253,7 @@ func TestSetHeadersPolicy_OnResponseHeaders_SingleHeader(t *testing.T) {
 		},
 	}
 
-	result := p.OnResponseHeaders(ctx, params)
+	result := p.OnResponseHeaders(context.Background(), ctx, params)
 
 	mods, ok := result.(policy.DownstreamResponseHeaderModifications)
 	if !ok {
@@ -299,7 +300,7 @@ func TestSetHeadersPolicy_OnResponseHeaders_MultipleHeaders(t *testing.T) {
 		},
 	}
 
-	result := p.OnResponseHeaders(ctx, params)
+	result := p.OnResponseHeaders(context.Background(), ctx, params)
 
 	mods, ok := result.(policy.DownstreamResponseHeaderModifications)
 	if !ok {
@@ -351,7 +352,7 @@ func TestSetHeadersPolicy_BothRequestAndResponse(t *testing.T) {
 		},
 	}
 
-	reqResult := p.OnRequestHeaders(reqCtx, params)
+	reqResult := p.OnRequestHeaders(context.Background(), reqCtx, params)
 	reqMods, ok := reqResult.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", reqResult)
@@ -370,7 +371,7 @@ func TestSetHeadersPolicy_BothRequestAndResponse(t *testing.T) {
 		ResponseHeaders: createTestHeaders(map[string]string{}),
 	}
 
-	respResult := p.OnResponseHeaders(respCtx, params)
+	respResult := p.OnResponseHeaders(context.Background(), respCtx, params)
 	respMods, ok := respResult.(policy.DownstreamResponseHeaderModifications)
 	if !ok {
 		t.Errorf("Expected DownstreamResponseHeaderModifications, got %T", respResult)
@@ -395,7 +396,7 @@ func TestSetHeadersPolicy_EmptyHeadersList(t *testing.T) {
 		"requestHeaders": []interface{}{}, // Empty array
 	}
 
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
@@ -421,7 +422,7 @@ func TestSetHeadersPolicy_InvalidHeadersType(t *testing.T) {
 		"requestHeaders": "not-an-array", // Invalid type
 	}
 
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
@@ -453,7 +454,7 @@ func TestSetHeadersPolicy_InvalidHeaderEntry(t *testing.T) {
 		},
 	}
 
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
@@ -489,7 +490,7 @@ func TestSetHeadersPolicy_SpecialCharactersInValues(t *testing.T) {
 		},
 	}
 
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
@@ -533,7 +534,7 @@ func TestSetHeadersPolicy_MultipleHeadersSameName_OverwriteBehavior(t *testing.T
 		},
 	}
 
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
@@ -719,7 +720,7 @@ func TestSetHeadersPolicy_OnRequestHeaders_NestedHeaders(t *testing.T) {
 		},
 	}
 
-	result := p.OnRequestHeaders(ctx, params)
+	result := p.OnRequestHeaders(context.Background(), ctx, params)
 	mods, ok := result.(policy.UpstreamRequestHeaderModifications)
 	if !ok {
 		t.Errorf("Expected UpstreamRequestHeaderModifications, got %T", result)
@@ -751,7 +752,7 @@ func TestSetHeadersPolicy_OnResponseHeaders_NestedHeaders(t *testing.T) {
 		},
 	}
 
-	result := p.OnResponseHeaders(ctx, params)
+	result := p.OnResponseHeaders(context.Background(), ctx, params)
 	mods, ok := result.(policy.DownstreamResponseHeaderModifications)
 	if !ok {
 		t.Errorf("Expected DownstreamResponseHeaderModifications, got %T", result)

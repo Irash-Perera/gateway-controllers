@@ -19,6 +19,7 @@
 package analyticsheaderfilter
 
 import (
+	"context"
 	"testing"
 
 	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
@@ -383,7 +384,7 @@ func TestOnRequestHeaders(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := createMockRequestHeaderContext(nil)
-			result := p.OnRequestHeaders(ctx, tt.params)
+			result := p.OnRequestHeaders(context.Background(), ctx, tt.params)
 
 			if modifications, ok := result.(policy.UpstreamRequestHeaderModifications); ok {
 				if tt.expectDropActionPresent {
@@ -496,7 +497,7 @@ func TestOnResponseHeaders(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := createMockResponseHeaderContext(nil)
-			result := p.OnResponseHeaders(ctx, tt.params)
+			result := p.OnResponseHeaders(context.Background(), ctx, tt.params)
 
 			if modifications, ok := result.(policy.DownstreamResponseHeaderModifications); ok {
 				if tt.expectDropActionPresent {

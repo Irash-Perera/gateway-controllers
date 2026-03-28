@@ -1,6 +1,7 @@
 package azurecontentsafetycontentmoderation
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -147,7 +148,7 @@ func TestAzureContentSafetyPolicy_OnRequest_NoRequestConfig_NoOp(t *testing.T) {
 		},
 	})
 
-	action := p.OnRequestBody(azureRequestContext(`{"message":"hello"}`), nil)
+	action := p.OnRequestBody(context.Background(), azureRequestContext(`{"message":"hello"}`), nil)
 	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications, got %T", action)
 	}
@@ -162,7 +163,7 @@ func TestAzureContentSafetyPolicy_OnResponse_NoResponseConfig_NoOp(t *testing.T)
 		},
 	})
 
-	action := p.OnResponseBody(azureResponseContext(`{"message":"hello"}`), nil)
+	action := p.OnResponseBody(context.Background(), azureResponseContext(`{"message":"hello"}`), nil)
 	if _, ok := action.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected UpstreamResponseModifications, got %T", action)
 	}
@@ -180,7 +181,7 @@ func TestAzureContentSafetyPolicy_NoValidCategories_PassThrough(t *testing.T) {
 		},
 	})
 
-	action := p.OnRequestBody(azureRequestContext(`{"message":"hello"}`), nil)
+	action := p.OnRequestBody(context.Background(), azureRequestContext(`{"message":"hello"}`), nil)
 	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected pass-through when no valid categories, got %T", action)
 	}
@@ -195,7 +196,7 @@ func TestAzureContentSafetyPolicy_JSONPathError_PassthroughBehavior(t *testing.T
 			"passthroughOnError": true,
 		},
 	})
-	a1 := pPass.OnRequestBody(azureRequestContext(`{"message":"hello"}`), nil)
+	a1 := pPass.OnRequestBody(context.Background(), azureRequestContext(`{"message":"hello"}`), nil)
 	if _, ok := a1.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected pass-through for jsonPath error when passthrough enabled, got %T", a1)
 	}
@@ -209,7 +210,7 @@ func TestAzureContentSafetyPolicy_JSONPathError_PassthroughBehavior(t *testing.T
 			"showAssessment":     true,
 		},
 	})
-	a2 := pFail.OnRequestBody(azureRequestContext(`{"message":"hello"}`), nil)
+	a2 := pFail.OnRequestBody(context.Background(), azureRequestContext(`{"message":"hello"}`), nil)
 	body := assertAzureRequestError(t, a2, true, "REQUEST")
 	msg := extractAzureMessage(t, body)
 	if _, ok := msg["assessments"]; !ok {
@@ -232,7 +233,7 @@ func TestAzureContentSafetyPolicy_APICallError_PassthroughBehavior(t *testing.T)
 			"passthroughOnError": true,
 		},
 	})
-	a1 := pPass.OnRequestBody(azureRequestContext(`{"message":"hello"}`), nil)
+	a1 := pPass.OnRequestBody(context.Background(), azureRequestContext(`{"message":"hello"}`), nil)
 	if _, ok := a1.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected pass-through on API error when passthrough enabled, got %T", a1)
 	}
@@ -245,7 +246,7 @@ func TestAzureContentSafetyPolicy_APICallError_PassthroughBehavior(t *testing.T)
 			"passthroughOnError": false,
 		},
 	})
-	a2 := pFail.OnRequestBody(azureRequestContext(`{"message":"hello"}`), nil)
+	a2 := pFail.OnRequestBody(context.Background(), azureRequestContext(`{"message":"hello"}`), nil)
 	assertAzureRequestError(t, a2, false, "REQUEST")
 }
 
@@ -267,7 +268,7 @@ func TestAzureContentSafetyPolicy_APISuccess_NoViolation(t *testing.T) {
 			"hateSeverityThreshold": 4,
 		},
 	})
-	action := p.OnRequestBody(azureRequestContext(`{"messages":"hello"}`), nil)
+	action := p.OnRequestBody(context.Background(), azureRequestContext(`{"messages":"hello"}`), nil)
 	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected UpstreamRequestModifications on non-violation, got %T", action)
 	}
@@ -295,7 +296,7 @@ func TestAzureContentSafetyPolicy_APIViolation_RequestAndResponse(t *testing.T) 
 		},
 	})
 
-	reqAction := p.OnRequestBody(azureRequestContext(`{"messages":"blocked text"}`), nil)
+	reqAction := p.OnRequestBody(context.Background(), azureRequestContext(`{"messages":"blocked text"}`), nil)
 	reqBody := assertAzureRequestError(t, reqAction, true, "REQUEST")
 	reqMsg := extractAzureMessage(t, reqBody)
 	assessment, ok := reqMsg["assessments"].(map[string]interface{})
@@ -306,7 +307,7 @@ func TestAzureContentSafetyPolicy_APIViolation_RequestAndResponse(t *testing.T) 
 		t.Fatalf("expected assessments.categories on violation")
 	}
 
-	respAction := p.OnResponseBody(azureResponseContext(`{"messages":"blocked response"}`), nil)
+	respAction := p.OnResponseBody(context.Background(), azureResponseContext(`{"messages":"blocked response"}`), nil)
 	respBody := assertAzureResponseError(t, respAction, true, "RESPONSE")
 	respMsg := extractAzureMessage(t, respBody)
 	if _, ok := respMsg["assessments"]; !ok {

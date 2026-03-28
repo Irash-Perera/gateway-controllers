@@ -18,6 +18,7 @@
 package removeheaders
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -186,7 +187,7 @@ func (p *RemoveHeadersPolicy) parseHeaderNames(headersRaw interface{}) []string 
 }
 
 // OnRequestHeaders removes headers from the request in the header phase.
-func (p *RemoveHeadersPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *RemoveHeadersPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	requestHeadersRaw, ok, err := p.getPhaseHeaders(params, "request", "requestHeaders")
 	if err != nil || !ok {
 		return policy.UpstreamRequestHeaderModifications{}
@@ -201,7 +202,7 @@ func (p *RemoveHeadersPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext,
 }
 
 // OnResponseHeaders removes headers from the response in the header phase.
-func (p *RemoveHeadersPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
+func (p *RemoveHeadersPolicy) OnResponseHeaders(ctx context.Context, respCtx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
 	responseHeadersRaw, ok, err := p.getPhaseHeaders(params, "response", "responseHeaders")
 	if err != nil || !ok {
 		return policy.DownstreamResponseHeaderModifications{}

@@ -18,6 +18,7 @@
 package apikey
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -112,17 +113,17 @@ func extractQueryParam(path, param string) string {
 // OnRequestHeaders implements v1alpha2.RequestHeaderPolicy.
 // It performs API key authentication in the request-header phase, allowing the
 // kernel to short-circuit before any body buffering occurs.
-func (p *APIKeyPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
-	if errResp := p.authenticate(ctx.SharedContext, ctx.Headers, ctx.Path, ctx.Method, params); errResp != nil {
+func (p *APIKeyPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+	if errResp := p.authenticate(reqCtx.SharedContext, reqCtx.Headers, reqCtx.Path, reqCtx.Method, params); errResp != nil {
 		return *errResp
 	}
 
 	keyName, _ := params["key"].(string)
 	location, _ := params["in"].(string)
 	analyticsMetadata := map[string]interface{}{}
-	if ctx.SharedContext != nil && ctx.SharedContext.AuthContext != nil {
-		analyticsMetadata[applicationNameMetadataKey] = ctx.SharedContext.AuthContext.Properties["ApplicationName"]
-		analyticsMetadata[applicationIDMetadataKey] = ctx.SharedContext.AuthContext.Properties["ApplicationID"]
+	if reqCtx.SharedContext != nil && reqCtx.SharedContext.AuthContext != nil {
+		analyticsMetadata[applicationNameMetadataKey] = reqCtx.SharedContext.AuthContext.Properties["ApplicationName"]
+		analyticsMetadata[applicationIDMetadataKey] = reqCtx.SharedContext.AuthContext.Properties["ApplicationID"]
 	}
 
 	mods := policy.UpstreamRequestHeaderModifications{

@@ -1,6 +1,7 @@
 package modelweightedroundrobin
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -165,13 +166,13 @@ func TestModelWeightedRoundRobinPolicy_OnRequestBody_PayloadWeightedSelection(t 
 	// Request 1
 	shared1 := weightedSharedContext()
 	headerCtx1 := &policy.RequestHeaderContext{SharedContext: shared1}
-	p.OnRequestHeaders(headerCtx1, nil)
+	p.OnRequestHeaders(context.Background(), headerCtx1, nil)
 
 	bodyCtx1 := &policy.RequestContext{
 		SharedContext: shared1,
 		Body:          &policy.Body{Content: []byte(`{"model":"orig"}`), Present: true},
 	}
-	a1 := p.OnRequestBody(bodyCtx1, nil)
+	a1 := p.OnRequestBody(context.Background(), bodyCtx1, nil)
 	m1 := mustWeightedRequestMods(t, a1)
 	j1 := decodeJSONMapWeighted(t, m1.Body)
 	if j1["model"] != "gpt-4" {
@@ -181,13 +182,13 @@ func TestModelWeightedRoundRobinPolicy_OnRequestBody_PayloadWeightedSelection(t 
 	// Request 2
 	shared2 := weightedSharedContext()
 	headerCtx2 := &policy.RequestHeaderContext{SharedContext: shared2}
-	p.OnRequestHeaders(headerCtx2, nil)
+	p.OnRequestHeaders(context.Background(), headerCtx2, nil)
 
 	bodyCtx2 := &policy.RequestContext{
 		SharedContext: shared2,
 		Body:          &policy.Body{Content: []byte(`{"model":"orig2"}`), Present: true},
 	}
-	a2 := p.OnRequestBody(bodyCtx2, nil)
+	a2 := p.OnRequestBody(context.Background(), bodyCtx2, nil)
 	m2 := mustWeightedRequestMods(t, a2)
 	j2 := decodeJSONMapWeighted(t, m2.Body)
 	if j2["model"] != "gpt-4" {
@@ -197,13 +198,13 @@ func TestModelWeightedRoundRobinPolicy_OnRequestBody_PayloadWeightedSelection(t 
 	// Request 3
 	shared3 := weightedSharedContext()
 	headerCtx3 := &policy.RequestHeaderContext{SharedContext: shared3}
-	p.OnRequestHeaders(headerCtx3, nil)
+	p.OnRequestHeaders(context.Background(), headerCtx3, nil)
 
 	bodyCtx3 := &policy.RequestContext{
 		SharedContext: shared3,
 		Body:          &policy.Body{Content: []byte(`{"model":"orig3"}`), Present: true},
 	}
-	a3 := p.OnRequestBody(bodyCtx3, nil)
+	a3 := p.OnRequestBody(context.Background(), bodyCtx3, nil)
 	m3 := mustWeightedRequestMods(t, a3)
 	j3 := decodeJSONMapWeighted(t, m3.Body)
 	if j3["model"] != "gpt-35" {
@@ -223,7 +224,7 @@ func TestModelWeightedRoundRobinPolicy_OnRequestHeaders_QueryAndPathMutation(t *
 		SharedContext: weightedSharedContext(),
 		Path:          "/v1/chat?model=old",
 	}
-	queryAction := pQuery.OnRequestHeaders(queryCtx, nil)
+	queryAction := pQuery.OnRequestHeaders(context.Background(), queryCtx, nil)
 	queryMods := mustWeightedRequestHeaderMods(t, queryAction)
 	if got := queryMods.HeadersToSet[":path"]; !strings.Contains(got, "model=gpt-4") {
 		t.Fatalf("expected query path to include new model, got %q", got)
@@ -240,7 +241,7 @@ func TestModelWeightedRoundRobinPolicy_OnRequestHeaders_QueryAndPathMutation(t *
 		SharedContext: weightedSharedContext(),
 		Path:          "/v1/models/old/completions",
 	}
-	pathAction := pPath.OnRequestHeaders(pathCtx, nil)
+	pathAction := pPath.OnRequestHeaders(context.Background(), pathCtx, nil)
 	pathMods := mustWeightedRequestHeaderMods(t, pathAction)
 	if got := pathMods.HeadersToSet[":path"]; !strings.Contains(got, "/models/gpt-4/") {
 		t.Fatalf("expected path to include new model, got %q", got)
@@ -264,7 +265,7 @@ func TestModelWeightedRoundRobinPolicy_OnRequestHeaders_AllModelsSuspended(t *te
 		SharedContext: weightedSharedContext(),
 		Headers:       policy.NewHeaders(map[string][]string{"x-model": {"orig"}}),
 	}
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, nil)
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse when all models suspended, got %T", action)
@@ -294,7 +295,7 @@ func TestModelWeightedRoundRobinPolicy_OnResponseHeaders_SuspendsSelectedModel(t
 		SharedContext:  sharedCtx,
 		ResponseStatus: 429,
 	}
-	action := p.OnResponseHeaders(ctx, nil)
+	action := p.OnResponseHeaders(context.Background(), ctx, nil)
 	if _, ok := action.(policy.DownstreamResponseHeaderModifications); !ok {
 		t.Fatalf("expected DownstreamResponseHeaderModifications, got %T", action)
 	}

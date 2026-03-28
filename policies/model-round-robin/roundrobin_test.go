@@ -1,6 +1,7 @@
 package modelroundrobin
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -195,14 +196,14 @@ func TestModelRoundRobinPolicy_OnRequestBody_PayloadRoundRobin(t *testing.T) {
 	// Phase 1: headers — selects model and stores in metadata
 	shared1 := rrSharedContext()
 	headerCtx1 := &policy.RequestHeaderContext{SharedContext: shared1}
-	p.OnRequestHeaders(headerCtx1, nil)
+	p.OnRequestHeaders(context.Background(), headerCtx1, nil)
 
 	// Phase 2: body — substitutes selected model into payload
 	bodyCtx1 := &policy.RequestContext{
 		SharedContext: shared1,
 		Body:          &policy.Body{Content: []byte(`{"model":"original","x":"y"}`), Present: true},
 	}
-	action1 := p.OnRequestBody(bodyCtx1, nil)
+	action1 := p.OnRequestBody(context.Background(), bodyCtx1, nil)
 	mods1 := mustRRRequestMods(t, action1)
 	got1 := decodeJSONMapRR(t, mods1.Body)
 	if got1["model"] != "gpt-4" {
@@ -214,13 +215,13 @@ func TestModelRoundRobinPolicy_OnRequestBody_PayloadRoundRobin(t *testing.T) {
 
 	shared2 := rrSharedContext()
 	headerCtx2 := &policy.RequestHeaderContext{SharedContext: shared2}
-	p.OnRequestHeaders(headerCtx2, nil)
+	p.OnRequestHeaders(context.Background(), headerCtx2, nil)
 
 	bodyCtx2 := &policy.RequestContext{
 		SharedContext: shared2,
 		Body:          &policy.Body{Content: []byte(`{"model":"original2"}`), Present: true},
 	}
-	action2 := p.OnRequestBody(bodyCtx2, nil)
+	action2 := p.OnRequestBody(context.Background(), bodyCtx2, nil)
 	mods2 := mustRRRequestMods(t, action2)
 	got2 := decodeJSONMapRR(t, mods2.Body)
 	if got2["model"] != "gpt-35" {
@@ -240,7 +241,7 @@ func TestModelRoundRobinPolicy_OnRequestHeaders_QueryParamAndPathParamMutation(t
 		SharedContext: rrSharedContext(),
 		Path:          "/v1/chat?model=old&x=1",
 	}
-	queryAction := pQuery.OnRequestHeaders(queryCtx, nil)
+	queryAction := pQuery.OnRequestHeaders(context.Background(), queryCtx, nil)
 	queryMods := mustRRRequestHeaderMods(t, queryAction)
 	if got := queryMods.HeadersToSet[":path"]; !strings.Contains(got, "model=gpt-4") {
 		t.Fatalf("expected query path to include new model, got %q", got)
@@ -257,7 +258,7 @@ func TestModelRoundRobinPolicy_OnRequestHeaders_QueryParamAndPathParamMutation(t
 		SharedContext: rrSharedContext(),
 		Path:          "/v1/models/old/completions?x=1",
 	}
-	pathAction := pPath.OnRequestHeaders(pathCtx, nil)
+	pathAction := pPath.OnRequestHeaders(context.Background(), pathCtx, nil)
 	pathMods := mustRRRequestHeaderMods(t, pathAction)
 	if got := pathMods.HeadersToSet[":path"]; !strings.Contains(got, "/models/gpt-4/") {
 		t.Fatalf("expected path to include new model, got %q", got)
@@ -281,7 +282,7 @@ func TestModelRoundRobinPolicy_OnRequestHeaders_AllModelsSuspended(t *testing.T)
 		SharedContext: rrSharedContext(),
 		Headers:       policy.NewHeaders(map[string][]string{"x-model": {"orig"}}),
 	}
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, nil)
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse when all models suspended, got %T", action)
@@ -312,7 +313,7 @@ func TestModelRoundRobinPolicy_OnResponseHeaders_SuspendsModelOnError(t *testing
 		ResponseStatus: 500,
 	}
 
-	action := p.OnResponseHeaders(ctx, nil)
+	action := p.OnResponseHeaders(context.Background(), ctx, nil)
 	if _, ok := action.(policy.DownstreamResponseHeaderModifications); !ok {
 		t.Fatalf("expected DownstreamResponseHeaderModifications, got %T", action)
 	}

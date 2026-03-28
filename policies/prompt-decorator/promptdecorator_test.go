@@ -1,6 +1,7 @@
 package promptdecorator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -205,7 +206,7 @@ func TestPromptDecoratorPolicy_OnRequest_TextDefaultPath_Prepend(t *testing.T) {
 			{"role":"user","content":"Summarize this text"}
 		]
 	}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 
 	payload := decodeJSONMap(t, mods.Body)
@@ -225,7 +226,7 @@ func TestPromptDecoratorPolicy_OnRequest_TextDefaultPath_Append(t *testing.T) {
 	})
 
 	ctx := newRequestContextWithBody(`{"messages":[{"role":"user","content":"Explain TCP"}]}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 
 	payload := decodeJSONMap(t, mods.Body)
@@ -247,7 +248,7 @@ func TestPromptDecoratorPolicy_OnRequest_TextCustomPath(t *testing.T) {
 		"input":{"prompt":"Create a plan"},
 		"messages":[{"role":"user","content":"unchanged"}]
 	}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 
 	payload := decodeJSONMap(t, mods.Body)
@@ -276,7 +277,7 @@ func TestPromptDecoratorPolicy_OnRequest_MessagesDefaultPath_Prepend(t *testing.
 			{"role":"assistant","content":"Hi"}
 		]
 	}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 
 	payload := decodeJSONMap(t, mods.Body)
@@ -306,7 +307,7 @@ func TestPromptDecoratorPolicy_OnRequest_MessagesDefaultPath_Append(t *testing.T
 	})
 
 	ctx := newRequestContextWithBody(`{"messages":[{"role":"user","content":"hello"}]}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 
 	payload := decodeJSONMap(t, mods.Body)
@@ -336,7 +337,7 @@ func TestPromptDecoratorPolicy_OnRequest_MessagesCustomPath(t *testing.T) {
 		"conversation":{"history":[{"role":"user","content":"hello"}]},
 		"messages":[{"role":"user","content":"keep me"}]
 	}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 
 	payload := decodeJSONMap(t, mods.Body)
@@ -392,7 +393,7 @@ func TestPromptDecoratorPolicy_OnRequest_EmptyBodyReturnsError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			action := p.OnRequestBody(tt.ctx, nil)
+			action := p.OnRequestBody(context.Background(), tt.ctx, nil)
 			assertDecoratorError(t, action, "Empty request body")
 		})
 	}
@@ -406,7 +407,7 @@ func TestPromptDecoratorPolicy_OnRequest_InvalidJSONReturnsError(t *testing.T) {
 	})
 
 	ctx := newRequestContextWithBody(`{"messages":[`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	assertDecoratorError(t, action, "Error parsing JSON payload")
 }
 
@@ -419,7 +420,7 @@ func TestPromptDecoratorPolicy_OnRequest_JSONPathNotFoundReturnsError(t *testing
 	})
 
 	ctx := newRequestContextWithBody(`{"messages":[{"role":"user","content":"hello"}]}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	assertDecoratorError(t, action, "Error extracting value from JSONPath")
 }
 
@@ -434,7 +435,7 @@ func TestPromptDecoratorPolicy_OnRequest_TargetTypeMismatch_StringPathWithMessag
 	})
 
 	ctx := newRequestContextWithBody(`{"messages":[{"role":"user","content":"hello"}]}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	assertDecoratorError(t, action, "Invalid configuration for string target")
 }
 
@@ -447,7 +448,7 @@ func TestPromptDecoratorPolicy_OnRequest_TargetTypeMismatch_ArrayPathWithTextCon
 	})
 
 	ctx := newRequestContextWithBody(`{"messages":[{"role":"user","content":"hello"}]}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	assertDecoratorError(t, action, "Invalid configuration for messages target")
 }
 
@@ -462,7 +463,7 @@ func TestPromptDecoratorPolicy_OnRequest_ArrayContainsNonMapElementReturnsError(
 	})
 
 	ctx := newRequestContextWithBody(`{"messages":[1,{"role":"user","content":"hello"}]}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	assertDecoratorError(t, action, "Array contains non-map elements")
 }
 
@@ -475,7 +476,7 @@ func TestPromptDecoratorPolicy_OnRequest_ExtractedValueWrongTypeReturnsError(t *
 	})
 
 	ctx := newRequestContextWithBody(`{"temperature":0.7}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	assertDecoratorError(t, action, "Extracted value must be a string or an array of message objects")
 }
 
@@ -493,7 +494,7 @@ func TestPromptDecoratorPolicy_OnRequest_JSONPathWithArrayIndex_TextTarget(t *te
 			{"role":"assistant","content":"second"}
 		]
 	}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	mods := mustRequestMods(t, action)
 
 	payload := decodeJSONMap(t, mods.Body)
@@ -519,7 +520,7 @@ func TestPromptDecoratorPolicy_OnRequest_JSONPathNavigationFailure(t *testing.T)
 	ctx := newRequestContextWithBody(`{
 		"messages":{"0":{"content":"hello"}}
 	}`)
-	action := p.OnRequestBody(ctx, nil)
+	action := p.OnRequestBody(context.Background(), ctx, nil)
 	assertDecoratorError(t, action, "Error extracting value from JSONPath")
 }
 
@@ -564,7 +565,7 @@ func TestPromptDecoratorPolicy_OnRequest_ConcurrentAccess(t *testing.T) {
 			msg := fmt.Sprintf("prompt-%d", i)
 			ctx := newRequestContextWithBody(fmt.Sprintf(`{"messages":[{"role":"user","content":"%s"}]}`, msg))
 
-			action := p.OnRequestBody(ctx, nil)
+			action := p.OnRequestBody(context.Background(), ctx, nil)
 			mods, ok := action.(policy.UpstreamRequestModifications)
 			if !ok {
 				errCh <- fmt.Errorf("expected UpstreamRequestModifications, got %T", action)

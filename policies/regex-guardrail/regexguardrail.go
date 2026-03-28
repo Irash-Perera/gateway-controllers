@@ -18,6 +18,7 @@
 package regexguardrail
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -228,27 +229,27 @@ func (p *RegexGuardrailPolicy) buildAssessmentObject(reason string, validationEr
 }
 
 // OnRequestBody validates request body against regex pattern.
-func (p *RegexGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *RegexGuardrailPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	if !p.hasRequestParams || !p.requestParams.Enabled {
 		return policy.UpstreamRequestModifications{}
 	}
 
 	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
 	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
 }
 
 // OnResponseBody validates response body against regex pattern.
-func (p *RegexGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+func (p *RegexGuardrailPolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.DownstreamResponseModifications{}
 	}
 
 	var content []byte
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
+	if respCtx.ResponseBody != nil {
+		content = respCtx.ResponseBody.Content
 	}
 	return p.validatePayload(content, p.responseParams, true).(policy.ResponseAction)
 }
@@ -326,7 +327,7 @@ func (p *RegexGuardrailPolicy) NeedsMoreResponseData(accumulated []byte) bool {
 // Validates SSE delta.content against the configured regex pattern,
 // accumulating content across chunks so patterns split across token
 // boundaries are still caught.
-func (p *RegexGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
+func (p *RegexGuardrailPolicy) OnResponseBodyChunk(ctx context.Context, respCtx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.ResponseChunkAction{}
 	}
@@ -334,17 +335,17 @@ func (p *RegexGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamCon
 		return policy.ResponseChunkAction{}
 	}
 
-	if ctx.Metadata == nil {
-		ctx.Metadata = make(map[string]interface{})
+	if respCtx.Metadata == nil {
+		respCtx.Metadata = make(map[string]interface{})
 	}
 
 	chunkStr := string(chunk.Chunk)
 	if !isSSEChunk(chunkStr) {
 		// Plain JSON via chunked transfer (e.g. OpenAI stream:false with Transfer-Encoding: chunked).
 		// Accumulate all chunks and validate the complete body at end of stream.
-		prev, _ := ctx.Metadata[metaKeyAccJsonBody].(string)
+		prev, _ := respCtx.Metadata[metaKeyAccJsonBody].(string)
 		full := prev + chunkStr
-		ctx.Metadata[metaKeyAccJsonBody] = full
+		respCtx.Metadata[metaKeyAccJsonBody] = full
 		if !chunk.EndOfStream {
 			return policy.ResponseChunkAction{}
 		}
@@ -359,14 +360,14 @@ func (p *RegexGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamCon
 
 	// Accumulate delta.content from this chunk into the running total.
 	prev := ""
-	if v, ok := ctx.Metadata[metaKeyAccumulatedResponseContent]; ok {
+	if v, ok := respCtx.Metadata[metaKeyAccumulatedResponseContent]; ok {
 		if s, ok := v.(string); ok {
 			prev = s
 		}
 	}
 	chunkContent := extractSSEDeltaContent(chunkStr, rp.StreamingJsonPath)
 	accumulated := prev + chunkContent
-	ctx.Metadata[metaKeyAccumulatedResponseContent] = accumulated
+	respCtx.Metadata[metaKeyAccumulatedResponseContent] = accumulated
 
 	compiledRegex, err := regexp.Compile(rp.Regex)
 	if err != nil {

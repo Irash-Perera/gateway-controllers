@@ -3,6 +3,7 @@
 package dynamicendpoint
 
 import (
+	"context"
 	"log/slog"
 
 	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
@@ -45,7 +46,7 @@ func (p *DynamicEndpointPolicy) Mode() policy.ProcessingMode {
 }
 
 // OnRequestHeaders routes the request to the configured upstream.
-func (p *DynamicEndpointPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *DynamicEndpointPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	slog.Info("[Dynamic Endpoint]: OnRequestHeaders called", "targetUpstream", p.targetUpstream)
 
 	if p.targetUpstream == "" {

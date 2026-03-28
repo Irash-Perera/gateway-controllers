@@ -18,6 +18,7 @@
 package basicauth
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
@@ -62,7 +63,7 @@ func (p *BasicAuthPolicy) Mode() policy.ProcessingMode {
 }
 
 // OnRequestHeaders performs Basic Authentication in the request header phase.
-func (p *BasicAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *BasicAuthPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	expectedUsername, ok := params["username"].(string)
 	if !ok || expectedUsername == "" {
 		errBody, _ := json.Marshal(map[string]string{
@@ -103,26 +104,26 @@ func (p *BasicAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, par
 		}
 	}
 
-	authHeaders := ctx.Headers.Get("authorization")
+	authHeaders := reqCtx.Headers.Get("authorization")
 	if len(authHeaders) == 0 {
-		return p.handleAuthFailureHeaders(ctx.SharedContext, allowUnauthenticated, realm)
+		return p.handleAuthFailureHeaders(reqCtx.SharedContext, allowUnauthenticated, realm)
 	}
 
 	authHeader := authHeaders[0]
 	if !strings.HasPrefix(authHeader, "Basic ") {
-		return p.handleAuthFailureHeaders(ctx.SharedContext, allowUnauthenticated, realm)
+		return p.handleAuthFailureHeaders(reqCtx.SharedContext, allowUnauthenticated, realm)
 	}
 
 	encodedCredentials := strings.TrimPrefix(authHeader, "Basic ")
 	decodedBytes, err := base64.StdEncoding.DecodeString(encodedCredentials)
 	if err != nil {
-		return p.handleAuthFailureHeaders(ctx.SharedContext, allowUnauthenticated, realm)
+		return p.handleAuthFailureHeaders(reqCtx.SharedContext, allowUnauthenticated, realm)
 	}
 
 	credentials := string(decodedBytes)
 	parts := strings.SplitN(credentials, ":", 2)
 	if len(parts) != 2 {
-		return p.handleAuthFailureHeaders(ctx.SharedContext, allowUnauthenticated, realm)
+		return p.handleAuthFailureHeaders(reqCtx.SharedContext, allowUnauthenticated, realm)
 	}
 
 	providedUsername := parts[0]
@@ -132,14 +133,14 @@ func (p *BasicAuthPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, par
 	passwordMatch := subtle.ConstantTimeCompare([]byte(providedPassword), []byte(expectedPassword)) == 1
 
 	if !usernameMatch || !passwordMatch {
-		return p.handleAuthFailureHeaders(ctx.SharedContext, allowUnauthenticated, realm)
+		return p.handleAuthFailureHeaders(reqCtx.SharedContext, allowUnauthenticated, realm)
 	}
 
-	ctx.SharedContext.AuthContext = &policy.AuthContext{
+	reqCtx.SharedContext.AuthContext = &policy.AuthContext{
 		Authenticated: true,
 		AuthType:      AuthType,
 		Subject:       providedUsername,
-		Previous:      ctx.SharedContext.AuthContext,
+		Previous:      reqCtx.SharedContext.AuthContext,
 	}
 	return policy.UpstreamRequestHeaderModifications{}
 }

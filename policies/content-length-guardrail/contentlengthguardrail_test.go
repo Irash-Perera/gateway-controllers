@@ -1,6 +1,7 @@
 package contentlengthguardrail
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -130,10 +131,10 @@ func TestParseParams(t *testing.T) {
 				"max": 10,
 			},
 			expected: ContentLengthGuardrailPolicyParams{
-				Enabled:          RequestFlowEnabledByDefault,
-				Min:              1,
-				Max:              10,
-				JsonPath:         DefaultJSONPath,
+				Enabled:           RequestFlowEnabledByDefault,
+				Min:               1,
+				Max:               10,
+				JsonPath:          DefaultJSONPath,
 				StreamingJsonPath: DefaultStreamingJsonPath,
 			},
 		},
@@ -147,13 +148,13 @@ func TestParseParams(t *testing.T) {
 				"showAssessment": true,
 			},
 			expected: ContentLengthGuardrailPolicyParams{
-				Enabled:          RequestFlowEnabledByDefault,
-				Min:              2,
-				Max:              20,
-				JsonPath:         "$.text",
+				Enabled:           RequestFlowEnabledByDefault,
+				Min:               2,
+				Max:               20,
+				JsonPath:          "$.text",
 				StreamingJsonPath: DefaultStreamingJsonPath,
-				Invert:           true,
-				ShowAssessment:   true,
+				Invert:            true,
+				ShowAssessment:    true,
 			},
 		},
 	}
@@ -235,7 +236,7 @@ func TestDisabledFlow_GetPolicyAndHandlers_NoRequiredParams(t *testing.T) {
 			t.Fatalf("expected request params present and disabled, got hasRequest=%v enabled=%v", p.hasRequestParams, p.requestParams.Enabled)
 		}
 
-		action := p.OnRequestBody(&policy.RequestContext{
+		action := p.OnRequestBody(context.Background(), &policy.RequestContext{
 			Body: &policy.Body{Content: []byte(`{"messages":[{"content":"hello"}]}`)},
 		}, nil)
 		if _, ok := action.(policy.UpstreamRequestModifications); !ok {
@@ -258,7 +259,7 @@ func TestDisabledFlow_GetPolicyAndHandlers_NoRequiredParams(t *testing.T) {
 			t.Fatalf("expected response params present and disabled, got hasResponse=%v enabled=%v", p.hasResponseParams, p.responseParams.Enabled)
 		}
 
-		action := p.OnResponseBody(&policy.ResponseContext{
+		action := p.OnResponseBody(context.Background(), &policy.ResponseContext{
 			ResponseBody: &policy.Body{Content: []byte(`{"choices":[{"message":{"content":"hello"}}]}`)},
 		}, nil)
 		if _, ok := action.(policy.DownstreamResponseModifications); !ok {
@@ -423,8 +424,8 @@ func TestValidatePayload_ResponsePaths(t *testing.T) {
 	if resp.StatusCode == nil || *resp.StatusCode != GuardrailErrorCode {
 		t.Fatalf("expected response status %d, got %#v", GuardrailErrorCode, resp.StatusCode)
 	}
-	if resp.DownstreamResponseHeaderModifications.HeadersToSet["Content-Type"] != "application/json" {
-		t.Fatalf("expected response content-type header, got %#v", resp.DownstreamResponseHeaderModifications.HeadersToSet)
+	if resp.HeadersToSet["Content-Type"] != "application/json" {
+		t.Fatalf("expected response content-type header, got %#v", resp.HeadersToSet)
 	}
 	msg := mustMessageMap(t, resp.Body)
 	if msg["direction"] != "RESPONSE" {
@@ -517,11 +518,11 @@ func TestBuildAssessmentObject(t *testing.T) {
 func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 	// No request params configured -> no-op.
 	p := &ContentLengthGuardrailPolicy{hasRequestParams: false, hasResponseParams: false}
-	reqNoOp := p.OnRequestBody(&policy.RequestContext{}, nil)
+	reqNoOp := p.OnRequestBody(context.Background(), &policy.RequestContext{}, nil)
 	if _, ok := reqNoOp.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected request no-op modifications, got %T", reqNoOp)
 	}
-	respNoOp := p.OnResponseBody(&policy.ResponseContext{}, nil)
+	respNoOp := p.OnResponseBody(context.Background(), &policy.ResponseContext{}, nil)
 	if _, ok := respNoOp.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected response no-op modifications, got %T", respNoOp)
 	}
@@ -529,7 +530,7 @@ func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 	// Request validation with nil body should fail when min > 0.
 	p.hasRequestParams = true
 	p.requestParams = ContentLengthGuardrailPolicyParams{Enabled: true, Min: 1, Max: 10}
-	reqFail := p.OnRequestBody(&policy.RequestContext{Body: nil}, nil)
+	reqFail := p.OnRequestBody(context.Background(), &policy.RequestContext{Body: nil}, nil)
 	if _, ok := reqFail.(policy.ImmediateResponse); !ok {
 		t.Fatalf("expected ImmediateResponse for request nil-body validation failure, got %T", reqFail)
 	}
@@ -537,7 +538,7 @@ func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 	// Response validation with nil body should fail when min > 0.
 	p.hasResponseParams = true
 	p.responseParams = ContentLengthGuardrailPolicyParams{Enabled: true, Min: 1, Max: 10}
-	respFail := p.OnResponseBody(&policy.ResponseContext{ResponseBody: nil}, nil)
+	respFail := p.OnResponseBody(context.Background(), &policy.ResponseContext{ResponseBody: nil}, nil)
 	respMod, ok := respFail.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected DownstreamResponseModifications for response nil-body validation failure, got %T", respFail)
@@ -548,14 +549,14 @@ func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 
 	// Explicitly disabled request flow should no-op.
 	p.requestParams.Enabled = false
-	reqDisabled := p.OnRequestBody(&policy.RequestContext{Body: &policy.Body{Content: []byte(`{"messages":[{"content":"hi"}]}`)}}, nil)
+	reqDisabled := p.OnRequestBody(context.Background(), &policy.RequestContext{Body: &policy.Body{Content: []byte(`{"messages":[{"content":"hi"}]}`)}}, nil)
 	if _, ok := reqDisabled.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected request no-op when request.enabled=false, got %T", reqDisabled)
 	}
 
 	// Explicitly disabled response flow should no-op.
 	p.responseParams.Enabled = false
-	respDisabled := p.OnResponseBody(&policy.ResponseContext{ResponseBody: &policy.Body{Content: []byte(`{"choices":[{"message":{"content":"hi"}}]}`)}}, nil)
+	respDisabled := p.OnResponseBody(context.Background(), &policy.ResponseContext{ResponseBody: &policy.Body{Content: []byte(`{"choices":[{"message":{"content":"hi"}}]}`)}}, nil)
 	if _, ok := respDisabled.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected response no-op when response.enabled=false, got %T", respDisabled)
 	}

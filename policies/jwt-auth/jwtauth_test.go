@@ -18,6 +18,7 @@
 package jwtauth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -101,7 +102,7 @@ func TestJWTAuthPolicy_ValidToken(t *testing.T) {
 	}
 
 	// Execute policy
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	// Verify successful authentication
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
@@ -156,7 +157,7 @@ func TestJWTAuthPolicy_MissingToken(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	// Verify authentication failed
 	if ctx.SharedContext.AuthContext == nil || ctx.SharedContext.AuthContext.Authenticated {
@@ -201,7 +202,7 @@ func TestJWTAuthPolicy_InvalidTokenFormat(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || ctx.SharedContext.AuthContext.Authenticated {
 		t.Errorf("Expected AuthContext.Authenticated=false for invalid token format")
@@ -250,7 +251,7 @@ func TestJWTAuthPolicy_ExpiredToken(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || ctx.SharedContext.AuthContext.Authenticated {
 		t.Errorf("Expected AuthContext.Authenticated=false for expired token")
@@ -298,7 +299,7 @@ func TestJWTAuthPolicy_InvalidAudience(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || ctx.SharedContext.AuthContext.Authenticated {
 		t.Errorf("Expected AuthContext.Authenticated=false for invalid audience")
@@ -348,7 +349,7 @@ func TestJWTAuthPolicy_CustomClaims(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
 		t.Errorf("Expected AuthContext.Authenticated=true when required claims match")
@@ -398,7 +399,7 @@ func TestJWTAuthPolicy_InvalidCustomClaims(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || ctx.SharedContext.AuthContext.Authenticated {
 		t.Errorf("Expected AuthContext.Authenticated=false for mismatched required claims")
@@ -449,7 +450,7 @@ func TestJWTAuthPolicy_InvalidSignature(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	// Should fail because signature doesn't match the JWKS public key
 	if ctx.SharedContext.AuthContext == nil || ctx.SharedContext.AuthContext.Authenticated {
@@ -501,7 +502,7 @@ func TestJWTAuthPolicy_CustomHeaderPrefix(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
 		t.Errorf("Expected AuthContext.Authenticated=true with custom prefix override")
@@ -536,7 +537,7 @@ func TestJWTAuthPolicy_ErrorResponseFormatJSON(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	response := action.(policy.ImmediateResponse)
 	if response.Headers["content-type"] != "application/json" {
@@ -571,7 +572,7 @@ func TestJWTAuthPolicy_ErrorResponseFormatPlain(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	response := action.(policy.ImmediateResponse)
 	if response.Headers["content-type"] != "text/plain" {
@@ -659,7 +660,7 @@ func TestJWTAuthPolicy_RemoteWithSelfSignedCert(t *testing.T) {
 	}
 
 	// Execute policy
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	// Verify successful authentication - token validated against self-signed JWKS
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
@@ -752,7 +753,7 @@ func TestJWTAuthPolicy_SkipTlsVerify_Success(t *testing.T) {
 	}
 
 	// Execute policy
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	// Verify successful authentication - TLS verification was skipped
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
@@ -846,7 +847,7 @@ func TestJWTAuthPolicy_SkipTlsVerify_False_Fails(t *testing.T) {
 	}
 
 	// Execute policy
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	// Verify authentication failed - TLS verification should fail for self-signed cert
 	if ctx.SharedContext.AuthContext == nil || ctx.SharedContext.AuthContext.Authenticated {
@@ -912,7 +913,7 @@ func TestJWTAuthPolicy_LocalInlineCertificate(t *testing.T) {
 	}
 
 	// Execute policy
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	// Verify successful authentication
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
@@ -974,7 +975,7 @@ func TestJWTAuthPolicy_LocalCertificateFile(t *testing.T) {
 	}
 
 	// Execute policy
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	// Verify successful authentication
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
@@ -1347,7 +1348,7 @@ func TestJWTAuthPolicy_UserIdClaim_DefaultSub(t *testing.T) {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
 		t.Fatalf("Expected AuthContext.Authenticated=true")
@@ -1404,7 +1405,7 @@ func TestJWTAuthPolicy_UserIdClaim_CustomClaim(t *testing.T) {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
 		t.Fatalf("Expected AuthContext.Authenticated=true")
@@ -1463,7 +1464,7 @@ func TestJWTAuthPolicy_UserIdClaim_EmailClaim(t *testing.T) {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
 		t.Fatalf("Expected AuthContext.Authenticated=true")
@@ -1522,7 +1523,7 @@ func TestJWTAuthPolicy_UserIdClaim_MissingClaim(t *testing.T) {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	// Authentication should still succeed even if a custom claim doesn't exist
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
@@ -1579,7 +1580,7 @@ func TestJWTAuthPolicy_UserIdClaim_NumericValue(t *testing.T) {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
 		t.Fatalf("Expected AuthContext.Authenticated=true")
@@ -1637,7 +1638,7 @@ func TestJWTAuthPolicy_UserIdClaim_EmptyString(t *testing.T) {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
 		t.Fatalf("Expected AuthContext.Authenticated=true")
@@ -1699,7 +1700,7 @@ func TestJWTAuthPolicy_UserIdClaim_WithClaimMappings(t *testing.T) {
 		t.Fatalf("GetPolicy failed: %v", err)
 	}
 
-	action := p.(*JwtAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*JwtAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	if ctx.SharedContext.AuthContext == nil || !ctx.SharedContext.AuthContext.Authenticated {
 		t.Fatalf("Expected AuthContext.Authenticated=true")
@@ -1724,4 +1725,3 @@ func TestJWTAuthPolicy_UserIdClaim_WithClaimMappings(t *testing.T) {
 		t.Errorf("Expected X-User-Role='admin', got '%v'", modifications.HeadersToSet["X-User-Role"])
 	}
 }
-

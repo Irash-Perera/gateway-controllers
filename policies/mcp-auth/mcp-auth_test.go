@@ -19,6 +19,7 @@
 package mcpauthn
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -64,7 +65,7 @@ func TestOnRequestHeaders_WellKnown_Success(t *testing.T) {
 		},
 	}
 
-	action := p.(*McpAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*McpAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
@@ -104,7 +105,7 @@ func TestOnRequestHeaders_WellKnown_NoKeyManagers(t *testing.T) {
 	ctx.Method = "GET"
 	ctx.OperationPath = "/.well-known/oauth-protected-resource"
 
-	action := p.OnRequestHeaders(ctx, map[string]any{})
+	action := p.OnRequestHeaders(context.Background(), ctx, map[string]any{})
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
@@ -123,7 +124,7 @@ func TestOnRequestHeaders_WellKnown_NoKeyManagers_WithForbiddenStatus(t *testing
 	ctx.Method = "GET"
 	ctx.OperationPath = "/.well-known/oauth-protected-resource"
 
-	action := p.OnRequestHeaders(ctx, map[string]any{})
+	action := p.OnRequestHeaders(context.Background(), ctx, map[string]any{})
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
@@ -154,7 +155,7 @@ func TestOnRequestHeaders_WellKnown_FilteredIssuers(t *testing.T) {
 		},
 	}
 
-	action := p.(*McpAuthPolicy).OnRequestHeaders(ctx, params)
+	action := p.(*McpAuthPolicy).OnRequestHeaders(context.Background(), ctx, params)
 
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
@@ -191,7 +192,7 @@ func TestOnRequestHeaders_WellKnown_WithVhost(t *testing.T) {
 		},
 	}
 
-	action := p.OnRequestHeaders(ctx, params)
+	action := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
@@ -232,7 +233,7 @@ func TestOnRequestHeaders_WellKnown_WithVhost_StandardPort(t *testing.T) {
 		},
 	}
 
-	action := p.OnRequestHeaders(ctx, params)
+	action := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
@@ -270,7 +271,7 @@ func TestOnRequestHeaders_WellKnown_WithVhost_AndAPIContext(t *testing.T) {
 		},
 	}
 
-	action := p.OnRequestHeaders(ctx, params)
+	action := p.OnRequestHeaders(context.Background(), ctx, params)
 
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
@@ -318,7 +319,7 @@ func TestOnRequestBody_Delegation_Failure(t *testing.T) {
 		},
 	}
 
-	action := p.OnRequestBody(ctx, params)
+	action := p.OnRequestBody(context.Background(), ctx, params)
 
 	// We expect ImmediateResponse (failure from JWT Auth wrapped)
 	resp, ok := action.(policy.ImmediateResponse)
@@ -350,7 +351,7 @@ func TestOnRequestBody_InvalidOnFailureStatusCode(t *testing.T) {
 	ctx := createMockRequestBodyContext(nil)
 	ctx.Path = "/api/resource"
 
-	action := p.OnRequestBody(ctx, map[string]any{
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{
 		"onFailureStatusCode": 200,
 	})
 
@@ -368,7 +369,7 @@ func TestOnRequestBody_InvalidErrorMessageFormat(t *testing.T) {
 	ctx := createMockRequestBodyContext(nil)
 	ctx.Path = "/api/resource"
 
-	action := p.OnRequestBody(ctx, map[string]any{
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{
 		"errorMessageFormat": "xml",
 	})
 
@@ -387,7 +388,7 @@ func TestOnRequestHeaders_WellKnown_PathWithPrefix_Success(t *testing.T) {
 	ctx.Method = "GET"
 	ctx.OperationPath = "/mcp/v1/.well-known/oauth-protected-resource"
 
-	action := p.OnRequestHeaders(ctx, map[string]any{
+	action := p.OnRequestHeaders(context.Background(), ctx, map[string]any{
 		"keyManagers": []any{
 			map[string]any{
 				"name":   "km1",
@@ -411,7 +412,7 @@ func TestOnRequestHeaders_WellKnown_FalsePositivePathDoesNotMatch(t *testing.T) 
 	ctx.Method = "GET"
 	ctx.OperationPath = "/api/.well-known/oauth-protected-resource-extra"
 
-	action := p.OnRequestHeaders(ctx, map[string]any{})
+	action := p.OnRequestHeaders(context.Background(), ctx, map[string]any{})
 
 	// The path doesn't match well-known endpoint pattern
 	// so the policy returns UpstreamRequestHeaderModifications (no action taken)
@@ -427,7 +428,7 @@ func TestOnRequestBody_WellKnown_MissingIssuerInKeyManagerConfig(t *testing.T) {
 	ctx.Method = "GET"
 	ctx.Path = "/.well-known/oauth-protected-resource"
 
-	action := p.OnRequestBody(ctx, map[string]any{
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{
 		"keyManagers": []any{
 			map[string]any{
 				"name": "km1",
@@ -453,7 +454,7 @@ func TestOnRequestHeaders_HandleAuthFailureWithNilMetadata(t *testing.T) {
 	ctx.Method = "GET"
 	ctx.OperationPath = "/.well-known/oauth-protected-resource"
 
-	action := p.(*McpAuthPolicy).OnRequestHeaders(ctx, map[string]any{
+	action := p.(*McpAuthPolicy).OnRequestHeaders(context.Background(), ctx, map[string]any{
 		"keyManagers": []any{
 			map[string]any{
 				"name":   "km1",
@@ -527,7 +528,7 @@ func TestOnRequestBody_Delegation_Success_SetsAuthContextAuthType(t *testing.T) 
 		},
 	}
 
-	action := p.OnRequestBody(ctx, params)
+	action := p.OnRequestBody(context.Background(), ctx, params)
 
 	// Should NOT be an ImmediateResponse — jwt-auth succeeded
 	if _, ok := action.(policy.ImmediateResponse); ok {

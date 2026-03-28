@@ -19,6 +19,7 @@
 package analyticsheaderfilter
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -130,7 +131,7 @@ func (p *AnalyticsHeaderFilterPolicy) parseHeaderFilterConfig(configRaw interfac
 }
 
 // OnRequestHeaders processes request headers for analytics filtering in the header phase.
-func (p *AnalyticsHeaderFilterPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *AnalyticsHeaderFilterPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	requestConfigRaw, hasRequestConfig := params["request"]
 	if !hasRequestConfig || requestConfigRaw == nil {
 		return policy.UpstreamRequestHeaderModifications{}
@@ -155,7 +156,7 @@ func (p *AnalyticsHeaderFilterPolicy) OnRequestHeaders(ctx *policy.RequestHeader
 }
 
 // OnResponseHeaders processes response headers for analytics filtering in the header phase.
-func (p *AnalyticsHeaderFilterPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
+func (p *AnalyticsHeaderFilterPolicy) OnResponseHeaders(ctx context.Context, respCtx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
 	responseConfigRaw, hasResponseConfig := params["response"]
 	if !hasResponseConfig || responseConfigRaw == nil {
 		return policy.DownstreamResponseHeaderModifications{}

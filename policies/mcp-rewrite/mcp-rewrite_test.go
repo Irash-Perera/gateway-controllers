@@ -19,6 +19,7 @@
 package mcprewrite
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -113,7 +114,7 @@ func TestOnRequest_RewritesToolCallTarget(t *testing.T) {
 	ctx.Path = "/mcp"
 	ctx.Body = &policy.Body{Content: body, Present: true}
 
-	action := p.(*McpRewritePolicy).OnRequestBody(ctx, params)
+	action := p.(*McpRewritePolicy).OnRequestBody(context.Background(), ctx, params)
 	mods, ok := action.(policy.UpstreamRequestModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamRequestModifications, got %T", action)
@@ -193,7 +194,7 @@ func TestOnRequest_UnlistedCapabilityRejected(t *testing.T) {
 			ctx.Path = "/mcp"
 			ctx.Body = &policy.Body{Content: body, Present: true}
 
-			action := p.(*McpRewritePolicy).OnRequestBody(ctx, tt.params)
+			action := p.(*McpRewritePolicy).OnRequestBody(context.Background(), ctx, tt.params)
 			resp := mustImmediateResponse(t, action)
 			if resp.StatusCode != 403 {
 				t.Fatalf("Expected status code 403, got %d", resp.StatusCode)
@@ -255,7 +256,7 @@ func TestOnRequest_EmptyListDenyAll_ByCapability(t *testing.T) {
 			ctx.Path = "/mcp"
 			ctx.Body = &policy.Body{Content: body, Present: true}
 
-			action := p.(*McpRewritePolicy).OnRequestBody(ctx, tt.params)
+			action := p.(*McpRewritePolicy).OnRequestBody(context.Background(), ctx, tt.params)
 			resp := mustImmediateResponse(t, action)
 			if resp.StatusCode != 403 {
 				t.Fatalf("Expected status code 403, got %d", resp.StatusCode)
@@ -300,7 +301,7 @@ func TestOnRequest_UnlistedSSERejected_WithSessionHeader(t *testing.T) {
 	ctx.Path = "/mcp"
 	ctx.Body = &policy.Body{Content: streamBody, Present: true}
 
-	action := p.(*McpRewritePolicy).OnRequestBody(ctx, params)
+	action := p.(*McpRewritePolicy).OnRequestBody(context.Background(), ctx, params)
 	resp := mustImmediateResponse(t, action)
 	if resp.StatusCode != 403 {
 		t.Fatalf("Expected status code 403, got %d", resp.StatusCode)
@@ -343,7 +344,7 @@ func TestOnRequest_InvalidParamsRejected(t *testing.T) {
 	ctx.Path = "/mcp"
 	ctx.Body = &policy.Body{Content: body, Present: true}
 
-	action := p.(*McpRewritePolicy).OnRequestBody(ctx, params)
+	action := p.(*McpRewritePolicy).OnRequestBody(context.Background(), ctx, params)
 	resp := mustImmediateResponse(t, action)
 	if resp.StatusCode != 400 {
 		t.Fatalf("Expected status code 400, got %d", resp.StatusCode)
@@ -377,7 +378,7 @@ func TestOnRequest_MissingCapabilityNameRejected(t *testing.T) {
 	ctx.Path = "/mcp"
 	ctx.Body = &policy.Body{Content: body, Present: true}
 
-	action := p.(*McpRewritePolicy).OnRequestBody(ctx, params)
+	action := p.(*McpRewritePolicy).OnRequestBody(context.Background(), ctx, params)
 	resp := mustImmediateResponse(t, action)
 	if resp.StatusCode != 400 {
 		t.Fatalf("Expected status code 400, got %d", resp.StatusCode)
@@ -411,7 +412,7 @@ func TestOnRequest_ToolCallWithoutTarget_NoRewrite(t *testing.T) {
 	ctx.Path = "/mcp"
 	ctx.Body = &policy.Body{Content: body, Present: true}
 
-	action := p.(*McpRewritePolicy).OnRequestBody(ctx, params)
+	action := p.(*McpRewritePolicy).OnRequestBody(context.Background(), ctx, params)
 	if _, ok := action.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("Expected UpstreamRequestModifications, got %T", action)
 	}
@@ -452,7 +453,7 @@ func TestOnResponse_RewritesAndFiltersConfiguredListItems(t *testing.T) {
 	ctx.Metadata[metadataMcpCapabilityType] = "tools"
 	ctx.Metadata[metadataMcpAction] = "list"
 
-	action := p.(*McpRewritePolicy).OnResponseBody(ctx, params)
+	action := p.(*McpRewritePolicy).OnResponseBody(context.Background(), ctx, params)
 	mods, ok := action.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamResponseModifications, got %T", action)
@@ -532,7 +533,7 @@ func TestOnResponse_EmptyListDenyAll_ByCapability(t *testing.T) {
 			ctx.Metadata[metadataMcpCapabilityType] = tt.capabilityType
 			ctx.Metadata[metadataMcpAction] = "list"
 
-			action := p.(*McpRewritePolicy).OnResponseBody(ctx, tt.params)
+			action := p.(*McpRewritePolicy).OnResponseBody(context.Background(), ctx, tt.params)
 			mods, ok := action.(policy.DownstreamResponseModifications)
 			if !ok {
 				t.Fatalf("Expected UpstreamResponseModifications, got %T", action)
@@ -585,7 +586,7 @@ func TestOnResponse_SSEListFiltering(t *testing.T) {
 	ctx.Metadata[metadataMcpCapabilityType] = "prompts"
 	ctx.Metadata[metadataMcpAction] = "list"
 
-	action := p.(*McpRewritePolicy).OnResponseBody(ctx, params)
+	action := p.(*McpRewritePolicy).OnResponseBody(context.Background(), ctx, params)
 	mods, ok := action.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("Expected UpstreamResponseModifications, got %T", action)

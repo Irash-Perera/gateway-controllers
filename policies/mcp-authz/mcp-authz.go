@@ -19,6 +19,7 @@
 package mcpauthz
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -232,8 +233,8 @@ func (p *McpAuthzPolicy) Mode() policy.ProcessingMode {
 	}
 }
 
-func (p *McpAuthzPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]any) policy.RequestAction {
-	if strings.EqualFold(ctx.Method, "POST") && strings.Contains(ctx.Path, "/mcp") {
+func (p *McpAuthzPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]any) policy.RequestAction {
+	if strings.EqualFold(reqCtx.Method, "POST") && strings.Contains(reqCtx.Path, "/mcp") {
 		slog.Debug("MCP Authorization Policy: Processing MCP request for authorization")
 	} else {
 		slog.Debug("MCP Authorization Policy: Skipping authz...")
@@ -241,17 +242,17 @@ func (p *McpAuthzPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]
 	}
 
 	// Check AuthContext populated by an upstream auth policy
-	authCtx := ctx.SharedContext.AuthContext
+	authCtx := reqCtx.SharedContext.AuthContext
 	if authCtx == nil || !authCtx.Authenticated {
 		slog.Debug("MCP Authorization Policy: No authenticated context found")
-		return p.handleAuthFailure(ctx, "Unauthorized: scope/claim validation failed", nil)
+		return p.handleAuthFailure(reqCtx, "Unauthorized: scope/claim validation failed", nil)
 	}
 
 	// Parse MCP request to extract method and name
 	var mcpReq MCPRequest
-	if err := json.Unmarshal(ctx.Body.Content, &mcpReq); err != nil {
+	if err := json.Unmarshal(reqCtx.Body.Content, &mcpReq); err != nil {
 		slog.Debug("MCP Authorization Policy: Failed to parse MCP request", "error", err)
-		return p.handleAuthFailure(ctx, "Invalid MCP request format", nil)
+		return p.handleAuthFailure(reqCtx, "Invalid MCP request format", nil)
 	}
 
 	slog.Debug("MCP Authorization Policy: Extracted MCP attributes",
@@ -270,12 +271,12 @@ func (p *McpAuthzPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]
 	attributeName := p.getAttributeNameFromParams(mcpReq.Method, mcpReq.Params)
 
 	// Set MCP metadata in context for other policies
-	if ctx.Metadata == nil {
-		ctx.Metadata = make(map[string]any)
+	if reqCtx.Metadata == nil {
+		reqCtx.Metadata = make(map[string]any)
 	}
-	ctx.Metadata[MetadataMcpMethod] = mcpReq.Method
-	ctx.Metadata[MetadataMcpCapabilityType] = attributeType
-	ctx.Metadata[MetadataMcpCapabilityName] = attributeName
+	reqCtx.Metadata[MetadataMcpMethod] = mcpReq.Method
+	reqCtx.Metadata[MetadataMcpCapabilityType] = attributeType
+	reqCtx.Metadata[MetadataMcpCapabilityName] = attributeName
 
 	// Check authorization rules
 	authorized, missingScopes := p.checkAuthorization(attributeType, attributeName, mcpReq.Method, authCtx)
@@ -283,7 +284,7 @@ func (p *McpAuthzPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]
 		slog.Debug("MCP Authorization Policy: Authorization check failed",
 			"attributeName", mcpReq.Params.Name,
 			"method", mcpReq.Method)
-		return p.handleAuthFailure(ctx, "Forbidden: insufficient permissions to access this MCP resource", missingScopes)
+		return p.handleAuthFailure(reqCtx, "Forbidden: insufficient permissions to access this MCP resource", missingScopes)
 	}
 
 	slog.Debug("MCP Authorization Policy: Authorization check passed")
@@ -294,7 +295,7 @@ func (p *McpAuthzPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]
 	return nil
 }
 
-func (p *McpAuthzPolicy) handleAuthFailure(ctx *policy.RequestContext, errorMessage string, scopeMap map[string]struct{}) policy.RequestAction {
+func (p *McpAuthzPolicy) handleAuthFailure(reqCtx *policy.RequestContext, errorMessage string, scopeMap map[string]struct{}) policy.RequestAction {
 	slog.Debug("MCP Authorization Policy: handleAuthFailure called",
 		"errorMessage", errorMessage,
 	)
@@ -304,7 +305,7 @@ func (p *McpAuthzPolicy) handleAuthFailure(ctx *policy.RequestContext, errorMess
 		missingScopes = append(missingScopes, s)
 	}
 
-	wwwAuthHeader := generateWwwAuthenticateHeader(ctx.Scheme, ctx.Authority, ctx.Vhost, ctx.APIContext, ctx.Metadata, missingScopes, errorMessage)
+	wwwAuthHeader := generateWwwAuthenticateHeader(reqCtx.Scheme, reqCtx.Authority, reqCtx.Vhost, reqCtx.APIContext, reqCtx.Metadata, missingScopes, errorMessage)
 
 	headers := map[string]string{
 		"content-type":        "application/json",
@@ -614,4 +615,3 @@ func parseAuthority(authority string) (host string, port int) {
 func isStandardPort(scheme string, port int) bool {
 	return (scheme == "http" && port == 80) || (scheme == "https" && port == 443)
 }
-

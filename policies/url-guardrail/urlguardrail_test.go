@@ -1,6 +1,7 @@
 package urlguardrail
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -373,8 +374,8 @@ func TestValidatePayload_ResponsePaths(t *testing.T) {
 	if resp.StatusCode == nil || *resp.StatusCode != GuardrailErrorCode {
 		t.Fatalf("expected response status %d, got %#v", GuardrailErrorCode, resp.StatusCode)
 	}
-	if resp.DownstreamResponseHeaderModifications.HeadersToSet["Content-Type"] != "application/json" {
-		t.Fatalf("expected response content-type header, got %#v", resp.DownstreamResponseHeaderModifications.HeadersToSet)
+	if resp.HeadersToSet["Content-Type"] != "application/json" {
+		t.Fatalf("expected response content-type header, got %#v", resp.HeadersToSet)
 	}
 	msg := mustMessageMap(t, resp.Body)
 	if msg["direction"] != "RESPONSE" {
@@ -439,11 +440,11 @@ func TestBuildAssessmentObject(t *testing.T) {
 func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 	// No params configured -> no-op.
 	p := &URLGuardrailPolicy{hasRequestParams: false, hasResponseParams: false}
-	reqNoOp := p.OnRequestBody(&policy.RequestContext{}, nil)
+	reqNoOp := p.OnRequestBody(context.Background(), &policy.RequestContext{}, nil)
 	if _, ok := reqNoOp.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected request no-op modifications, got %T", reqNoOp)
 	}
-	respNoOp := p.OnResponseBody(&policy.ResponseContext{}, nil)
+	respNoOp := p.OnResponseBody(context.Background(), &policy.ResponseContext{}, nil)
 	if _, ok := respNoOp.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected response no-op modifications, got %T", respNoOp)
 	}
@@ -451,7 +452,7 @@ func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 	// Request validation with nil body and explicit jsonPath should fail extraction.
 	p.hasRequestParams = true
 	p.requestParams = URLGuardrailPolicyParams{Enabled: true, JsonPath: "$.text", Timeout: 100}
-	reqFail := p.OnRequestBody(&policy.RequestContext{Body: nil}, nil)
+	reqFail := p.OnRequestBody(context.Background(), &policy.RequestContext{Body: nil}, nil)
 	if _, ok := reqFail.(policy.ImmediateResponse); !ok {
 		t.Fatalf("expected ImmediateResponse for request nil-body extraction failure, got %T", reqFail)
 	}
@@ -459,7 +460,7 @@ func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 	// Response validation with nil body and explicit jsonPath should fail extraction.
 	p.hasResponseParams = true
 	p.responseParams = URLGuardrailPolicyParams{Enabled: true, JsonPath: "$.text", Timeout: 100}
-	respFail := p.OnResponseBody(&policy.ResponseContext{ResponseBody: nil}, nil)
+	respFail := p.OnResponseBody(context.Background(), &policy.ResponseContext{ResponseBody: nil}, nil)
 	respMod, ok := respFail.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected UpstreamResponseModifications for response nil-body extraction failure, got %T", respFail)
@@ -469,13 +470,13 @@ func TestOnRequestBodyAndOnResponseBody(t *testing.T) {
 	}
 
 	p.requestParams.Enabled = false
-	reqDisabled := p.OnRequestBody(&policy.RequestContext{Body: &policy.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
+	reqDisabled := p.OnRequestBody(context.Background(), &policy.RequestContext{Body: &policy.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
 	if _, ok := reqDisabled.(policy.UpstreamRequestModifications); !ok {
 		t.Fatalf("expected request no-op when request.enabled=false, got %T", reqDisabled)
 	}
 
 	p.responseParams.Enabled = false
-	respDisabled := p.OnResponseBody(&policy.ResponseContext{ResponseBody: &policy.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
+	respDisabled := p.OnResponseBody(context.Background(), &policy.ResponseContext{ResponseBody: &policy.Body{Content: []byte(`{"text":"https://example.com"}`)}}, nil)
 	if _, ok := respDisabled.(policy.DownstreamResponseModifications); !ok {
 		t.Fatalf("expected response no-op when response.enabled=false, got %T", respDisabled)
 	}

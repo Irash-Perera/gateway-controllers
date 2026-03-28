@@ -27,10 +27,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-	utils "github.com/wso2/api-platform/sdk/core/utils"
 	embeddingproviders "github.com/wso2/api-platform/sdk/ai/embeddings"
 	vectordbproviders "github.com/wso2/api-platform/sdk/ai/vectordb"
+	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
+	utils "github.com/wso2/api-platform/sdk/core/utils"
 )
 
 const (
@@ -336,10 +336,10 @@ func createVectorDBProvider(config vectordbproviders.VectorDBProviderConfig) (ve
 }
 
 // OnRequestBody implements the v1alpha2 body-phase request handler.
-func (p *SemanticCachePolicy) OnRequestBody(ctx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
+func (p *SemanticCachePolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, params map[string]interface{}) policy.RequestAction {
 	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
 
 	// Extract text from request body using JSONPath if specified
@@ -367,16 +367,16 @@ func (p *SemanticCachePolicy) OnRequestBody(ctx *policy.RequestContext, params m
 	}
 
 	// Store embedding in metadata for response phase
-	if ctx.Metadata == nil {
-		ctx.Metadata = make(map[string]interface{})
+	if reqCtx.Metadata == nil {
+		reqCtx.Metadata = make(map[string]interface{})
 	}
 	embeddingBytes, err := json.Marshal(embedding)
 	if err == nil {
-		ctx.Metadata[MetadataKeyEmbedding] = string(embeddingBytes)
+		reqCtx.Metadata[MetadataKeyEmbedding] = string(embeddingBytes)
 	}
 
 	// Get API ID from context (use APIName and APIVersion to create unique ID)
-	apiID := fmt.Sprintf("%s:%s", ctx.APIName, ctx.APIVersion)
+	apiID := fmt.Sprintf("%s:%s", reqCtx.APIName, reqCtx.APIVersion)
 
 	// Cosine similarity embedders (e.g. Mistral) have a floor of ~0.6 — even completely
 	// unrelated texts score that high. Map [0.6, 1.0] → [0, 1] so the user-supplied
@@ -426,21 +426,21 @@ func (p *SemanticCachePolicy) OnRequestBody(ctx *policy.RequestContext, params m
 }
 
 // OnResponseBody handles response body processing for semantic caching.
-func (p *SemanticCachePolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
-	return p.processResponseBody(ctx)
+func (p *SemanticCachePolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+	return p.processResponseBody(respCtx)
 }
 
 // processResponseBody handles response body processing for semantic caching.
-func (p *SemanticCachePolicy) processResponseBody(ctx *policy.ResponseContext) policy.ResponseAction {
+func (p *SemanticCachePolicy) processResponseBody(respCtx *policy.ResponseContext) policy.ResponseAction {
 	// Only cache successful responses (200 status code)
-	if ctx.ResponseStatus != 200 {
-		slog.Debug("SemanticCache: Skipping cache for non-200 response", "statusCode", ctx.ResponseStatus)
+	if respCtx.ResponseStatus != 200 {
+		slog.Debug("SemanticCache: Skipping cache for non-200 response", "statusCode", respCtx.ResponseStatus)
 		return policy.DownstreamResponseModifications{}
 	}
 
 	var content []byte
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
+	if respCtx.ResponseBody != nil {
+		content = respCtx.ResponseBody.Content
 	}
 
 	if len(content) == 0 {
@@ -448,7 +448,7 @@ func (p *SemanticCachePolicy) processResponseBody(ctx *policy.ResponseContext) p
 	}
 
 	// Retrieve embedding from metadata (stored in request phase)
-	embeddingStr, ok := ctx.Metadata[MetadataKeyEmbedding].(string)
+	embeddingStr, ok := respCtx.Metadata[MetadataKeyEmbedding].(string)
 	if !ok || embeddingStr == "" {
 		slog.Debug("SemanticCache: No embedding found in metadata, skipping cache storage")
 		return policy.DownstreamResponseModifications{}
@@ -464,7 +464,7 @@ func (p *SemanticCachePolicy) processResponseBody(ctx *policy.ResponseContext) p
 	var responseData map[string]interface{}
 	if err := json.Unmarshal(content, &responseData); err != nil {
 		// If the body is not valid JSON, check if it is a buffered SSE stream
-		if isSSEResponse(ctx.ResponseHeaders) || isSSEContent(string(content)) {
+		if isSSEResponse(respCtx.ResponseHeaders) || isSSEContent(string(content)) {
 			assembled, sseErr := assembleSSEResponse(string(content), p.streamingJsonPath)
 			if sseErr != nil {
 				slog.Info("SemanticCache: Failed to reassemble SSE response for caching", "error", sseErr)
@@ -478,10 +478,10 @@ func (p *SemanticCachePolicy) processResponseBody(ctx *policy.ResponseContext) p
 	}
 
 	// Get API ID from context (use APIName and APIVersion to create unique ID)
-	apiID := fmt.Sprintf("%s:%s", ctx.APIName, ctx.APIVersion)
+	apiID := fmt.Sprintf("%s:%s", respCtx.APIName, respCtx.APIVersion)
 	if apiID == ":" {
 		// Fallback to route name if API info not available
-		apiID = ctx.RequestID
+		apiID = respCtx.RequestID
 	}
 
 	// Store in cache

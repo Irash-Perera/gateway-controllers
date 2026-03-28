@@ -18,6 +18,7 @@
 package contentlengthguardrail
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -282,12 +283,12 @@ func (p *ContentLengthGuardrailPolicy) buildAssessmentObject(reason string, vali
 }
 
 // OnRequestBody validates request body content length.
-func (p *ContentLengthGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *ContentLengthGuardrailPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	if !p.hasRequestParams || !p.requestParams.Enabled {
 		return policy.UpstreamRequestModifications{}
 	}
 
-	if ctx.Body == nil || ctx.Body.Content == nil {
+	if reqCtx.Body == nil || reqCtx.Body.Content == nil {
 		return policy.ImmediateResponse{
 			StatusCode: GuardrailErrorCode,
 			Headers:    map[string]string{"Content-Type": "application/json"},
@@ -295,18 +296,18 @@ func (p *ContentLengthGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext,
 		}
 	}
 
-	return p.validatePayload(ctx.Body.Content, p.requestParams, false).(policy.RequestAction)
+	return p.validatePayload(reqCtx.Body.Content, p.requestParams, false).(policy.RequestAction)
 }
 
 // OnResponseBody validates response body content length.
-func (p *ContentLengthGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+func (p *ContentLengthGuardrailPolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.DownstreamResponseModifications{}
 	}
 
 	content := []byte{}
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
+	if respCtx.ResponseBody != nil {
+		content = respCtx.ResponseBody.Content
 	}
 	return p.validatePayload(content, p.responseParams, true).(policy.ResponseAction)
 }
@@ -402,7 +403,7 @@ func (p *ContentLengthGuardrailPolicy) NeedsMoreResponseData(accumulated []byte)
 // OnResponseBodyChunk implements StreamingResponsePolicy.
 // Maintains a running delta.content byte count across chunks and validates
 // the content length against the configured min/max thresholds.
-func (p *ContentLengthGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
+func (p *ContentLengthGuardrailPolicy) OnResponseBodyChunk(ctx context.Context, respCtx *policy.ResponseStreamContext, chunk *policy.StreamBody, params map[string]interface{}) policy.ResponseChunkAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.ResponseChunkAction{}
 	}
@@ -410,17 +411,17 @@ func (p *ContentLengthGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseS
 		return policy.ResponseChunkAction{}
 	}
 
-	if ctx.Metadata == nil {
-		ctx.Metadata = map[string]any{}
+	if respCtx.Metadata == nil {
+		respCtx.Metadata = map[string]any{}
 	}
 
 	chunkStr := string(chunk.Chunk)
 	if !isSSEChunk(chunkStr) {
 		// Plain JSON via chunked transfer (e.g. OpenAI stream:false with Transfer-Encoding: chunked).
 		// Accumulate all chunks and validate the complete body at end of stream.
-		prev, _ := ctx.Metadata[metaKeyAccJsonBody].(string)
+		prev, _ := respCtx.Metadata[metaKeyAccJsonBody].(string)
 		full := prev + chunkStr
-		ctx.Metadata[metaKeyAccJsonBody] = full
+		respCtx.Metadata[metaKeyAccJsonBody] = full
 		if !chunk.EndOfStream {
 			return policy.ResponseChunkAction{}
 		}
@@ -436,14 +437,14 @@ func (p *ContentLengthGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseS
 	// Add this chunk's delta.content bytes to the running total stored in metadata.
 	// Metadata persists across OnResponseBodyChunk invocations for the same request.
 	prev := 0
-	if v, ok := ctx.Metadata[metaKeyResponseRunningBytes]; ok {
+	if v, ok := respCtx.Metadata[metaKeyResponseRunningBytes]; ok {
 		if n, ok := v.(int); ok {
 			prev = n
 		}
 	}
 	chunkContent := extractSSEDeltaContent(chunkStr, rp.StreamingJsonPath)
 	running := prev + len([]byte(chunkContent))
-	ctx.Metadata[metaKeyResponseRunningBytes] = running
+	respCtx.Metadata[metaKeyResponseRunningBytes] = running
 
 	isDone := chunk.EndOfStream
 

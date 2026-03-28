@@ -1,6 +1,7 @@
 package subscriptionvalidation
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"testing"
@@ -231,7 +232,7 @@ func TestOnRequestHeaders_AllowsValidToken(t *testing.T) {
 	})
 	p := newPolicy(defaultCfg(), store)
 	ctx := headerCtxWithToken("api-1", "tok-1", "")
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{}))
 	assertSuccess(t, action)
 	assertHeaderRemoved(t, action, defaultSubscriptionKeyHeader)
 }
@@ -242,7 +243,7 @@ func TestOnRequestHeaders_DeniesInvalidToken(t *testing.T) {
 	})
 	p := newPolicy(defaultCfg(), store)
 	ctx := headerCtxWithToken("api-1", "wrong-token", "")
-	assertImmediate(t, p.OnRequestHeaders(ctx, nil), 403, "forbidden")
+	assertImmediate(t, p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{})), 403, "forbidden")
 }
 
 func TestOnRequestHeaders_DeniesInactiveToken(t *testing.T) {
@@ -251,7 +252,7 @@ func TestOnRequestHeaders_DeniesInactiveToken(t *testing.T) {
 	})
 	p := newPolicy(defaultCfg(), store)
 	ctx := headerCtxWithToken("api-1", "tok-1", "")
-	assertImmediate(t, p.OnRequestHeaders(ctx, nil), 403, "forbidden")
+	assertImmediate(t, p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{})), 403, "forbidden")
 }
 
 func TestOnRequestHeaders_CustomHeaderName(t *testing.T) {
@@ -263,7 +264,7 @@ func TestOnRequestHeaders_CustomHeaderName(t *testing.T) {
 	p := newPolicy(cfg, store)
 
 	ctx := headerCtxWithToken("api-1", "tok-1", "X-Custom-Sub")
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{}))
 	assertSuccess(t, action)
 	assertHeaderRemoved(t, action, "X-Custom-Sub")
 }
@@ -278,7 +279,7 @@ func TestOnRequestHeaders_AllowsValidTokenFromCookie(t *testing.T) {
 	cfg.SubscriptionKeyCookie = "sub-key"
 	p := newPolicy(cfg, store)
 	ctx := headerCtxWithCookie("api-1", "tok-1", "sub-key")
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{}))
 	assertSuccess(t, action)
 	assertCookieStripped(t, action, "sub-key")
 }
@@ -291,7 +292,7 @@ func TestOnRequestHeaders_CookieDeniesInvalidToken(t *testing.T) {
 	cfg.SubscriptionKeyCookie = "sub-key"
 	p := newPolicy(cfg, store)
 	ctx := headerCtxWithCookie("api-1", "wrong-token", "sub-key")
-	assertImmediate(t, p.OnRequestHeaders(ctx, nil), 403, "forbidden")
+	assertImmediate(t, p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{})), 403, "forbidden")
 }
 
 func TestOnRequestHeaders_HeaderTakesPrecedenceOverCookie(t *testing.T) {
@@ -312,7 +313,7 @@ func TestOnRequestHeaders_HeaderTakesPrecedenceOverCookie(t *testing.T) {
 		}),
 	}
 	// Header value should be used; tok-1 is valid
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{}))
 	assertSuccess(t, action)
 	assertHeaderRemoved(t, action, defaultSubscriptionKeyHeader)
 }
@@ -325,7 +326,7 @@ func TestOnRequestHeaders_CookieUsedWhenHeaderMissing(t *testing.T) {
 	cfg.SubscriptionKeyCookie = "sub-key"
 	p := newPolicy(cfg, store)
 	ctx := headerCtxWithCookie("api-1", "tok-1", "sub-key")
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{}))
 	assertSuccess(t, action)
 	assertCookieStripped(t, action, "sub-key")
 }
@@ -362,7 +363,7 @@ func TestOnRequestHeaders_FallbackAppIdAllows(t *testing.T) {
 	})
 	p := newPolicy(defaultCfg(), store)
 	ctx := headerCtxWithAppID("api-1", "app-1")
-	assertSuccess(t, p.OnRequestHeaders(ctx, nil))
+	assertSuccess(t, p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{})))
 }
 
 func TestOnRequestHeaders_FallbackAppIdDenies(t *testing.T) {
@@ -371,7 +372,7 @@ func TestOnRequestHeaders_FallbackAppIdDenies(t *testing.T) {
 	})
 	p := newPolicy(defaultCfg(), store)
 	ctx := headerCtxWithAppID("api-1", "app-wrong")
-	assertImmediate(t, p.OnRequestHeaders(ctx, nil), 403, "forbidden")
+	assertImmediate(t, p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{})), 403, "forbidden")
 }
 
 // --- no identity at all ------------------------------------------------------
@@ -386,7 +387,7 @@ func TestOnRequestHeaders_DeniesWhenNoIdentity(t *testing.T) {
 		},
 		Headers: policy.NewHeaders(nil),
 	}
-	assertImmediate(t, p.OnRequestHeaders(ctx, nil), 403, "forbidden")
+	assertImmediate(t, p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{})), 403, "forbidden")
 }
 
 // --- missing apiId fails closed ----------------------------------------------
@@ -401,7 +402,7 @@ func TestOnRequestHeaders_FailsClosedWhenAPIIdMissing(t *testing.T) {
 		},
 		Headers: policy.NewHeaders(nil),
 	}
-	assertImmediate(t, p.OnRequestHeaders(ctx, nil), 403, "forbidden")
+	assertImmediate(t, p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{})), 403, "forbidden")
 }
 
 // --- rate limiting -----------------------------------------------------------
@@ -421,13 +422,13 @@ func TestOnRequestHeaders_RateLimitEnforced(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		ctx := headerCtxWithToken("api-1", "tok-1", "")
-		action := p.OnRequestHeaders(ctx, nil)
+		action := p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{}))
 		assertSuccess(t, action)
 		assertHeaderRemoved(t, action, defaultSubscriptionKeyHeader)
 	}
 
 	ctx := headerCtxWithToken("api-1", "tok-1", "")
-	action := p.OnRequestHeaders(ctx, nil)
+	action := p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{}))
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("expected ImmediateResponse, got %T", action)
@@ -460,7 +461,7 @@ func TestOnRequestHeaders_RateLimitNotEnforcedWhenStopOnQuotaFalse(t *testing.T)
 
 	for i := 0; i < 5; i++ {
 		ctx := headerCtxWithToken("api-1", "tok-1", "")
-		action := p.OnRequestHeaders(ctx, nil)
+		action := p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{}))
 		if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
 			t.Fatalf("request %d should be allowed (stopOnQuotaReach=false), got %#v", i+1, action)
 		}
@@ -475,7 +476,7 @@ func TestOnRequestHeaders_NoRateLimitWithoutPlan(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		ctx := headerCtxWithToken("api-1", "tok-1", "")
-		action := p.OnRequestHeaders(ctx, nil)
+		action := p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{}))
 		if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
 			t.Fatalf("request %d should be allowed (no throttle plan), got %#v", i+1, action)
 		}
@@ -504,18 +505,18 @@ func TestOnRequestHeaders_TokenTakesPrecedenceOverAppId(t *testing.T) {
 	}
 	// Token path should be tried first and should fail (wrong token),
 	// even though appId path would succeed.
-	assertImmediate(t, p.OnRequestHeaders(ctx, nil), 403, "forbidden")
+	assertImmediate(t, p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{})), 403, "forbidden")
 }
 
 // --- nil context / nil store guards ------------------------------------------
 
 func TestOnRequestHeaders_NilContext(t *testing.T) {
 	p := newPolicy(defaultCfg(), policyenginev1.NewSubscriptionStore())
-	assertImmediate(t, p.OnRequestHeaders(nil, nil), 403, "forbidden")
+	assertImmediate(t, p.OnRequestHeaders(context.Background(), nil, make(map[string]interface{})), 403, "forbidden")
 }
 
 func TestOnRequestHeaders_NilStore(t *testing.T) {
 	p := newPolicy(defaultCfg(), nil)
 	ctx := headerCtxWithToken("api-1", "tok-1", "")
-	assertImmediate(t, p.OnRequestHeaders(ctx, nil), 403, "forbidden")
+	assertImmediate(t, p.OnRequestHeaders(context.Background(), ctx, make(map[string]interface{})), 403, "forbidden")
 }

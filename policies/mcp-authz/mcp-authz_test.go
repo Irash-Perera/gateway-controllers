@@ -19,6 +19,7 @@
 package mcpauthz
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -104,7 +105,7 @@ func TestGetPolicy_EmptyParams(t *testing.T) {
 func TestOnRequest_SkipsNonMCP_GET(t *testing.T) {
 	p := &McpAuthzPolicy{}
 	ctx := createMockContext("GET", "/mcp", toolCallBody("tool1"), authenticatedAuthCtx(nil, "alice", "", nil, nil))
-	action := p.OnRequestBody(ctx, map[string]any{})
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{})
 	if action != nil {
 		t.Errorf("Expected nil for non-POST, got %T", action)
 	}
@@ -113,7 +114,7 @@ func TestOnRequest_SkipsNonMCP_GET(t *testing.T) {
 func TestOnRequest_SkipsNonMCP_Path(t *testing.T) {
 	p := &McpAuthzPolicy{}
 	ctx := createMockContext("POST", "/api/resource", toolCallBody("tool1"), authenticatedAuthCtx(nil, "alice", "", nil, nil))
-	action := p.OnRequestBody(ctx, map[string]any{})
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{})
 	if action != nil {
 		t.Errorf("Expected nil for non-/mcp path, got %T", action)
 	}
@@ -124,7 +125,7 @@ func TestOnRequest_SkipsNonMCP_Path(t *testing.T) {
 func TestOnRequest_NoAuthContext(t *testing.T) {
 	p := &McpAuthzPolicy{}
 	ctx := createMockContext("POST", "/mcp", toolCallBody("tool1"), nil)
-	action := p.OnRequestBody(ctx, map[string]any{})
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{})
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
@@ -138,7 +139,7 @@ func TestOnRequest_NotAuthenticated(t *testing.T) {
 	p := &McpAuthzPolicy{}
 	authCtx := &policy.AuthContext{Authenticated: false, AuthType: "jwt"}
 	ctx := createMockContext("POST", "/mcp", toolCallBody("tool1"), authCtx)
-	action := p.OnRequestBody(ctx, map[string]any{})
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{})
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
@@ -154,7 +155,7 @@ func TestOnRequest_InvalidMCPBody(t *testing.T) {
 	p := &McpAuthzPolicy{}
 	authCtx := authenticatedAuthCtx(nil, "alice", "", nil, nil)
 	ctx := createMockContext("POST", "/mcp", []byte("not-json"), authCtx)
-	action := p.OnRequestBody(ctx, map[string]any{})
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{})
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse, got %T", action)
@@ -175,7 +176,7 @@ func TestOnRequest_NoMatchingRules(t *testing.T) {
 	}}
 	authCtx := authenticatedAuthCtx(map[string]bool{"read": true}, "alice", "", nil, nil)
 	ctx := createMockContext("POST", "/mcp", toolCallBody("my-tool"), authCtx)
-	action := p.OnRequestBody(ctx, map[string]any{})
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{})
 	if action != nil {
 		t.Errorf("Expected nil (allow) when no rules match, got %T", action)
 	}
@@ -190,7 +191,7 @@ func TestOnRequest_ScopeCheckPasses(t *testing.T) {
 	}}
 	authCtx := authenticatedAuthCtx(map[string]bool{"mcp:tools:read": true}, "alice", "", nil, nil)
 	ctx := createMockContext("POST", "/mcp", toolCallBody("my-tool"), authCtx)
-	action := p.OnRequestBody(ctx, map[string]any{})
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{})
 	if action != nil {
 		t.Errorf("Expected nil (authorized), got %T", action)
 	}
@@ -205,7 +206,7 @@ func TestOnRequest_ScopeCheckFails(t *testing.T) {
 	}}
 	authCtx := authenticatedAuthCtx(map[string]bool{"mcp:tools:read": true}, "alice", "", nil, nil)
 	ctx := createMockContext("POST", "/mcp", toolCallBody("my-tool"), authCtx)
-	action := p.OnRequestBody(ctx, map[string]any{})
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{})
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse (forbidden), got %T", action)
@@ -229,7 +230,7 @@ func TestOnRequest_ClaimCheckPasses_Sub(t *testing.T) {
 	}}
 	authCtx := authenticatedAuthCtx(nil, "alice", "", nil, nil)
 	ctx := createMockContext("POST", "/mcp", toolCallBody("my-tool"), authCtx)
-	action := p.OnRequestBody(ctx, map[string]any{})
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{})
 	if action != nil {
 		t.Errorf("Expected nil (authorized), got %T", action)
 	}
@@ -244,7 +245,7 @@ func TestOnRequest_ClaimCheckFails(t *testing.T) {
 	}}
 	authCtx := authenticatedAuthCtx(nil, "alice", "", nil, nil)
 	ctx := createMockContext("POST", "/mcp", toolCallBody("my-tool"), authCtx)
-	action := p.OnRequestBody(ctx, map[string]any{})
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{})
 	resp, ok := action.(policy.ImmediateResponse)
 	if !ok {
 		t.Fatalf("Expected ImmediateResponse (forbidden), got %T", action)
@@ -263,7 +264,7 @@ func TestOnRequest_WildcardRule(t *testing.T) {
 	}}
 	authCtx := authenticatedAuthCtx(map[string]bool{"mcp:tools:call": true}, "alice", "", nil, nil)
 	ctx := createMockContext("POST", "/mcp", toolCallBody("any-tool"), authCtx)
-	action := p.OnRequestBody(ctx, map[string]any{})
+	action := p.OnRequestBody(context.Background(), ctx, map[string]any{})
 	if action != nil {
 		t.Errorf("Expected nil (authorized by wildcard rule), got %T", action)
 	}
@@ -289,7 +290,7 @@ func TestOnRequest_Success_SetsAuthorizedAndAuthType(t *testing.T) {
 	body := toolCallBody("my-tool")
 	ctx := createMockContext("POST", "/mcp", body, authCtx)
 
-	action := rp.OnRequestBody(ctx, params)
+	action := rp.OnRequestBody(context.Background(), ctx, params)
 
 	if action != nil {
 		t.Fatalf("Expected nil (pass-through), got %T", action)
@@ -320,7 +321,7 @@ func TestOnRequest_Success_NonMcpOAuthAuthType_Unchanged(t *testing.T) {
 	body := toolCallBody("my-tool")
 	ctx := createMockContext("POST", "/mcp", body, authCtx)
 
-	action := rp.OnRequestBody(ctx, params)
+	action := rp.OnRequestBody(context.Background(), ctx, params)
 
 	if action != nil {
 		t.Fatalf("Expected nil (pass-through), got %T", action)

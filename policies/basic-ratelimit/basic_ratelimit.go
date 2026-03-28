@@ -19,6 +19,8 @@
 package basicratelimit
 
 import (
+	"context"
+
 	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 	ratelimit "github.com/wso2/gateway-controllers/policies/advanced-ratelimit"
 )
@@ -130,29 +132,27 @@ func transformToRatelimitParams(params map[string]interface{}, metadata policy.P
 }
 
 // OnRequestHeaders delegates to the core ratelimit policy's OnRequestHeaders method if available.
-func (p *BasicRateLimitPolicy) OnRequestHeaders(
-	ctx *policy.RequestHeaderContext,
+func (p *BasicRateLimitPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext,
 	params map[string]interface{},
 ) policy.RequestHeaderAction {
 	type requestHeaderPolicer interface {
-		OnRequestHeaders(*policy.RequestHeaderContext, map[string]interface{}) policy.RequestHeaderAction
+		OnRequestHeaders(context.Context, *policy.RequestHeaderContext, map[string]interface{}) policy.RequestHeaderAction
 	}
 	if rl, ok := p.delegate.(requestHeaderPolicer); ok {
-		return rl.OnRequestHeaders(ctx, params)
+		return rl.OnRequestHeaders(ctx, reqCtx, params)
 	}
 	return policy.UpstreamRequestHeaderModifications{}
 }
 
 // OnResponseHeaders delegates to the core ratelimit policy's OnResponseHeaders method if available.
-func (p *BasicRateLimitPolicy) OnResponseHeaders(
-	ctx *policy.ResponseHeaderContext,
+func (p *BasicRateLimitPolicy) OnResponseHeaders(ctx context.Context, respCtx *policy.ResponseHeaderContext,
 	params map[string]interface{},
 ) policy.ResponseHeaderAction {
 	type responseHeaderPolicer interface {
-		OnResponseHeaders(*policy.ResponseHeaderContext, map[string]interface{}) policy.ResponseHeaderAction
+		OnResponseHeaders(context.Context, *policy.ResponseHeaderContext, map[string]interface{}) policy.ResponseHeaderAction
 	}
 	if rl, ok := p.delegate.(responseHeaderPolicer); ok {
-		return rl.OnResponseHeaders(ctx, params)
+		return rl.OnResponseHeaders(ctx, respCtx, params)
 	}
 	return policy.DownstreamResponseHeaderModifications{}
 }

@@ -394,14 +394,14 @@ func (p *URLGuardrailPolicy) buildAssessmentObject(reason string, validationErro
 }
 
 // OnRequestBody validates URLs found in the request body.
-func (p *URLGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *URLGuardrailPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	if !p.hasRequestParams || !p.requestParams.Enabled {
 		return policy.UpstreamRequestModifications{}
 	}
 
 	var content []byte
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
 	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
 }
@@ -410,14 +410,14 @@ func (p *URLGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[str
 // For buffered SSE responses (stream:true with full body accumulated), the
 // delta content is extracted first; JSONPath extraction is only used for
 // plain JSON responses.
-func (p *URLGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+func (p *URLGuardrailPolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.DownstreamResponseModifications{}
 	}
 
 	var content []byte
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
+	if respCtx.ResponseBody != nil {
+		content = respCtx.ResponseBody.Content
 	}
 
 	if text := extractSSEDeltaContent(string(content), p.responseParams.StreamingJsonPath); text != "" {
@@ -486,7 +486,7 @@ func (p *URLGuardrailPolicy) NeedsMoreResponseData(accumulated []byte) bool {
 // For plain JSON (chunked transfer): chunks are accumulated until EndOfStream,
 // then validated via JSONPath; on failure the final chunk is replaced with a
 // JSON error body. ImmediateResponse is not available once headers are committed.
-func (p *URLGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamContext, chunk *policy.StreamBody, _ map[string]interface{}) policy.ResponseChunkAction {
+func (p *URLGuardrailPolicy) OnResponseBodyChunk(ctx context.Context, respCtx *policy.ResponseStreamContext, chunk *policy.StreamBody, _ map[string]interface{}) policy.ResponseChunkAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.ResponseChunkAction{}
 	}
@@ -499,12 +499,12 @@ func (p *URLGuardrailPolicy) OnResponseBodyChunk(ctx *policy.ResponseStreamConte
 	if !isSSEChunk(chunkStr) {
 		// Plain JSON via chunked transfer (e.g. OpenAI stream:false with Transfer-Encoding: chunked).
 		// Accumulate all chunks and validate the complete body at end of stream.
-		if ctx.Metadata == nil {
-			ctx.Metadata = make(map[string]interface{})
+		if respCtx.Metadata == nil {
+			respCtx.Metadata = make(map[string]interface{})
 		}
-		prev, _ := ctx.Metadata[metaKeyAccJsonBody].(string)
+		prev, _ := respCtx.Metadata[metaKeyAccJsonBody].(string)
 		full := prev + chunkStr
-		ctx.Metadata[metaKeyAccJsonBody] = full
+		respCtx.Metadata[metaKeyAccJsonBody] = full
 		if !chunk.EndOfStream {
 			return policy.ResponseChunkAction{}
 		}

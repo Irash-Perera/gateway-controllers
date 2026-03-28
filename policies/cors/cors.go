@@ -19,6 +19,7 @@
 package cors
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -152,34 +153,34 @@ func getStringArrayParam(params map[string]any, key string, defaultValue []strin
 }
 
 // OnRequestHeaders handles CORS in the request header phase.
-func (p *CorsPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]any) policy.RequestHeaderAction {
-	if strings.EqualFold(ctx.Method, "options") {
+func (p *CorsPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]any) policy.RequestHeaderAction {
+	if strings.EqualFold(reqCtx.Method, "options") {
 		slog.Debug("CORS: Preflight request detected in header phase; handling preflight")
-		return p.handlePreflightHeaders(ctx.Headers)
+		return p.handlePreflightHeaders(reqCtx.Headers)
 	}
-	corsHeaders, ok := p.handleNonPreflightHeaders(ctx.Headers)
+	corsHeaders, ok := p.handleNonPreflightHeaders(reqCtx.Headers)
 	if ok {
 		slog.Debug("CORS: Adding CORS headers to non-preflight request")
-		ctx.Metadata["cors_headers"] = corsHeaders
+		reqCtx.Metadata["cors_headers"] = corsHeaders
 	} else {
 		slog.Debug("CORS: No CORS headers to add for non-preflight request")
-		if ctx.Headers.Has("Origin") {
-			ctx.Metadata["cors_strip"] = true
+		if reqCtx.Headers.Has("Origin") {
+			reqCtx.Metadata["cors_strip"] = true
 		}
 	}
 	return policy.UpstreamRequestHeaderModifications{}
 }
 
 // OnResponseHeaders sets CORS headers on the response in the header phase.
-func (p *CorsPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, params map[string]any) policy.ResponseHeaderAction {
-	corsHeaders, ok := ctx.Metadata["cors_headers"].(map[string]string)
+func (p *CorsPolicy) OnResponseHeaders(ctx context.Context, respCtx *policy.ResponseHeaderContext, params map[string]any) policy.ResponseHeaderAction {
+	corsHeaders, ok := respCtx.Metadata["cors_headers"].(map[string]string)
 	if ok {
 		slog.Debug("CORS: Adding CORS headers to response in header phase")
 		return policy.DownstreamResponseHeaderModifications{
 			HeadersToSet: corsHeaders,
 		}
 	}
-	if _, strip := ctx.Metadata["cors_strip"]; strip {
+	if _, strip := respCtx.Metadata["cors_strip"]; strip {
 		slog.Debug("CORS: Stripping upstream CORS headers for disallowed origin in header phase")
 		return policy.DownstreamResponseHeaderModifications{
 			HeadersToRemove: []string{

@@ -18,6 +18,7 @@
 package jsonschemaguardrail
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -243,27 +244,27 @@ func (p *JSONSchemaGuardrailPolicy) buildAssessmentObject(reason string, validat
 }
 
 // OnRequestBody validates request body against JSON schema.
-func (p *JSONSchemaGuardrailPolicy) OnRequestBody(ctx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
+func (p *JSONSchemaGuardrailPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext, _ map[string]interface{}) policy.RequestAction {
 	if !p.hasRequestParams || !p.requestParams.Enabled {
 		return policy.UpstreamRequestModifications{}
 	}
 
 	content := []byte{}
-	if ctx.Body != nil {
-		content = ctx.Body.Content
+	if reqCtx.Body != nil {
+		content = reqCtx.Body.Content
 	}
 	return p.validatePayload(content, p.requestParams, false).(policy.RequestAction)
 }
 
 // OnResponseBody validates response body against JSON schema.
-func (p *JSONSchemaGuardrailPolicy) OnResponseBody(ctx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
+func (p *JSONSchemaGuardrailPolicy) OnResponseBody(ctx context.Context, respCtx *policy.ResponseContext, _ map[string]interface{}) policy.ResponseAction {
 	if !p.hasResponseParams || !p.responseParams.Enabled {
 		return policy.DownstreamResponseModifications{}
 	}
 
 	content := []byte{}
-	if ctx.ResponseBody != nil {
-		content = ctx.ResponseBody.Content
+	if respCtx.ResponseBody != nil {
+		content = respCtx.ResponseBody.Content
 	}
 	return p.validatePayload(content, p.responseParams, true).(policy.ResponseAction)
 }

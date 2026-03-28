@@ -17,6 +17,7 @@
 package llmcost
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"os"
@@ -1774,7 +1775,6 @@ func TestOpenAICalculator_Normalize_MalformedBody(t *testing.T) {
 // Policy mode
 // ---------------------------------------------------------------------------
 
-
 // ---------------------------------------------------------------------------
 // setCostMetadata formatting
 // ---------------------------------------------------------------------------
@@ -1822,18 +1822,18 @@ func makeResponseContext(body []byte) *policy.ResponseContext {
 	return ctx
 }
 
-func assertCostMetadata(t *testing.T, ctx *policy.ResponseContext, action policy.ResponseAction, wantStatus string, wantCost string) {
+func assertCostMetadata(t *testing.T, respCtx *policy.ResponseContext, action policy.ResponseAction, wantStatus string, wantCost string) {
 	t.Helper()
 	_, ok := action.(policy.DownstreamResponseModifications)
 	if !ok {
 		t.Fatalf("expected DownstreamResponseModifications, got %T", action)
 	}
-	gotStatus, _ := ctx.Metadata[MetadataLLMCostStatus].(string)
+	gotStatus, _ := respCtx.Metadata[MetadataLLMCostStatus].(string)
 	if gotStatus != wantStatus {
 		t.Errorf("x-llm-cost-status: expected %q, got %q", wantStatus, gotStatus)
 	}
 	if wantCost != "" {
-		gotCost, _ := ctx.Metadata[MetadataLLMCost].(string)
+		gotCost, _ := respCtx.Metadata[MetadataLLMCost].(string)
 		if gotCost != wantCost {
 			t.Errorf("x-llm-cost: expected %q, got %q", wantCost, gotCost)
 		}
@@ -1847,7 +1847,7 @@ func TestOnResponseBody_SuccessStatus_Calculated(t *testing.T) {
 		"usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
 	}`)
 	ctx := makeResponseContext(body)
-	action := p.OnResponseBody(ctx, nil)
+	action := p.OnResponseBody(context.Background(), ctx, nil)
 	assertCostMetadata(t, ctx, action, costStatusCalculated, "")
 	// Also verify the cost metadata is non-empty (exact value tested in calculator tests).
 	if gotCost, _ := ctx.Metadata[MetadataLLMCost].(string); gotCost == "" {
@@ -1861,27 +1861,27 @@ func TestOnResponseBody_EmptyBody_NotCalculated(t *testing.T) {
 		SharedContext: &policy.SharedContext{Metadata: make(map[string]interface{})},
 		ResponseBody:  &policy.Body{Present: false},
 	}
-	assertCostMetadata(t, ctx, p.OnResponseBody(ctx, nil), costStatusNotCalculated, "0.0000000000")
+	assertCostMetadata(t, ctx, p.OnResponseBody(context.Background(), ctx, nil), costStatusNotCalculated, "0.0000000000")
 }
 
 func TestOnResponseBody_UnparsableBody_NotCalculated(t *testing.T) {
 	p := &LLMCostPolicy{pricingMap: testPricingMap}
 	ctx := makeResponseContext([]byte("not json"))
-	assertCostMetadata(t, ctx, p.OnResponseBody(ctx, nil), costStatusNotCalculated, "0.0000000000")
+	assertCostMetadata(t, ctx, p.OnResponseBody(context.Background(), ctx, nil), costStatusNotCalculated, "0.0000000000")
 }
 
 func TestOnResponseBody_NoModelName_NotCalculated(t *testing.T) {
 	p := &LLMCostPolicy{pricingMap: testPricingMap}
 	body := []byte(`{"usage": {"prompt_tokens": 10}}`)
 	ctx := makeResponseContext(body)
-	assertCostMetadata(t, ctx, p.OnResponseBody(ctx, nil), costStatusNotCalculated, "0.0000000000")
+	assertCostMetadata(t, ctx, p.OnResponseBody(context.Background(), ctx, nil), costStatusNotCalculated, "0.0000000000")
 }
 
 func TestOnResponseBody_UnknownModel_NotCalculated(t *testing.T) {
 	p := &LLMCostPolicy{pricingMap: testPricingMap}
 	body := []byte(`{"model": "totally-unknown-model-xyz", "usage": {"prompt_tokens": 10}}`)
 	ctx := makeResponseContext(body)
-	assertCostMetadata(t, ctx, p.OnResponseBody(ctx, nil), costStatusNotCalculated, "0.0000000000")
+	assertCostMetadata(t, ctx, p.OnResponseBody(context.Background(), ctx, nil), costStatusNotCalculated, "0.0000000000")
 }
 
 // ---------------------------------------------------------------------------
@@ -2204,7 +2204,7 @@ func TestOnResponseBody_SSE_OpenAI_Calculated(t *testing.T) {
 			"data: [DONE]\n",
 	)
 	ctx := makeResponseContext(sseBody)
-	action := p.OnResponseBody(ctx, nil)
+	action := p.OnResponseBody(context.Background(), ctx, nil)
 	assertCostMetadata(t, ctx, action, costStatusCalculated, "")
 	if gotCost, _ := ctx.Metadata[MetadataLLMCost].(string); gotCost == "" {
 		t.Error("expected non-empty x-llm-cost for SSE OpenAI response")
@@ -2220,7 +2220,7 @@ func TestOnResponseBody_SSE_NoUsage_NotCalculated(t *testing.T) {
 			"data: [DONE]\n",
 	)
 	ctx := makeResponseContext(sseBody)
-	action := p.OnResponseBody(ctx, nil)
+	action := p.OnResponseBody(context.Background(), ctx, nil)
 	// Without usage data, cost should be calculated as 0 tokens (not a parse failure)
 	assertCostMetadata(t, ctx, action, costStatusCalculated, "0.0000000000")
 }

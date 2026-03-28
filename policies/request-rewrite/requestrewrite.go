@@ -18,6 +18,7 @@
 package requestrewrite
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -331,8 +332,8 @@ func isAllowedMethod(method string) bool {
 }
 
 // OnRequestHeaders applies request transformations in the header phase for v2alpha engine compatibility.
-func (p *RequestRewritePolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
-	newPath, newMethod, err := p.computeRewrite(ctx, params)
+func (p *RequestRewritePolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+	newPath, newMethod, err := p.computeRewrite(reqCtx, params)
 	if err != nil {
 		slog.Error("[Request Rewrite]: Configuration error", "error", err)
 		body, _ := json.Marshal(map[string]string{
@@ -353,7 +354,7 @@ func (p *RequestRewritePolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext
 
 // computeRewrite parses config and computes path/method rewrites from the provided request fields.
 // Called from both OnRequestHeaders and OnRequestBody to share logic without duplication.
-func (p *RequestRewritePolicy) computeRewrite(ctx *policy.RequestHeaderContext, params map[string]interface{}) (newPath *string, newMethod *string, err error) {
+func (p *RequestRewritePolicy) computeRewrite(reqCtx *policy.RequestHeaderContext, params map[string]interface{}) (newPath *string, newMethod *string, err error) {
 	cfg, parseErr := parseConfig(params)
 	if parseErr != nil {
 		return nil, nil, parseErr
@@ -364,20 +365,20 @@ func (p *RequestRewritePolicy) computeRewrite(ctx *policy.RequestHeaderContext, 
 		return nil, nil, nil
 	}
 
-	if !matchesRequest(ctx, cfg.Match) {
+	if !matchesRequest(reqCtx, cfg.Match) {
 		slog.Debug("[Request Rewrite]: Match conditions not met, skipping transformations")
 		return nil, nil, nil
 	}
 
-	originalPath := ctx.Path
+	originalPath := reqCtx.Path
 	pathOnly, queryValues, _ := splitPathAndQuery(originalPath)
-	basePrefix, relativePath := splitBasePath(ctx.APIContext, pathOnly)
+	basePrefix, relativePath := splitBasePath(reqCtx.APIContext, pathOnly)
 	updatedRelativePath := relativePath
 	pathRewriteApplied := false
 	queryRewriteConfigured := cfg.QueryRewrite != nil
 
 	if cfg.PathRewrite != nil {
-		updatedRelativePath = applyPathRewrite(ctx.OperationPath, updatedRelativePath, cfg.PathRewrite)
+		updatedRelativePath = applyPathRewrite(reqCtx.OperationPath, updatedRelativePath, cfg.PathRewrite)
 		pathRewriteApplied = updatedRelativePath != relativePath
 	}
 
@@ -411,7 +412,7 @@ func (p *RequestRewritePolicy) computeRewrite(ctx *policy.RequestHeaderContext, 
 	return newPath, newMethod, nil
 }
 
-func matchesRequest(ctx *policy.RequestHeaderContext, match *matchConfig) bool {
+func matchesRequest(reqCtx *policy.RequestHeaderContext, match *matchConfig) bool {
 	if match == nil {
 		return true
 	}
@@ -421,13 +422,13 @@ func matchesRequest(ctx *policy.RequestHeaderContext, match *matchConfig) bool {
 	}
 
 	for _, matcher := range match.Headers {
-		if !matchHeader(ctx, matcher) {
+		if !matchHeader(reqCtx, matcher) {
 			return false
 		}
 	}
 
 	if len(match.QueryParams) > 0 {
-		_, queryValues, _ := splitPathAndQuery(ctx.Path)
+		_, queryValues, _ := splitPathAndQuery(reqCtx.Path)
 		for _, matcher := range match.QueryParams {
 			if !matchQueryParam(queryValues, matcher) {
 				return false
@@ -438,14 +439,14 @@ func matchesRequest(ctx *policy.RequestHeaderContext, match *matchConfig) bool {
 	return true
 }
 
-func matchHeader(ctx *policy.RequestHeaderContext, matcher headerMatcher) bool {
+func matchHeader(reqCtx *policy.RequestHeaderContext, matcher headerMatcher) bool {
 	name := strings.TrimSpace(matcher.Name)
 	if name == "" {
 		return false
 	}
 
 	matchType := strings.ToUpper(strings.TrimSpace(matcher.Type))
-	values := ctx.Headers.Get(name)
+	values := reqCtx.Headers.Get(name)
 
 	switch matchType {
 	case matchTypePresent:

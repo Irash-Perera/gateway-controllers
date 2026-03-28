@@ -18,6 +18,7 @@
 package respond
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -106,7 +107,7 @@ func validateHeaderObjectKeys(headerMap map[string]interface{}, index int) error
 }
 
 // OnRequestHeaders returns an immediate response to the client in the request header phase.
-func (p *RespondPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *RespondPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	statusCode := defaultStatusCode
 	if statusCodeRaw, ok := params["statusCode"]; ok {
 		parsedStatusCode, err := parseStatusCode(statusCodeRaw)

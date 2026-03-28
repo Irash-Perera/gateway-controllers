@@ -1,6 +1,7 @@
 package respond
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -54,7 +55,7 @@ func TestGetPolicyReturnsSingleton(t *testing.T) {
 
 func TestOnRequestHeadersDefaults(t *testing.T) {
 	p := &RespondPolicy{}
-	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, map[string]interface{}{}))
+	resp := mustImmediateResponse(t, p.OnRequestHeaders(context.Background(), &policy.RequestHeaderContext{}, map[string]interface{}{}))
 
 	if resp.StatusCode != 200 {
 		t.Fatalf("expected default status 200, got %d", resp.StatusCode)
@@ -69,7 +70,7 @@ func TestOnRequestHeadersDefaults(t *testing.T) {
 
 func TestOnRequestHeadersValidConfig(t *testing.T) {
 	p := &RespondPolicy{}
-	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, map[string]interface{}{
+	resp := mustImmediateResponse(t, p.OnRequestHeaders(context.Background(), &policy.RequestHeaderContext{}, map[string]interface{}{
 		"statusCode": 201,
 		"body":       `{"ok":true}`,
 		"headers": []interface{}{
@@ -102,14 +103,14 @@ func TestOnRequestHeadersStatusCodeValidation(t *testing.T) {
 	}
 
 	for _, params := range tests {
-		resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, params))
+		resp := mustImmediateResponse(t, p.OnRequestHeaders(context.Background(), &policy.RequestHeaderContext{}, params))
 		assertConfigError(t, resp)
 	}
 }
 
 func TestOnRequestHeadersBodyTypeValidation(t *testing.T) {
 	p := &RespondPolicy{}
-	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, map[string]interface{}{
+	resp := mustImmediateResponse(t, p.OnRequestHeaders(context.Background(), &policy.RequestHeaderContext{}, map[string]interface{}{
 		"body": 42,
 	}))
 	assertConfigError(t, resp)
@@ -117,7 +118,7 @@ func TestOnRequestHeadersBodyTypeValidation(t *testing.T) {
 
 func TestOnRequestHeadersHeadersTypeValidation(t *testing.T) {
 	p := &RespondPolicy{}
-	resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, map[string]interface{}{
+	resp := mustImmediateResponse(t, p.OnRequestHeaders(context.Background(), &policy.RequestHeaderContext{}, map[string]interface{}{
 		"headers": "not-an-array",
 	}))
 	assertConfigError(t, resp)
@@ -162,7 +163,7 @@ func TestOnRequestHeadersHeaderObjectValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := mustImmediateResponse(t, p.OnRequestHeaders(&policy.RequestHeaderContext{}, map[string]interface{}{
+			resp := mustImmediateResponse(t, p.OnRequestHeaders(context.Background(), &policy.RequestHeaderContext{}, map[string]interface{}{
 				"headers": tt.headers,
 			}))
 			assertConfigError(t, resp)

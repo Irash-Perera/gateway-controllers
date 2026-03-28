@@ -18,6 +18,7 @@
 package setheaders
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -215,7 +216,7 @@ func (p *SetHeadersPolicy) buildRequestHeaders(params map[string]interface{}) ma
 }
 
 // OnRequestHeaders sets headers on the request (v2alpha.RequestHeaderPolicy).
-func (p *SetHeadersPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
+func (p *SetHeadersPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.RequestHeaderContext, params map[string]interface{}) policy.RequestHeaderAction {
 	return policy.UpstreamRequestHeaderModifications{
 		HeadersToSet: p.buildRequestHeaders(params),
 	}
@@ -236,7 +237,7 @@ func (p *SetHeadersPolicy) buildResponseHeaders(params map[string]interface{}) m
 }
 
 // OnResponseHeaders sets headers on the response (v2alpha.ResponseHeaderPolicy).
-func (p *SetHeadersPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
+func (p *SetHeadersPolicy) OnResponseHeaders(ctx context.Context, respCtx *policy.ResponseHeaderContext, params map[string]interface{}) policy.ResponseHeaderAction {
 	return policy.DownstreamResponseHeaderModifications{
 		HeadersToSet: p.buildResponseHeaders(params),
 	}
