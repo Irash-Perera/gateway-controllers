@@ -1128,6 +1128,32 @@ func (p *RateLimitPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.R
 				if requestCost < 0 {
 					requestCost = 0
 				}
+				if requestCost == 0 {
+					available, err := q.Limiter.GetAvailable(context.Background(), key)
+					if err != nil {
+						if p.backend == "redis" && p.redisFailOpen {
+							slog.Warn("Rate limit state lookup failed (fail-open)", "error", err, "quota", quotaName)
+							continue
+						}
+						slog.Error("Rate limit state lookup failed (fail-closed)", "error", err, "quota", quotaName)
+						return p.buildRateLimitResponse(nil, quotaName, quotaResults)
+					}
+					duration := getDurationFromQuota(q)
+					quotaResults = append(quotaResults, quotaResult{
+						QuotaName: quotaName,
+						Result: &limiter.Result{
+							Allowed:   available > 0,
+							Limit:     getLimitFromQuota(q),
+							Remaining: available,
+							Reset:     time.Now().Add(duration),
+							Duration:  duration,
+						},
+						Key:      key,
+						Duration: duration,
+					})
+					handledQuotas[quotaName] = true
+					continue
+				}
 				cost := int64(requestCost)
 				result, err := q.Limiter.AllowN(context.Background(), key, cost)
 				if err != nil {
@@ -1387,6 +1413,31 @@ func (p *RateLimitPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.Requ
 							"quota", quotaName,
 							"originalCost", requestCost)
 						requestCost = 0
+					}
+					if requestCost == 0 {
+						available, err := q.Limiter.GetAvailable(context.Background(), key)
+						if err != nil {
+							if p.backend == "redis" && p.redisFailOpen {
+								slog.Warn("Rate limit state lookup failed (fail-open)", "error", err, "quota", quotaName)
+								continue
+							}
+							slog.Error("Rate limit state lookup failed (fail-closed)", "error", err, "quota", quotaName)
+							return p.buildRateLimitResponse(nil, quotaName, quotaResults)
+						}
+						duration := getDurationFromQuota(q)
+						quotaResults = append(quotaResults, quotaResult{
+							QuotaName: quotaName,
+							Result: &limiter.Result{
+								Allowed:   available > 0,
+								Limit:     getLimitFromQuota(q),
+								Remaining: available,
+								Reset:     time.Now().Add(duration),
+								Duration:  duration,
+							},
+							Key:      key,
+							Duration: duration,
+						})
+						continue
 					}
 
 					// Consume tokens based on extracted request cost
