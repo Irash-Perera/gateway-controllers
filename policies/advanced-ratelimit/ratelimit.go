@@ -1117,7 +1117,7 @@ func (p *RateLimitPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.R
 			if q.CostExtractor.HasRequestHeaderOnlyCostSources() {
 				// request_header sources only — all values are available now, consume immediately.
 				// No body buffering needed.
-				requestCost, extracted := q.CostExtractor.ExtractRequestHeaderOnlyCost(ctx)
+				requestCost, extracted := q.CostExtractor.ExtractRequestHeaderOnlyCost(reqCtx)
 				if !extracted {
 					slog.Debug("Header cost extraction failed, using default",
 						"quota", quotaName, "key", key, "defaultCost", requestCost)
@@ -1325,7 +1325,7 @@ func (p *RateLimitPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.Requ
 		// Retrieve results stored by OnRequestHeaders so header-only quota results
 		// (consumed in OnRequestHeaders) can be carried forward.
 		storedResultsMap := make(map[string]quotaResult)
-		if prev, ok := ctx.Metadata[rateLimitResultKey].([]quotaResult); ok {
+		if prev, ok := reqCtx.Metadata[rateLimitResultKey].([]quotaResult); ok {
 			for _, r := range prev {
 				storedResultsMap[r.QuotaName] = r
 			}
@@ -1652,7 +1652,7 @@ func (p *RateLimitPolicy) OnResponseHeaders(ctx context.Context, respCtx *policy
 
 	// Store updated results so OnResponseBody can carry forward response_header
 	// quota results and avoid re-consuming them.
-	ctx.Metadata[rateLimitResultKey] = allQuotaResults
+	respCtx.Metadata[rateLimitResultKey] = allQuotaResults
 
 	// Only build rate limit headers here if OnResponseBody will not run.
 	// If body/metadata sources exist, OnResponseBody will process those quotas

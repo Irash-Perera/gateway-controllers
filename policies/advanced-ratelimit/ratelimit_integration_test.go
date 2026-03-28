@@ -1139,7 +1139,7 @@ func TestOnRequestBehavior(t *testing.T) {
 		}})
 		// request_header sources are consumed in OnRequestHeaders — no body buffering needed
 		hctx := newRequestHeaderCtx(map[string][]string{"x-cost": {"7"}}, nil)
-		_ = p.OnRequestHeaders(hctx, nil)
+		_ = p.OnRequestHeaders(context.Background(), hctx, nil)
 		if lim.lastCost != 7 {
 			t.Fatalf("expected extracted request cost 7, got %d", lim.lastCost)
 		}
@@ -1162,7 +1162,7 @@ func TestOnRequestBehavior(t *testing.T) {
 		}})
 		// request_header sources are consumed in OnRequestHeaders — no body buffering needed
 		hctx := newRequestHeaderCtx(map[string][]string{"x-cost": {"-5"}}, nil)
-		_ = p.OnRequestHeaders(hctx, nil)
+		_ = p.OnRequestHeaders(context.Background(), hctx, nil)
 		if lim.lastCost != 0 {
 			t.Fatalf("expected clamped request cost 0, got %d", lim.lastCost)
 		}
@@ -1184,7 +1184,7 @@ func TestOnRequestBehavior(t *testing.T) {
 			CostExtractionEnabled: true,
 		}})
 		// request_header sources are consumed in OnRequestHeaders — no body buffering needed
-		_ = p.OnRequestHeaders(newRequestHeaderCtx(nil, nil), nil)
+		_ = p.OnRequestHeaders(context.Background(), newRequestHeaderCtx(nil, nil), nil)
 		if lim.lastCost != 5 {
 			t.Fatalf("expected default request cost 5, got %d", lim.lastCost)
 		}
@@ -1291,7 +1291,7 @@ func TestOnRequestBehavior(t *testing.T) {
 		// OnRequestHeaders: consumes hdr quota (request_header only), stores placeholder for body quota
 		sharedMeta := map[string]interface{}{"tokens": float64(3)}
 		hctx := newRequestHeaderCtx(map[string][]string{"x-cost": {"7"}}, sharedMeta)
-		_ = p.OnRequestHeaders(hctx, nil)
+		_ = p.OnRequestHeaders(context.Background(), hctx, nil)
 		if limHdr.allowNCalls != 1 || limHdr.lastCost != 7 {
 			t.Fatalf("expected header quota consumed once with cost 7, calls=%d cost=%d", limHdr.allowNCalls, limHdr.lastCost)
 		}
@@ -1301,7 +1301,7 @@ func TestOnRequestBehavior(t *testing.T) {
 		sharedMeta[rateLimitKeysKey] = hctx.Metadata[rateLimitKeysKey]
 		sharedMeta[rateLimitHeaderHandledKey] = hctx.Metadata[rateLimitHeaderHandledKey]
 		reqCtx := newRequestCtx(map[string][]string{"x-cost": {"7"}}, sharedMeta)
-		_ = p.OnRequestBody(reqCtx, nil)
+		_ = p.OnRequestBody(context.Background(), reqCtx, nil)
 
 		// hdr quota must NOT be re-consumed in body phase
 		if limHdr.allowNCalls != 1 {
@@ -1541,7 +1541,7 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitKeysKey:   map[string]string{"meta": "k1"},
 		}, 200)
 		// response_metadata is populated by upstream policies in the body phase — must defer
-		if action := p.OnResponseHeaders(hctx, nil); action != nil {
+		if action := p.OnResponseHeaders(context.Background(), hctx, nil); action != nil {
 			t.Fatalf("expected nil action when response metadata source present, got %T", action)
 		}
 		// Results must still be written back so OnResponseBody can use them
@@ -1563,7 +1563,7 @@ func TestOnResponseBehavior(t *testing.T) {
 			"x-llm-cost":       float64(12),
 		}, 200)
 
-		action := p.OnResponseBody(respCtx, nil)
+		action := p.OnResponseBody(context.Background(), respCtx, nil)
 		mods, ok := action.(policy.DownstreamResponseModifications)
 		if !ok {
 			t.Fatalf("expected DownstreamResponseModifications, got %T", action)
@@ -1599,7 +1599,7 @@ func TestOnResponseBehavior(t *testing.T) {
 			rateLimitKeysKey: map[string]string{"hdr": "k1", "body": "k2"},
 		}
 		hctx := newResponseHeaderCtx(nil, map[string][]string{"x-hdr-cost": {"5"}}, sharedMeta, 200)
-		if action := p.OnResponseHeaders(hctx, nil); action != nil {
+		if action := p.OnResponseHeaders(context.Background(), hctx, nil); action != nil {
 			t.Fatalf("expected nil from OnResponseHeaders (body phase will run), got %T", action)
 		}
 		if limHdr.consumeNCalls != 1 || limHdr.lastCost != 5 {
@@ -1609,7 +1609,7 @@ func TestOnResponseBehavior(t *testing.T) {
 		// OnResponseBody: must carry forward hdr result, consume body quota only
 		respCtx := newResponseCtx(nil, map[string][]string{"x-hdr-cost": {"5"}}, sharedMeta, 200)
 		respCtx.ResponseBody = &policy.Body{Present: true, Content: []byte(`{"tokens": 3}`)}
-		action := p.OnResponseBody(respCtx, nil)
+		action := p.OnResponseBody(context.Background(), respCtx, nil)
 		mods, ok := action.(policy.DownstreamResponseModifications)
 		if !ok {
 			t.Fatalf("expected DownstreamResponseModifications from OnResponseBody, got %T", action)
