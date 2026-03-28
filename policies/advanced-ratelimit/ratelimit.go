@@ -1360,6 +1360,15 @@ func (p *RateLimitPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.Requ
 			}
 		}
 
+		// Load the set of quotas fully consumed in OnRequestHeaders (standard-mode and
+		// request_header-only cost quotas). Standard-mode quotas call AllowN(1) in the
+		// header phase unconditionally, so if OnRequestBody also runs (because another
+		// quota needs the body), they must not be charged again.
+		handledInHeaderPhase := make(map[string]bool)
+		if prev, ok := reqCtx.Metadata[rateLimitHeaderHandledKey].(map[string]bool); ok {
+			handledInHeaderPhase = prev
+		}
+
 		var quotaResults []quotaResult
 		var quotaKeys = make(map[string]string) // Store keys for response phase
 
@@ -1517,7 +1526,15 @@ func (p *RateLimitPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.Requ
 				continue
 			}
 
-			// Standard mode (no cost extraction): consume 1 token per request
+			// Standard mode (no cost extraction): consume 1 token per request.
+			// Guard against double-charging: OnRequestHeaders always calls AllowN(1)
+			// for standard-mode quotas, so skip re-consumption if that already happened.
+			if handledInHeaderPhase[quotaName] {
+				if stored, ok := storedResultsMap[quotaName]; ok {
+					quotaResults = append(quotaResults, stored)
+				}
+				continue
+			}
 			cost := int64(1)
 
 			result, err := q.Limiter.AllowN(context.Background(), key, cost)
