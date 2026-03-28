@@ -1189,8 +1189,9 @@ func (p *RateLimitPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.R
 				})
 			}
 		} else {
-			// Standard mode (no cost extraction): consume 1 token in header phase
-			result, err := q.Limiter.AllowN(context.Background(), key, 1)
+			// Standard mode (no cost extraction): consume 1 token per request
+			cost := int64(1)
+			result, err := q.Limiter.AllowN(context.Background(), key, cost)
 			if err != nil {
 				if p.backend == "redis" && p.redisFailOpen {
 					slog.Warn("Rate limit check failed (fail-open)", "error", err, "quota", quotaName)
@@ -1199,10 +1200,12 @@ func (p *RateLimitPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.R
 				slog.Error("Rate limit check failed (fail-closed)", "error", err, "quota", quotaName)
 				return p.buildRateLimitResponse(nil, quotaName, quotaResults)
 			}
+
 			if !result.Allowed {
-				slog.Debug("Rate limit exceeded in header phase", "quota", quotaName, "key", key)
+				slog.Debug("Rate limit exceeded", "key", key, "quota", quotaName)
 				return p.buildRateLimitResponse(result, quotaName, quotaResults)
 			}
+
 			quotaResults = append(quotaResults, quotaResult{
 				QuotaName: quotaName,
 				Result:    result,
