@@ -89,13 +89,6 @@ func GetPolicy(
 	return p, nil
 }
 
-// GetPolicyV2 delegates to GetPolicy.
-func GetPolicyV2(
-	metadata policy.PolicyMetadata,
-	params map[string]interface{},
-) (policy.Policy, error) {
-	return GetPolicy(metadata, params)
-}
 
 // Mode returns the processing mode for the prompt template policy.
 func (p *PromptTemplatePolicy) Mode() policy.ProcessingMode {

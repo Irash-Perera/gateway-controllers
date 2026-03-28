@@ -123,13 +123,6 @@ func GetPolicy(
 	return ins, nil
 }
 
-// GetPolicyV2 delegates to GetPolicy.
-func GetPolicyV2(
-	metadata policy.PolicyMetadata,
-	params map[string]interface{},
-) (policy.Policy, error) {
-	return GetPolicy(metadata, params)
-}
 
 func (p *JwtAuthPolicy) Mode() policy.ProcessingMode {
 	return policy.ProcessingMode{

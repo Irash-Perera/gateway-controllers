@@ -105,13 +105,6 @@ func GetPolicy(
 	return ins, nil
 }
 
-// GetPolicyV2 delegates to GetPolicy.
-func GetPolicyV2(
-	metadata policy.PolicyMetadata,
-	params map[string]interface{},
-) (policy.Policy, error) {
-	return GetPolicy(metadata, params)
-}
 
 // parseAuthority extracts host and port from an authority string (e.g., "example.com:8080")
 func parseAuthority(authority string) (host string, port int) {

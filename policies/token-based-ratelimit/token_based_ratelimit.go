@@ -58,13 +58,6 @@ func GetPolicy(
 	}, nil
 }
 
-// GetPolicyV2 delegates to GetPolicy.
-func GetPolicyV2(
-	metadata policy.PolicyMetadata,
-	params map[string]interface{},
-) (policy.Policy, error) {
-	return GetPolicy(metadata, params)
-}
 
 func (p *TokenBasedRateLimitPolicy) Mode() policy.ProcessingMode {
 	return policy.ProcessingMode{

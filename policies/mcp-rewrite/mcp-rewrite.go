@@ -102,13 +102,6 @@ func GetPolicy(
 	return ins, nil
 }
 
-// GetPolicyV2 delegates to GetPolicy.
-func GetPolicyV2(
-	metadata policy.PolicyMetadata,
-	params map[string]interface{},
-) (policy.Policy, error) {
-	return GetPolicy(metadata, params)
-}
 
 // parseCapabilityConfig parses capability-specific configuration entries.
 func parseCapabilityConfig(params map[string]any, capabilityType string) (CapabilityConfig, error) {

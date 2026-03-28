@@ -96,13 +96,6 @@ func GetPolicy(
 	return p, nil
 }
 
-// GetPolicyV2 delegates to GetPolicy.
-func GetPolicyV2(
-	metadata policy.PolicyMetadata,
-	params map[string]interface{},
-) (policy.Policy, error) {
-	return GetPolicy(metadata, params)
-}
 
 // parseRules extracts and validates rules from the 4 top-level arrays: tools, resources, prompts, methods
 func parseRules(params map[string]any) ([]Rule, error) {

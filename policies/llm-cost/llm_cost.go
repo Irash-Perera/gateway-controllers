@@ -81,13 +81,6 @@ func GetPolicy(
 	return instance, instanceErr
 }
 
-// GetPolicyV2 delegates to GetPolicy.
-func GetPolicyV2(
-	metadata policy.PolicyMetadata,
-	params map[string]interface{},
-) (policy.Policy, error) {
-	return GetPolicy(metadata, params)
-}
 
 // Mode declares the SDK processing requirements:
 //   - RequestBodyMode=Buffer: buffer the request so ctx.RequestBody is available
