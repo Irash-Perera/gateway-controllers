@@ -143,20 +143,6 @@ func (p *BasicRateLimitPolicy) OnRequestHeaders(
 	return policy.UpstreamRequestHeaderModifications{}
 }
 
-// OnRequestBody delegates to the core ratelimit policy's OnRequestBody method if available.
-func (p *BasicRateLimitPolicy) OnRequestBody(
-	ctx *policy.RequestContext,
-	params map[string]interface{},
-) policy.RequestAction {
-	type requestBodyPolicer interface {
-		OnRequestBody(*policy.RequestContext, map[string]interface{}) policy.RequestAction
-	}
-	if rl, ok := p.delegate.(requestBodyPolicer); ok {
-		return rl.OnRequestBody(ctx, params)
-	}
-	return policy.UpstreamRequestModifications{}
-}
-
 // OnResponseHeaders delegates to the core ratelimit policy's OnResponseHeaders method if available.
 func (p *BasicRateLimitPolicy) OnResponseHeaders(
 	ctx *policy.ResponseHeaderContext,
@@ -169,18 +155,4 @@ func (p *BasicRateLimitPolicy) OnResponseHeaders(
 		return rl.OnResponseHeaders(ctx, params)
 	}
 	return policy.DownstreamResponseHeaderModifications{}
-}
-
-// OnResponseBody delegates to the core ratelimit policy's OnResponseBody method if available.
-func (p *BasicRateLimitPolicy) OnResponseBody(
-	ctx *policy.ResponseContext,
-	params map[string]interface{},
-) policy.ResponseAction {
-	type responseBodyPolicer interface {
-		OnResponseBody(*policy.ResponseContext, map[string]interface{}) policy.ResponseAction
-	}
-	if rl, ok := p.delegate.(responseBodyPolicer); ok {
-		return rl.OnResponseBody(ctx, params)
-	}
-	return policy.DownstreamResponseModifications{}
 }
