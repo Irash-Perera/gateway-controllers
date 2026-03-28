@@ -314,7 +314,7 @@ func extractCostFromHeaders(headers *policy.Headers, headerName string) (float64
 // ExtractRequestHeaderOnlyCost extracts cost from request_header sources using the
 // header-phase context. Only called when HasHeaderOnlyCostSources() is true,
 // meaning all request-phase sources are request_header.
-func (e *CostExtractor) ExtractRequestHeaderOnlyCost(ctx *policy.RequestHeaderContext) (float64, bool) {
+func (e *CostExtractor) ExtractRequestHeaderOnlyCost(reqCtx *policy.RequestHeaderContext) (float64, bool) {
 	if !e.config.Enabled {
 		return e.config.Default, false
 	}
@@ -326,7 +326,7 @@ func (e *CostExtractor) ExtractRequestHeaderOnlyCost(ctx *policy.RequestHeaderCo
 		if source.Type != CostSourceRequestHeader {
 			continue
 		}
-		val, ok := extractCostFromHeaders(ctx.Headers, source.Key)
+		val, ok := extractCostFromHeaders(reqCtx.Headers, source.Key)
 		if ok {
 			found = true
 			total += val * source.Multiplier
