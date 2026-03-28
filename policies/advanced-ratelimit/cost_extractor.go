@@ -284,11 +284,17 @@ func (e *CostExtractor) extractFromRequestSource(ctx *policy.RequestContext, sou
 }
 
 func (e *CostExtractor) extractFromRequestHeader(ctx *policy.RequestContext, headerName string) (float64, bool) {
-	if ctx.Headers == nil {
+	return extractCostFromHeaders(ctx.Headers, headerName)
+}
+
+// extractCostFromHeaders parses a numeric cost value from the named header.
+// Shared by both request-body-phase and request-header-phase extraction paths.
+func extractCostFromHeaders(headers *policy.Headers, headerName string) (float64, bool) {
+	if headers == nil {
 		return 0, false
 	}
 
-	values := ctx.Headers.Get(strings.ToLower(headerName))
+	values := headers.Get(strings.ToLower(headerName))
 	if len(values) == 0 || values[0] == "" {
 		return 0, false
 	}
@@ -303,6 +309,34 @@ func (e *CostExtractor) extractFromRequestHeader(ctx *policy.RequestContext, hea
 	}
 
 	return cost, true
+}
+
+// ExtractRequestHeaderOnlyCost extracts cost from request_header sources using the
+// header-phase context. Only called when HasHeaderOnlyCostSources() is true,
+// meaning all request-phase sources are request_header.
+func (e *CostExtractor) ExtractRequestHeaderOnlyCost(ctx *policy.RequestHeaderContext) (float64, bool) {
+	if !e.config.Enabled {
+		return e.config.Default, false
+	}
+
+	var total float64
+	var found bool
+
+	for _, source := range e.config.Sources {
+		if source.Type != CostSourceRequestHeader {
+			continue
+		}
+		val, ok := extractCostFromHeaders(ctx.Headers, source.Key)
+		if ok {
+			found = true
+			total += val * source.Multiplier
+		}
+	}
+
+	if !found {
+		return e.config.Default, false
+	}
+	return total, true
 }
 
 func (e *CostExtractor) extractFromRequestMetadata(ctx *policy.RequestContext, key string) (float64, bool) {
@@ -462,23 +496,72 @@ func (e *CostExtractor) RequiresResponseBody() bool {
 	return false
 }
 
-// RequiresRequestBody returns true if any source requires the OnRequestBody phase.
-// request_header and request_metadata are available in the header phase but their
-// cost consumption is deferred to OnRequestBody, so those also require buffering.
-func (e *CostExtractor) RequiresRequestBody() bool {
+// HasRequestBodyPhase returns true if any source requires the OnRequestBody phase.
+// request_body and request_cel need body content. request_metadata is also deferred
+// to the body phase because metadata may be mutated by earlier policies before that phase.
+// request_header is consumed directly in OnRequestHeaders and does not require buffering.
+func (e *CostExtractor) HasRequestBodyPhase() bool {
 	if !e.config.Enabled {
 		return false
 	}
 	for _, source := range e.config.Sources {
-		// request_body and request_cel need body buffering; request_header and
-		// request_metadata are available in header phase but consumption is
-		// deferred to OnRequestBody, so they also require buffering.
 		if source.Type == CostSourceRequestBody || source.Type == CostSourceRequestCEL ||
-			source.Type == CostSourceRequestHeader || source.Type == CostSourceRequestMetadata {
+			source.Type == CostSourceRequestMetadata {
 			return true
 		}
 	}
 	return false
+}
+
+// HasResponseHeaderOnlyCostSources returns true if cost extraction is enabled,
+// no source requires the response body phase (no response_body or response_cel),
+// and all response-phase sources are response_header.
+// response_metadata is excluded — it may be populated by upstream response-phase
+// policies that haven't run yet in OnResponseHeaders.
+// Request-phase sources are irrelevant and are ignored.
+// When true, cost can be fully consumed in OnResponseHeaders with no body buffering.
+func (e *CostExtractor) HasResponseHeaderOnlyCostSources() bool {
+	if !e.config.Enabled || e.RequiresResponseBody() {
+		return false
+	}
+	hasHeader := false
+	for _, source := range e.config.Sources {
+		if source.Type == CostSourceResponseHeader {
+			hasHeader = true
+			continue
+		}
+		// Any other response-phase source disqualifies response-header-only consumption.
+		// Request-phase sources are irrelevant — skip them.
+		if isResponsePhaseSource(source.Type) {
+			return false
+		}
+	}
+	return hasHeader
+}
+
+// HasRequestHeaderOnlyCostSources returns true if cost extraction is enabled,
+// no source requires the request body phase (no request_body, request_cel, or
+// request_metadata), and at least one request_header source exists.
+// Response-phase sources (response_header, response_body, etc.) are ignored —
+// only request-phase sources are evaluated to determine header-only eligibility.
+// When true, cost can be fully consumed in OnRequestHeaders with no body buffering.
+func (e *CostExtractor) HasRequestHeaderOnlyCostSources() bool {
+	if !e.config.Enabled || e.HasRequestBodyPhase() {
+		return false
+	}
+	hasHeader := false
+	for _, source := range e.config.Sources {
+		if source.Type == CostSourceRequestHeader {
+			hasHeader = true
+			continue
+		}
+		// Any other request-phase source disqualifies header-only consumption.
+		// Response-phase sources are irrelevant — skip them.
+		if isRequestPhaseSource(source.Type) {
+			return false
+		}
+	}
+	return hasHeader
 }
 
 // HasRequestPhaseSources returns true if any source is available during request phase

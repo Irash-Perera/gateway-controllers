@@ -695,6 +695,30 @@ func TestModeBehavior(t *testing.T) {
 			wantReqBody: policy.BodyModeSkip,
 			wantResBody: policy.BodyModeSkip,
 		},
+		{
+			name:        "request header only source skips body buffering",
+			quotas:      []QuotaRuntime{mkQuota(true, []CostSource{{Type: CostSourceRequestHeader, Key: "x-cost"}})},
+			wantReqBody: policy.BodyModeSkip,
+			wantResBody: policy.BodyModeSkip,
+		},
+		{
+			name:        "response header only source skips body buffering",
+			quotas:      []QuotaRuntime{mkQuota(true, []CostSource{{Type: CostSourceResponseHeader, Key: "x-cost"}})},
+			wantReqBody: policy.BodyModeSkip,
+			wantResBody: policy.BodyModeSkip,
+		},
+		{
+			name:        "request metadata source requires request body phase",
+			quotas:      []QuotaRuntime{mkQuota(true, []CostSource{{Type: CostSourceRequestMetadata, Key: "tokens"}})},
+			wantReqBody: policy.BodyModeBuffer,
+			wantResBody: policy.BodyModeSkip,
+		},
+		{
+			name:        "response metadata source requires response body phase",
+			quotas:      []QuotaRuntime{mkQuota(true, []CostSource{{Type: CostSourceResponseMetadata, Key: "x-llm-cost"}})},
+			wantReqBody: policy.BodyModeSkip,
+			wantResBody: policy.BodyModeBuffer,
+		},
 	}
 
 	for _, tt := range tests {
@@ -709,6 +733,138 @@ func TestModeBehavior(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCostExtractorMethods(t *testing.T) {
+	enabled := func(sources []CostSource) *CostExtractor {
+		return NewCostExtractor(CostExtractionConfig{Enabled: true, Default: 1, Sources: sources})
+	}
+
+	tests := []struct {
+		name                  string
+		sources               []CostSource
+		wantReqHeaderOnly     bool
+		wantRespHeaderOnly    bool
+		wantReqBodyPhase      bool
+		wantRequiresRespBody  bool
+	}{
+		{
+			name:               "request_header only",
+			sources:            []CostSource{{Type: CostSourceRequestHeader, Key: "x"}},
+			wantReqHeaderOnly:  true,
+			wantRespHeaderOnly: false,
+			wantReqBodyPhase:   false,
+			wantRequiresRespBody: false,
+		},
+		{
+			name:               "response_header only",
+			sources:            []CostSource{{Type: CostSourceResponseHeader, Key: "x"}},
+			wantReqHeaderOnly:  false,
+			wantRespHeaderOnly: true,
+			wantReqBodyPhase:   false,
+			wantRequiresRespBody: false,
+		},
+		{
+			name:               "request_metadata only",
+			sources:            []CostSource{{Type: CostSourceRequestMetadata, Key: "x"}},
+			wantReqHeaderOnly:  false,
+			wantRespHeaderOnly: false,
+			wantReqBodyPhase:   true,
+			wantRequiresRespBody: false,
+		},
+		{
+			name:               "response_metadata only",
+			sources:            []CostSource{{Type: CostSourceResponseMetadata, Key: "x"}},
+			wantReqHeaderOnly:  false,
+			wantRespHeaderOnly: false,
+			wantReqBodyPhase:   false,
+			wantRequiresRespBody: false,
+		},
+		{
+			name:               "request_body only",
+			sources:            []CostSource{{Type: CostSourceRequestBody, JSONPath: "$.x"}},
+			wantReqHeaderOnly:  false,
+			wantRespHeaderOnly: false,
+			wantReqBodyPhase:   true,
+			wantRequiresRespBody: false,
+		},
+		{
+			name:               "response_body only",
+			sources:            []CostSource{{Type: CostSourceResponseBody, JSONPath: "$.x"}},
+			wantReqHeaderOnly:  false,
+			wantRespHeaderOnly: false,
+			wantReqBodyPhase:   false,
+			wantRequiresRespBody: true,
+		},
+		{
+			name:               "request_header + request_metadata disqualifies request header only",
+			sources:            []CostSource{{Type: CostSourceRequestHeader, Key: "x"}, {Type: CostSourceRequestMetadata, Key: "y"}},
+			wantReqHeaderOnly:  false,
+			wantRespHeaderOnly: false,
+			wantReqBodyPhase:   true,
+			wantRequiresRespBody: false,
+		},
+		{
+			name:               "response_header + response_body disqualifies response header only",
+			sources:            []CostSource{{Type: CostSourceResponseHeader, Key: "x"}, {Type: CostSourceResponseBody, JSONPath: "$.y"}},
+			wantReqHeaderOnly:  false,
+			wantRespHeaderOnly: false,
+			wantReqBodyPhase:   false,
+			wantRequiresRespBody: true,
+		},
+		{
+			name:               "response_header + response_metadata disqualifies response header only",
+			sources:            []CostSource{{Type: CostSourceResponseHeader, Key: "x"}, {Type: CostSourceResponseMetadata, Key: "y"}},
+			wantReqHeaderOnly:  false,
+			wantRespHeaderOnly: false,
+			wantReqBodyPhase:   false,
+			wantRequiresRespBody: false,
+		},
+		{
+			// Response-phase sources are ignored when evaluating request-header-only,
+			// and request-phase sources are ignored when evaluating response-header-only.
+			name:               "request_header + response_header both qualify for their respective header-only paths",
+			sources:            []CostSource{{Type: CostSourceRequestHeader, Key: "x"}, {Type: CostSourceResponseHeader, Key: "y"}},
+			wantReqHeaderOnly:  true,
+			wantRespHeaderOnly: true,
+			wantReqBodyPhase:   false,
+			wantRequiresRespBody: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ce := enabled(tt.sources)
+			if got := ce.HasRequestHeaderOnlyCostSources(); got != tt.wantReqHeaderOnly {
+				t.Errorf("HasRequestHeaderOnlyCostSources() = %v, want %v", got, tt.wantReqHeaderOnly)
+			}
+			if got := ce.HasResponseHeaderOnlyCostSources(); got != tt.wantRespHeaderOnly {
+				t.Errorf("HasResponseHeaderOnlyCostSources() = %v, want %v", got, tt.wantRespHeaderOnly)
+			}
+			if got := ce.HasRequestBodyPhase(); got != tt.wantReqBodyPhase {
+				t.Errorf("HasRequestBodyPhase() = %v, want %v", got, tt.wantReqBodyPhase)
+			}
+			if got := ce.RequiresResponseBody(); got != tt.wantRequiresRespBody {
+				t.Errorf("RequiresResponseBody() = %v, want %v", got, tt.wantRequiresRespBody)
+			}
+		})
+	}
+
+	t.Run("disabled extractor always returns false for all predicates", func(t *testing.T) {
+		ce := NewCostExtractor(CostExtractionConfig{Enabled: false, Sources: []CostSource{{Type: CostSourceRequestHeader, Key: "x"}}})
+		if ce.HasRequestHeaderOnlyCostSources() {
+			t.Error("HasRequestHeaderOnlyCostSources() should be false when disabled")
+		}
+		if ce.HasResponseHeaderOnlyCostSources() {
+			t.Error("HasResponseHeaderOnlyCostSources() should be false when disabled")
+		}
+		if ce.HasRequestBodyPhase() {
+			t.Error("HasRequestBodyPhase() should be false when disabled")
+		}
+		if ce.RequiresResponseBody() {
+			t.Error("RequiresResponseBody() should be false when disabled")
+		}
+	})
 }
 
 func TestKeyExtractionBehavior(t *testing.T) {
@@ -981,9 +1137,9 @@ func TestOnRequestBehavior(t *testing.T) {
 			CostExtractor:         ce,
 			CostExtractionEnabled: true,
 		}})
-		ctx := newRequestCtx(map[string][]string{"x-cost": {"7"}}, nil)
-
-		_ = p.OnRequestBody(ctx, nil)
+		// request_header sources are consumed in OnRequestHeaders — no body buffering needed
+		hctx := newRequestHeaderCtx(map[string][]string{"x-cost": {"7"}}, nil)
+		_ = p.OnRequestHeaders(hctx, nil)
 		if lim.lastCost != 7 {
 			t.Fatalf("expected extracted request cost 7, got %d", lim.lastCost)
 		}
@@ -1004,9 +1160,9 @@ func TestOnRequestBehavior(t *testing.T) {
 			CostExtractor:         ce,
 			CostExtractionEnabled: true,
 		}})
-		ctx := newRequestCtx(map[string][]string{"x-cost": {"-5"}}, nil)
-
-		_ = p.OnRequestBody(ctx, nil)
+		// request_header sources are consumed in OnRequestHeaders — no body buffering needed
+		hctx := newRequestHeaderCtx(map[string][]string{"x-cost": {"-5"}}, nil)
+		_ = p.OnRequestHeaders(hctx, nil)
 		if lim.lastCost != 0 {
 			t.Fatalf("expected clamped request cost 0, got %d", lim.lastCost)
 		}
@@ -1027,7 +1183,8 @@ func TestOnRequestBehavior(t *testing.T) {
 			CostExtractor:         ce,
 			CostExtractionEnabled: true,
 		}})
-		_ = p.OnRequestBody(newRequestCtx(nil, nil), nil)
+		// request_header sources are consumed in OnRequestHeaders — no body buffering needed
+		_ = p.OnRequestHeaders(newRequestHeaderCtx(nil, nil), nil)
 		if lim.lastCost != 5 {
 			t.Fatalf("expected default request cost 5, got %d", lim.lastCost)
 		}
@@ -1111,6 +1268,56 @@ func TestOnRequestBehavior(t *testing.T) {
 		_ = assertImmediateResponse(t, p.OnRequestHeaders(newRequestHeaderCtx(nil, nil), nil), 429)
 	})
 
+	t.Run("request body carries forward request header quota result without re-consuming", func(t *testing.T) {
+		limHdr := &fakeLimiter{allowNFn: func(ctx context.Context, key string, n int64) (*limiter.Result, error) {
+			return newResult(true, 100, 93, 0, time.Minute), nil
+		}}
+		limBody := &fakeLimiter{allowNFn: func(ctx context.Context, key string, n int64) (*limiter.Result, error) {
+			return newResult(true, 50, 47, 0, time.Minute), nil
+		}}
+		ceHdr := NewCostExtractor(CostExtractionConfig{
+			Enabled: true, Default: 1,
+			Sources: []CostSource{{Type: CostSourceRequestHeader, Key: "x-cost", Multiplier: 1}},
+		})
+		ceBody := NewCostExtractor(CostExtractionConfig{
+			Enabled: true, Default: 1,
+			Sources: []CostSource{{Type: CostSourceRequestMetadata, Key: "tokens", Multiplier: 1}},
+		})
+		p := basePolicy([]QuotaRuntime{
+			{Name: "hdr", KeyExtraction: []KeyComponent{{Type: "constant", Key: "k1"}}, Limiter: limHdr, Limits: []LimitConfig{{Limit: 100, Duration: time.Minute}}, CostExtractor: ceHdr, CostExtractionEnabled: true},
+			{Name: "body", KeyExtraction: []KeyComponent{{Type: "constant", Key: "k2"}}, Limiter: limBody, Limits: []LimitConfig{{Limit: 50, Duration: time.Minute}}, CostExtractor: ceBody, CostExtractionEnabled: true},
+		})
+
+		// OnRequestHeaders: consumes hdr quota (request_header only), stores placeholder for body quota
+		sharedMeta := map[string]interface{}{"tokens": float64(3)}
+		hctx := newRequestHeaderCtx(map[string][]string{"x-cost": {"7"}}, sharedMeta)
+		_ = p.OnRequestHeaders(hctx, nil)
+		if limHdr.allowNCalls != 1 || limHdr.lastCost != 7 {
+			t.Fatalf("expected header quota consumed once with cost 7, calls=%d cost=%d", limHdr.allowNCalls, limHdr.lastCost)
+		}
+
+		// Copy stored metadata into a RequestContext for OnRequestBody
+		sharedMeta[rateLimitResultKey] = hctx.Metadata[rateLimitResultKey]
+		sharedMeta[rateLimitKeysKey] = hctx.Metadata[rateLimitKeysKey]
+		sharedMeta[rateLimitHeaderHandledKey] = hctx.Metadata[rateLimitHeaderHandledKey]
+		reqCtx := newRequestCtx(map[string][]string{"x-cost": {"7"}}, sharedMeta)
+		_ = p.OnRequestBody(reqCtx, nil)
+
+		// hdr quota must NOT be re-consumed in body phase
+		if limHdr.allowNCalls != 1 {
+			t.Fatalf("expected header quota consumed only once, got %d calls", limHdr.allowNCalls)
+		}
+		// body quota must be consumed in body phase with cost from metadata
+		if limBody.allowNCalls != 1 || limBody.lastCost != 3 {
+			t.Fatalf("expected body quota consumed once with cost 3, calls=%d cost=%d", limBody.allowNCalls, limBody.lastCost)
+		}
+		// Both quota results must be present in final output
+		results, ok := reqCtx.Metadata[rateLimitResultKey].([]quotaResult)
+		if !ok || len(results) != 2 {
+			t.Fatalf("expected 2 quota results after body phase, got %#v", reqCtx.Metadata[rateLimitResultKey])
+		}
+	})
+
 	t.Run("mixed quotas standard consumed response key stored", func(t *testing.T) {
 		limStandard := &fakeLimiter{allowNFn: func(ctx context.Context, key string, n int64) (*limiter.Result, error) {
 			return newResult(true, 10, 9, 0, time.Minute), nil
@@ -1125,11 +1332,14 @@ func TestOnRequestBehavior(t *testing.T) {
 		hctx := newRequestHeaderCtx(nil, nil)
 		_ = p.OnRequestHeaders(hctx, nil)
 		results, ok := hctx.Metadata[rateLimitResultKey].([]quotaResult)
-		if !ok || len(results) != 1 {
-			t.Fatalf("expected 1 stored quota result (standard only), got %#v", hctx.Metadata[rateLimitResultKey])
+		if !ok || len(results) != 2 {
+			t.Fatalf("expected 2 stored quota results (standard + post placeholder), got %#v", hctx.Metadata[rateLimitResultKey])
 		}
 		if results[0].QuotaName != "standard" || results[0].Result == nil {
 			t.Fatalf("expected standard quota result with non-nil Result, got %+v", results[0])
+		}
+		if results[1].QuotaName != "post" || results[1].Result != nil {
+			t.Fatalf("expected post quota placeholder with nil Result, got %+v", results[1])
 		}
 		keys, ok := hctx.Metadata[rateLimitKeysKey].(map[string]string)
 		if !ok || keys["post"] == "" {
@@ -1319,6 +1529,103 @@ func TestOnResponseBehavior(t *testing.T) {
 		}
 		if !strings.Contains(mods.HeadersToSet["ratelimit"], `"q1"`) || !strings.Contains(mods.HeadersToSet["ratelimit"], `"q2"`) {
 			t.Fatalf("expected consolidated ratelimit, got %q", mods.HeadersToSet["ratelimit"])
+		}
+	})
+
+	t.Run("OnResponseHeaders returns nil when response metadata source present", func(t *testing.T) {
+		lim := &fakeLimiter{}
+		ce := NewCostExtractor(CostExtractionConfig{Enabled: true, Default: 1, Sources: []CostSource{{Type: CostSourceResponseMetadata, Key: "x-llm-cost", Multiplier: 1}}})
+		p := mkPolicy([]QuotaRuntime{{Name: "meta", Limiter: lim, Limits: []LimitConfig{{Limit: 10, Duration: time.Minute}}, CostExtractor: ce, CostExtractionEnabled: true}})
+		hctx := newResponseHeaderCtx(nil, nil, map[string]interface{}{
+			rateLimitResultKey: []quotaResult{{QuotaName: "meta", Key: "k1", Duration: time.Minute, Result: nil}},
+			rateLimitKeysKey:   map[string]string{"meta": "k1"},
+		}, 200)
+		// response_metadata is populated by upstream policies in the body phase — must defer
+		if action := p.OnResponseHeaders(hctx, nil); action != nil {
+			t.Fatalf("expected nil action when response metadata source present, got %T", action)
+		}
+		// Results must still be written back so OnResponseBody can use them
+		if _, ok := hctx.Metadata[rateLimitResultKey]; !ok {
+			t.Fatalf("expected %s to remain in metadata after OnResponseHeaders returned nil", rateLimitResultKey)
+		}
+	})
+
+	t.Run("response metadata source consumed in OnResponseBody", func(t *testing.T) {
+		lim := &fakeLimiter{consumeNFn: func(ctx context.Context, key string, n int64) (*limiter.Result, error) {
+			return newResult(true, 100, 88, 0, time.Minute), nil
+		}}
+		ce := NewCostExtractor(CostExtractionConfig{Enabled: true, Default: 1, Sources: []CostSource{{Type: CostSourceResponseMetadata, Key: "x-llm-cost", Multiplier: 1}}})
+		p := mkPolicy([]QuotaRuntime{{Name: "meta", Limiter: lim, Limits: []LimitConfig{{Limit: 100, Duration: time.Minute}}, CostExtractor: ce, CostExtractionEnabled: true}})
+
+		respCtx := newResponseCtx(nil, nil, map[string]interface{}{
+			rateLimitResultKey: []quotaResult{{QuotaName: "meta", Key: "k1", Duration: time.Minute, Result: nil}},
+			rateLimitKeysKey:   map[string]string{"meta": "k1"},
+			"x-llm-cost":       float64(12),
+		}, 200)
+
+		action := p.OnResponseBody(respCtx, nil)
+		mods, ok := action.(policy.DownstreamResponseModifications)
+		if !ok {
+			t.Fatalf("expected DownstreamResponseModifications, got %T", action)
+		}
+		if mods.HeadersToSet["x-ratelimit-remaining"] != "88" {
+			t.Fatalf("expected remaining=88, got %q", mods.HeadersToSet["x-ratelimit-remaining"])
+		}
+		if lim.consumeNCalls != 1 || lim.lastCost != 12 {
+			t.Fatalf("expected ConsumeN once with cost 12, calls=%d cost=%d", lim.consumeNCalls, lim.lastCost)
+		}
+	})
+
+	t.Run("response header quota result carried forward in OnResponseBody without re-consumption", func(t *testing.T) {
+		limHdr := &fakeLimiter{consumeNFn: func(ctx context.Context, key string, n int64) (*limiter.Result, error) {
+			return newResult(true, 20, 15, 0, time.Minute), nil
+		}}
+		limBody := &fakeLimiter{consumeNFn: func(ctx context.Context, key string, n int64) (*limiter.Result, error) {
+			return newResult(true, 10, 7, 0, time.Minute), nil
+		}}
+		ceHdr := NewCostExtractor(CostExtractionConfig{Enabled: true, Default: 1, Sources: []CostSource{{Type: CostSourceResponseHeader, Key: "x-hdr-cost", Multiplier: 1}}})
+		ceBody := NewCostExtractor(CostExtractionConfig{Enabled: true, Default: 1, Sources: []CostSource{{Type: CostSourceResponseBody, JSONPath: "$.tokens", Multiplier: 1}}})
+		p := mkPolicy([]QuotaRuntime{
+			{Name: "hdr", Limiter: limHdr, Limits: []LimitConfig{{Limit: 20, Duration: time.Minute}}, CostExtractor: ceHdr, CostExtractionEnabled: true},
+			{Name: "body", Limiter: limBody, Limits: []LimitConfig{{Limit: 10, Duration: time.Minute}}, CostExtractor: ceBody, CostExtractionEnabled: true},
+		})
+
+		// OnResponseHeaders: consumes hdr quota, defers body quota, returns nil (because body phase will run)
+		sharedMeta := map[string]interface{}{
+			rateLimitResultKey: []quotaResult{
+				{QuotaName: "hdr", Key: "k1", Duration: time.Minute, Result: nil},
+				{QuotaName: "body", Key: "k2", Duration: time.Minute, Result: nil},
+			},
+			rateLimitKeysKey: map[string]string{"hdr": "k1", "body": "k2"},
+		}
+		hctx := newResponseHeaderCtx(nil, map[string][]string{"x-hdr-cost": {"5"}}, sharedMeta, 200)
+		if action := p.OnResponseHeaders(hctx, nil); action != nil {
+			t.Fatalf("expected nil from OnResponseHeaders (body phase will run), got %T", action)
+		}
+		if limHdr.consumeNCalls != 1 || limHdr.lastCost != 5 {
+			t.Fatalf("expected hdr quota consumed once with cost 5, calls=%d cost=%d", limHdr.consumeNCalls, limHdr.lastCost)
+		}
+
+		// OnResponseBody: must carry forward hdr result, consume body quota only
+		respCtx := newResponseCtx(nil, map[string][]string{"x-hdr-cost": {"5"}}, sharedMeta, 200)
+		respCtx.ResponseBody = &policy.Body{Present: true, Content: []byte(`{"tokens": 3}`)}
+		action := p.OnResponseBody(respCtx, nil)
+		mods, ok := action.(policy.DownstreamResponseModifications)
+		if !ok {
+			t.Fatalf("expected DownstreamResponseModifications from OnResponseBody, got %T", action)
+		}
+
+		// hdr quota must NOT be re-consumed
+		if limHdr.consumeNCalls != 1 {
+			t.Fatalf("expected hdr quota consumed only once (not re-consumed in body phase), got %d calls", limHdr.consumeNCalls)
+		}
+		// body quota must be consumed with correct cost
+		if limBody.consumeNCalls != 1 || limBody.lastCost != 3 {
+			t.Fatalf("expected body quota consumed once with cost 3, calls=%d cost=%d", limBody.consumeNCalls, limBody.lastCost)
+		}
+		// Headers must reflect both quotas
+		if !strings.Contains(mods.HeadersToSet["ratelimit-policy"], `"hdr"`) || !strings.Contains(mods.HeadersToSet["ratelimit-policy"], `"body"`) {
+			t.Fatalf("expected consolidated ratelimit-policy with both quotas, got %q", mods.HeadersToSet["ratelimit-policy"])
 		}
 	})
 

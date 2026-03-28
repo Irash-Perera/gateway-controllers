@@ -425,7 +425,7 @@ func (p *RateLimitPolicy) Mode() policy.ProcessingMode {
 	if p.requiresRequestBody() {
 		requestBodyMode = policy.BodyModeBuffer
 	}
-	if p.requiresResponseBody() {
+	if p.requiresResponseBody() || p.hasNonHeaderResponsePhaseSources() {
 		responseBodyMode = policy.BodyModeBuffer
 	}
 
@@ -916,7 +916,7 @@ func getDurationParam(params map[string]interface{}, key string, defaultVal time
 func (p *RateLimitPolicy) requiresRequestBody() bool {
 	for _, q := range p.quotas {
 		if q.CostExtractionEnabled && q.CostExtractor != nil {
-			if q.CostExtractor.RequiresRequestBody() {
+			if q.CostExtractor.HasRequestBodyPhase() {
 				return true
 			}
 		}
@@ -941,15 +941,18 @@ func (p *RateLimitPolicy) requiresResponseBody() bool {
 	return false
 }
 
-// hasNonBodyResponsePhaseSources returns true if any quota has response-phase cost
-// sources that do not require the response body (e.g. response_metadata,
-// response_header). These sources cannot be resolved in OnResponseHeaders because
-// upstream policies that populate the metadata (e.g. llm-cost writing x-llm-cost)
-// run in the response-body phase. OnResponseBody must therefore also process them,
-// after those upstream policies have had a chance to set the metadata.
-func (p *RateLimitPolicy) hasNonBodyResponsePhaseSources() bool {
+// hasNonHeaderResponsePhaseSources returns true if any quota has response-phase cost
+// sources that are not response_header (e.g. response_metadata, response_body,
+// response_cel). These require OnResponseBody to run — either because they need
+// the body content, or because the metadata they read is populated by upstream
+// policies that execute in the response-body phase.
+func (p *RateLimitPolicy) hasNonHeaderResponsePhaseSources() bool {
 	for _, q := range p.quotas {
 		if q.CostExtractionEnabled && q.CostExtractor != nil {
+			// response_header-only quotas are consumed in OnResponseHeaders — exclude them.
+			if q.CostExtractor.HasResponseHeaderOnlyCostSources() {
+				continue
+			}
 			if q.CostExtractor.HasResponsePhaseSources() && !q.CostExtractor.RequiresResponseBody() {
 				return true
 			}
@@ -1111,32 +1114,80 @@ func (p *RateLimitPolicy) OnRequestHeaders(ctx *policy.RequestHeaderContext, par
 		quotaKeys[quotaName] = key
 
 		if q.CostExtractionEnabled && q.CostExtractor != nil {
-			// Cost extraction configured — only pre-check quota availability; actual
-			// consumption remains in OnRequest (request-phase sources) or OnResponse
-			// (response-phase sources).
-			available, err := q.Limiter.GetAvailable(context.Background(), key)
-			if err != nil {
-				if p.backend == "redis" && p.redisFailOpen {
-					slog.Warn("Rate limit pre-check failed (fail-open)", "error", err, "quota", quotaName)
-					continue
+			if q.CostExtractor.HasRequestHeaderOnlyCostSources() {
+				// request_header sources only — all values are available now, consume immediately.
+				// No body buffering needed.
+				requestCost, extracted := q.CostExtractor.ExtractRequestHeaderOnlyCost(ctx)
+				if !extracted {
+					slog.Debug("Header cost extraction failed, using default",
+						"quota", quotaName, "key", key, "defaultCost", requestCost)
+				} else {
+					slog.Debug("Header cost extracted",
+						"quota", quotaName, "key", key, "cost", requestCost)
 				}
-				slog.Error("Rate limit pre-check failed (fail-closed)", "error", err, "quota", quotaName)
-				return p.buildRateLimitResponse(nil, quotaName, quotaResults)
-			}
-			if available <= 0 {
-				slog.Debug("Cost extraction mode: quota exhausted in header phase",
-					"quota", quotaName, "key", key)
-				duration := getDurationFromQuota(q)
-				result := &limiter.Result{
-					Allowed:   false,
-					Limit:     getLimitFromQuota(q),
-					Remaining: 0,
-					Reset:     time.Now().Add(duration),
-					Duration:  duration,
+				if requestCost < 0 {
+					requestCost = 0
 				}
-				return p.buildRateLimitResponse(result, quotaName, quotaResults)
+				cost := int64(requestCost)
+				result, err := q.Limiter.AllowN(context.Background(), key, cost)
+				if err != nil {
+					if p.backend == "redis" && p.redisFailOpen {
+						slog.Warn("Rate limit check failed (fail-open)", "error", err, "quota", quotaName)
+						continue
+					}
+					slog.Error("Rate limit check failed (fail-closed)", "error", err, "quota", quotaName)
+					return p.buildRateLimitResponse(nil, quotaName, quotaResults)
+				}
+				if !result.Allowed {
+					slog.Debug("Rate limit exceeded in header phase",
+						"quota", quotaName, "key", key, "cost", cost)
+					return p.buildRateLimitResponse(result, quotaName, quotaResults)
+				}
+				slog.Debug("Rate limit check passed",
+					"quota", quotaName, "key", key, "cost", cost, "remaining", result.Remaining)
+
+				quotaResults = append(quotaResults, quotaResult{
+					QuotaName: quotaName,
+					Result:    result,
+					Key:       key,
+					Duration:  result.Duration,
+				})
+				handledQuotas[quotaName] = true
+			} else {
+				// body/metadata/CEL/response sources — pre-check availability only;
+				// actual consumption is deferred to OnRequestBody or OnResponse.
+				available, err := q.Limiter.GetAvailable(context.Background(), key)
+				if err != nil {
+					if p.backend == "redis" && p.redisFailOpen {
+						slog.Warn("Rate limit pre-check failed (fail-open)", "error", err, "quota", quotaName)
+						continue
+					}
+					slog.Error("Rate limit pre-check failed (fail-closed)", "error", err, "quota", quotaName)
+					return p.buildRateLimitResponse(nil, quotaName, quotaResults)
+				}
+				if available <= 0 {
+					slog.Debug("Cost extraction mode: quota exhausted in header phase",
+						"quota", quotaName, "key", key)
+					duration := getDurationFromQuota(q)
+					result := &limiter.Result{
+						Allowed:   false,
+						Limit:     getLimitFromQuota(q),
+						Remaining: 0,
+						Reset:     time.Now().Add(duration),
+						Duration:  duration,
+					}
+					return p.buildRateLimitResponse(result, quotaName, quotaResults)
+				}
+				// Store a placeholder so the response phase can find this quota in
+				// storedResultsMap. Actual consumption and result are populated in
+				// OnRequestBody or OnResponse.
+				quotaResults = append(quotaResults, quotaResult{
+					QuotaName: quotaName,
+					Result:    nil,
+					Key:       key,
+					Duration:  getDurationFromQuota(q),
+				})
 			}
-			// Not exhausted — defer full consumption to OnRequest/OnResponse
 		} else {
 			// Standard mode (no cost extraction): consume 1 token in header phase
 			result, err := q.Limiter.AllowN(context.Background(), key, 1)
@@ -1245,6 +1296,8 @@ func (p *RateLimitPolicy) extractKeyComponentFromHeaderCtx(ctx *policy.RequestHe
 		return p.routeName
 
 	case "cel":
+		// extractQuotaKeyFromHeaderCtx is never called for a quota with CEL key extraction
+		// Only a defensive fallback in case that invariant is ever violated
 		// CEL key extraction is not supported in the header phase. OnRequestHeaders always
 		// defers quotas with CEL keys to the body phase, so this case is unreachable.
 		slog.Warn("CEL key extraction reached in header phase unexpectedly, returning placeholder",
@@ -1270,6 +1323,15 @@ func (p *RateLimitPolicy) OnRequestBody(
 			"quotaCount", len(p.quotas),
 			"backend", p.backend)
 
+		// Retrieve results stored by OnRequestHeaders so header-only quota results
+		// (consumed in OnRequestHeaders) can be carried forward.
+		storedResultsMap := make(map[string]quotaResult)
+		if prev, ok := ctx.Metadata[rateLimitResultKey].([]quotaResult); ok {
+			for _, r := range prev {
+				storedResultsMap[r.QuotaName] = r
+			}
+		}
+
 		var quotaResults []quotaResult
 		var quotaKeys = make(map[string]string) // Store keys for response phase
 
@@ -1291,6 +1353,14 @@ func (p *RateLimitPolicy) OnRequestBody(
 
 			// If cost extraction is enabled, handle based on whether we have request-phase or response-phase sources
 			if q.CostExtractionEnabled && q.CostExtractor != nil {
+				// request_header-only quotas are fully consumed in OnRequestHeaders —
+				// carry forward the stored result for response-phase header building.
+				if q.CostExtractor.HasRequestHeaderOnlyCostSources() {
+					if stored, ok := storedResultsMap[quotaName]; ok {
+						quotaResults = append(quotaResults, stored)
+					}
+					continue
+				}
 				// Check if this quota has request-phase sources (can be processed now)
 				if q.CostExtractor.HasRequestPhaseSources() {
 					slog.Debug("Processing request-phase cost extraction",
@@ -1477,8 +1547,9 @@ func (p *RateLimitPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, p
 		// Handle post-response cost extraction for quotas that have it enabled.
 		// Skip quotas that require the response body — those are handled exclusively
 		// in OnResponseBody to avoid double consumption.
-		if q.CostExtractionEnabled && q.CostExtractor != nil && q.CostExtractor.HasResponsePhaseSources() && !q.CostExtractor.RequiresResponseBody() {
-			slog.Debug("Processing response-phase cost extraction",
+		if q.CostExtractionEnabled && q.CostExtractor != nil &&
+			 q.CostExtractor.HasResponsePhaseSources() && q.CostExtractor.HasResponseHeaderOnlyCostSources() {
+			slog.Debug("Processing response-header-phase cost extraction",
 				"quota", quotaName)
 
 			key := quotaKeys[quotaName]
@@ -1580,7 +1651,18 @@ func (p *RateLimitPolicy) OnResponseHeaders(ctx *policy.ResponseHeaderContext, p
 		}
 	}
 
-	// Build headers for all quotas using the new multi-quota function
+	// Store updated results so OnResponseBody can carry forward response_header
+	// quota results and avoid re-consuming them.
+	ctx.Metadata[rateLimitResultKey] = allQuotaResults
+
+	// Only build rate limit headers here if OnResponseBody will not run.
+	// If body/metadata sources exist, OnResponseBody will process those quotas
+	// and emit the final complete headers — building partial headers here would
+	// be incorrect and they would be overwritten anyway.
+	if p.requiresResponseBody() || p.hasNonHeaderResponsePhaseSources() {
+		return nil
+	}
+
 	if len(allQuotaResults) == 0 {
 		return nil
 	}
@@ -1611,7 +1693,7 @@ func (p *RateLimitPolicy) OnResponseBody(
 	ctx *policy.ResponseContext,
 	_ map[string]interface{},
 ) policy.ResponseAction {
-	if p.requiresResponseBody() || p.hasNonBodyResponsePhaseSources() {
+	if p.requiresResponseBody() || p.hasNonHeaderResponsePhaseSources() {
 		slog.Debug("Processing rate limit response phase",
 			"route", p.routeName,
 			"status", ctx.ResponseStatus,
@@ -1650,6 +1732,15 @@ func (p *RateLimitPolicy) OnResponseBody(
 			quotaName := q.Name
 			if quotaName == "" {
 				quotaName = fmt.Sprintf("quota-%d", i)
+			}
+
+			// response_header-only quotas are fully consumed in OnResponseHeaders —
+			// carry forward the stored result to avoid re-consumption.
+			if q.CostExtractionEnabled && q.CostExtractor != nil && q.CostExtractor.HasResponseHeaderOnlyCostSources() {
+				if stored, ok := storedResultsMap[quotaName]; ok {
+					allQuotaResults = append(allQuotaResults, stored)
+				}
+				continue
 			}
 
 			// Handle post-response cost extraction for quotas that have it enabled
