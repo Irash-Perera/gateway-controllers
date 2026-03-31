@@ -559,7 +559,14 @@ func (p *SentenceCountGuardrailPolicy) NeedsMoreResponseData(accumulated []byte)
 		return count <= rp.Max
 	}
 	// Normal mode: buffer while below the required minimum.
-	return rp.Min > 0 && count < rp.Min
+	if rp.Min > 0 {
+		return count < rp.Min
+	}
+	// min=0 (no minimum gate): still buffer sentence-by-sentence when max enforcement
+	// is active, to avoid token-by-token delivery. count < 2 means no sentence terminal
+	// has appeared yet with content following it (count reaches 2 when at least one
+	// [.!?] splits the accumulated text into 2+ non-empty fragments).
+	return rp.Max > 0 && count < 2
 }
 
 // OnResponseBodyChunk implements StreamingResponsePolicy.
