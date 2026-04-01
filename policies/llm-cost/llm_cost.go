@@ -151,7 +151,15 @@ func (p *LLMCostPolicy) OnResponseBody(ctx context.Context, respCtx *policy.Resp
 		modelName = probe.Message.Model
 	}
 	if modelName == "" {
-		slog.Warn("llm-cost: no model name found in response body")
+		// Fallback: try to extract model name from the request context.
+		var reqBody []byte
+		if respCtx.RequestBody != nil && respCtx.RequestBody.Present {
+			reqBody = respCtx.RequestBody.Content
+		}
+		modelName = modelNameFromRequest(reqBody, respCtx.RequestPath)
+	}
+	if modelName == "" {
+		slog.Warn("llm-cost: no model name found in response body or request context")
 		return setCostMetadata(respCtx, 0.0, costStatusNotCalculated)
 	}
 
@@ -234,7 +242,7 @@ func (p *LLMCostPolicy) OnResponseBodyChunk(
 		requestBody = respCtx.RequestBody.Content
 	}
 
-	cost := p.computeAndSetStreamingCost(respCtx.SharedContext, accumulated, requestBody)
+	cost := p.computeAndSetStreamingCost(respCtx.SharedContext, accumulated, requestBody, respCtx.RequestPath)
 	return policy.ForwardResponseChunk{
 		AnalyticsMetadata: map[string]any{
 			MetadataLLMCost: cost,
@@ -245,7 +253,7 @@ func (p *LLMCostPolicy) OnResponseBodyChunk(
 // computeAndSetStreamingCost parses the accumulated response bytes, calculates the
 // LLM cost, writes x-llm-cost / x-llm-cost-status into SharedContext.Metadata, and
 // returns the calculated cost in USD (0.0 on any error).
-func (p *LLMCostPolicy) computeAndSetStreamingCost(sharedCtx *policy.SharedContext, body, requestBody []byte) float64 {
+func (p *LLMCostPolicy) computeAndSetStreamingCost(sharedCtx *policy.SharedContext, body, requestBody []byte, requestPath string) float64 {
 	if sharedCtx == nil {
 		slog.Warn("llm-cost: SharedContext is nil in streaming mode, cannot set cost metadata")
 		return 0.0
@@ -296,7 +304,10 @@ func (p *LLMCostPolicy) computeAndSetStreamingCost(sharedCtx *policy.SharedConte
 		modelName = probe.Message.Model
 	}
 	if modelName == "" {
-		slog.Warn("llm-cost: no model name found in streaming response body")
+		modelName = modelNameFromRequest(requestBody, requestPath)
+	}
+	if modelName == "" {
+		slog.Warn("llm-cost: no model name found in streaming response body or request context")
 		setMeta(0.0, costStatusNotCalculated)
 		return 0.0
 	}
@@ -417,6 +428,35 @@ func setStreamCostMetadata(respCtx *policy.ResponseStreamContext, costUSD float6
 			MetadataLLMCost: costUSD,
 		},
 	}
+}
+
+// modelNameFromRequest tries to extract the model name from the request context
+// when the response body does not include one. It checks the request body's
+// "model" JSON field first (OpenAI, Anthropic, Mistral convention), then falls
+// back to parsing a "/models/{name}" path segment from the request path (Gemini,
+// Vertex AI). Returns empty string if no model name can be determined.
+func modelNameFromRequest(requestBody []byte, requestPath string) string {
+	if len(requestBody) > 0 {
+		var req struct {
+			Model string `json:"model"`
+		}
+		if err := json.Unmarshal(requestBody, &req); err == nil && req.Model != "" {
+			return req.Model
+		}
+	}
+	// Gemini/Vertex AI: model name is embedded in the path, e.g.
+	//   /v1beta/models/gemini-2.5-flash:streamGenerateContent
+	if i := strings.Index(requestPath, "/models/"); i >= 0 {
+		rest := requestPath[i+len("/models/"):]
+		end := strings.IndexAny(rest, "/:")
+		if end < 0 {
+			end = len(rest)
+		}
+		if end > 0 {
+			return rest[:end]
+		}
+	}
+	return ""
 }
 
 // setCostMetadata writes x-llm-cost and x-llm-cost-status into SharedContext.Metadata
