@@ -1,0 +1,10 @@
+{
+  "name": "set-status-code",
+  "displayName": "Set Status Code",
+  "version": "0.1",
+  "provider": "WSO2",
+  "categories": [
+    "Transformation"
+  ],
+  "description": "Overwrites the upstream response status code before forwarding to the client. Useful for normalising status codes or masking upstream error codes."
+}

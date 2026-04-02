@@ -1,0 +1,20 @@
+name: set-status-code
+version: v0.1.0
+description: |
+  Overwrite the upstream response status code before forwarding to the client.
+
+parameters:
+  type: object
+  properties:
+    statusCode:
+      type: integer
+      x-wso2-policy-advanced-param: false
+      description: The HTTP status code to set on the upstream response.
+      minimum: 100
+      maximum: 599
+  required:
+    - statusCode
+systemParameters:
+  type: object
+  additionalProperties: false
+  properties: {}
