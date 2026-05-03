@@ -1,0 +1,52 @@
+name: response-cache
+version: v0.2.0
+description: |
+  Caches successful GET and HEAD responses in memory and serves repeated
+  requests for the same resource directly from the gateway without calling the
+  backend again.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    ttl:
+      type: string
+      description: |
+        Duration to keep cache entries in memory. Supports integer values with
+        units: ns, us, µs, ms, s, m, h (for example "30s", "5m", "1h").
+      pattern: "^[0-9]+(ns|us|µs|ms|s|m|h)$"
+      default: "60s"
+    cacheableStatusCodes:
+      type: array
+      description: HTTP status codes that should be stored in cache.
+      minItems: 1
+      maxItems: 20
+      items:
+        type: integer
+        minimum: 100
+        maximum: 599
+      default: [200]
+
+systemParameters:
+  type: object
+  additionalProperties: false
+  properties:
+    memory:
+      type: object
+      description: In-memory cache configuration.
+      additionalProperties: false
+      properties:
+        maxEntries:
+          type: integer
+          description: Maximum number of cached responses kept in memory.
+          minimum: 1
+          maximum: 1000000
+          default: 10000
+        cleanupInterval:
+          type: string
+          description: |
+            Interval for removing expired cache entries. Supports integer values
+            with units: ns, us, µs, ms, s, m, h. Use "0" to clean up only on
+            reads and writes.
+          pattern: "^([0-9]+(ns|us|µs|ms|s|m|h)|0)$"
+          default: "1m"
