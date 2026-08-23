@@ -5,197 +5,180 @@ title: "Overview"
 
 ## Overview
 
-This policy works out what each LLM call to **Azure OpenAI** or **Azure AI Foundry** costs, using the token counts Azure returns in the response and a pricing file shipped with the gateway.
+The Azure LLM Cost policy calculates the monetary cost of an LLM API call made through **Azure OpenAI** or **Azure AI Foundry** at response time and stores the result in `SharedContext.Metadata`. The cost is not exposed as a response header, so it is only available to other policies in the same pipeline, such as the [LLM Cost Based Ratelimit](../../../llm-cost-based-ratelimit/v1.0/docs/llm-cost-based-ratelimit.md) policy.
 
-It runs after the response comes back, so it never delays or blocks a request. If it cannot work out a price, the request still succeeds — it is simply recorded as unpriced.
+Azure differs from other providers in one way that matters here: you never call a model by name, you call a *deployment*, which is your own alias for a model instance. Because the pricing database is keyed by model name, the policy needs to know which model sits behind each deployment. That mapping is the only configuration it requires.
 
-Use this policy for Azure routes. For OpenAI, Anthropic, Gemini, Mistral, or AWS Bedrock use the [LLM Cost](../../llm-cost/v1.1/docs/llm-cost.md) policy instead. **Never attach both to the same route** — they write to the same place and would overwrite each other.
+Use this policy for routes that reach an LLM through Azure. For a vendor's own endpoint, use the [LLM Cost](../../../llm-cost/v1.1/docs/llm-cost.md) policy instead. The endpoint decides which applies, not the model: Claude served by Azure AI Foundry belongs to this policy, Claude served by Anthropic directly belongs to the other. Never attach both to the same route, as they write to the same metadata keys.
 
-### Where the cost appears
+## Features
 
-| Where | Name | Value |
-|---|---|---|
-| Analytics events | `llmCost` | the cost in USD |
-| `SharedContext.Metadata` | `x-llm-cost` | USD to 10 decimal places, e.g. `"0.0000423100"` |
-| `SharedContext.Metadata` | `x-llm-cost-status` | `calculated` or `not_calculated` |
-
-`x-llm-cost` is what downstream policies read — most usefully [LLM Cost Based Ratelimit](../../llm-cost-based-ratelimit/v1.0/docs/llm-cost-based-ratelimit.md), which enforces spending budgets.
-
-The cost is **never returned to the caller** in a response header, so it stays internal to the gateway.
-
-Check `x-llm-cost-status` rather than the amount: a cost of `0` could mean a genuinely free call or a failed calculation, and only the status tells you which.
-
-## The one concept to understand: deployments vs models
-
-Azure does not let you call a model directly. You create a **deployment** — your own name for an instance of a model:
-
-```
-deployment name : my-4o-mini          ← you chose this, it can be anything
-model name      : gpt-4o-mini         ← what it actually runs, and what has a price
-```
-
-**The pricing file is keyed by model name.** So when Azure tells us only the deployment name, we cannot price the call without being told which model it runs. That is what `modelMappings` is for.
-
-Which name Azure reports depends on the **endpoint**, not on whether you are using Azure OpenAI or Foundry:
-
-| Endpoint | Azure reports | Needs a mapping? |
-|---|---|---|
-| `/chat/completions` (all forms) | the real model, e.g. `gpt-4.1-2025-04-14` | No |
-| Foundry `/models/chat/completions` | the real model, e.g. `claude-opus-4-8` | No |
-| `/openai/v1/responses` | the **deployment** name | **Yes** |
-| `/openai/threads/.../runs` (assistants) | the **deployment** name | **Yes** |
-
-The responses API simply echoes back the `model` you sent in the request, which is your deployment name — so there is nothing else in the response to price it by.
-
-**Tip:** if you name a deployment exactly after its model (a deployment called `gpt-4o-mini`), every endpoint resolves it, mapping or not.
+- **Deployment-Aware Pricing**: Resolves the deployment name Azure reports back to the model that actually ran.
+- **Two Product Catalogs**: Prices Azure OpenAI models from the `azure/` catalog and Azure AI Foundry models from `azure_ai/`, choosing between them from the provider template on the route.
+- **Multi-Vendor Foundry Support**: Prices the vendors currently served through Azure AI Foundry, namely **OpenAI**, **DeepSeek**, **Mistral**, and **Anthropic**, from one attachment.
+- **Deployment Tier Pricing**: Applies Global Standard, Data Zone Standard, or Standard rates per deployment, since the deployment type is chosen per deployment.
+- **Response Format Independence**: Reads token counts written in either the OpenAI style (`prompt_tokens`) or the Anthropic style (`input_tokens`), so every vendor Azure fronts is handled the same way.
+- **Cache, Category, and Tier Rates**: Charges cached input, cache writes, audio tokens, reasoning tokens, and web search queries at their own rates where the pricing database defines them, along with priority and above-272k rates.
+- **Streaming Support**: Accumulates streamed responses and prices them once, at the end of the stream.
+- **Non-Blocking on Failure**: When no price can be determined the cost is set to `0.0000000000`, `x-llm-cost-status` is set to `not_calculated`, and the request proceeds untouched.
 
 ## Configuration
 
-### Parameters
+### User Parameters (API Definition)
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `modelMappings` | array | **Yes** | Your Azure deployments — the model each one runs, and its deployment type. |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `modelMappings` | array | Yes | - | The deployments this route can reach, and the model each one runs. |
 
 Each entry describes one deployment:
 
-| Field | Required | Default | Description |
-|---|---|---|---|
-| `deployment` | Yes | — | Your Azure deployment name, e.g. `my-4o-mini`. |
-| `model` | Yes | — | The model it runs, e.g. `gpt-4o-mini`. |
-| `region` | No | `global-standard` | Its deployment type, which sets the price tier. |
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `deployment` | string | Yes | - | The Azure deployment name, for example `apim-4o-mini`. |
+| `model` | string | Yes | - | The model it runs, for example `gpt-4o-mini`. This is the name looked up in the pricing database. |
+| `region` | string | No | `global-standard` | The deployment type, which selects the pricing tier. |
 
-List **every deployment** the route can reach. A deployment you leave out will be unpriced on the endpoints that need a mapping.
+List every deployment the route can reach. `region` sits on each entry rather than on the policy because two deployments in the same Azure resource can be on different tiers. Valid values are `global-standard` (Azure's default), `us`, `eu` or `apac` for a Data Zone deployment, and `regional` for a single-region one. Provisioned Throughput deployments are not covered, as they bill reserved capacity by the hour rather than by token.
 
-### `region` — the deployment's price tier
+### System Parameters (From config.toml)
 
-Azure charges different rates depending on the deployment type you chose when you created the deployment. Because that is a **per-deployment** choice, `region` sits on each mapping entry rather than on the policy — two deployments in the same resource can be on different tiers.
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `pricing_file` | string | Yes | - | Path to the model pricing JSON file shipped with the gateway image, the same file the `llm-cost` policy uses. |
 
-| Value | Azure deployment type | What it means |
-|---|---|---|
-| `global-standard` *(default)* | Global Standard | Processed in any region. Azure's default. |
-| `us` / `eu` / `apac` | Data Zone Standard | Processing stays in that data zone. |
-| `regional` | Standard | Processing stays in one region. |
-
-Provisioned (PTU) deployments are not listed: they bill reserved capacity by the hour, not per token, so a per-token calculator cannot represent them.
-
-`region` has no effect on Azure AI Foundry's own models, which have no tier-based pricing.
-
-### System parameter (set by the gateway admin in `config.toml`)
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `pricing_file` | string | Yes | Path to the model pricing file shipped with the gateway. The `llm-cost` policy uses the same file. |
+#### Sample System Configuration
 
 ```toml
 [policy_configurations.azure_llm_cost_v0]
 pricing_file = "/etc/policy-engine/llm-pricing/model_prices.json"
 ```
 
-In `gateway/build.yaml`, make sure the policy module is listed under `policies:`:
+**Note:**
+
+Inside the `gateway/build.yaml`, ensure the policy module is added under `policies:`:
 
 ```yaml
 - name: azure-llm-cost
   gomodule: github.com/wso2/gateway-controllers/policies/azure-llm-cost@v0
 ```
 
-## Examples
+## Reference Scenarios
 
-### A single Azure OpenAI resource
+This policy runs in the response phase and should be placed before any cost-consuming policy in the chain. Every scenario below depends on the provider using one of the two Azure templates, `azure-openai` or `azureai-foundry`, since the policy reads that template to decide which catalog applies.
+
+### Example 1: Attach the policy to an Azure OpenAI provider
 
 ```yaml
-policies:
+apiVersion: gateway.api-platform.wso2.com/v1
+kind: LlmProvider
+metadata:
+  name: azure-openai-provider
+spec:
+  displayName: Azure OpenAI Provider
+  version: v1.0
+  context: /azure-openai
+  template: azure-openai
+  upstream:
+    url: https://my-resource.openai.azure.com/openai/v1
+    auth:
+      type: api-key
+      header: api-key
+      value: ${AZURE_OPENAI_API_KEY}
+  accessControl:
+    mode: deny_all
+    exceptions:
+      - path: /chat/completions
+        methods: [POST]
+  operationPolicies:
+    - name: azure-llm-cost
+      version: v0
+      paths:
+        - path: /chat/completions
+          methods: [POST]
+          params:
+            modelMappings:
+              - deployment: apim-4o-mini
+                model: gpt-4o-mini
+                region: eu
+              - deployment: prod-gpt5
+                model: gpt-5.1
+```
+
+After each successful response the policy sets `x-llm-cost`, a USD amount to 10 decimal places such as `"0.0000423100"`, and `x-llm-cost-status`, either `calculated` or `not_calculated`. The cost is also published as analytics metadata, where it appears as `llmCost`. Here `apim-4o-mini` is priced from `azure/eu/gpt-4o-mini` when that key exists and from `azure/gpt-4o-mini` otherwise, while `prod-gpt5` omits `region` and is priced as Global Standard.
+
+### Example 2: Several vendors on one Azure AI Foundry provider
+
+A Foundry resource can serve models from several vendors as well as the OpenAI models it hosts. One attachment covers all of them, because each model is priced from whichever catalog holds it. Set `template: azureai-foundry` on the provider, then:
+
+```yaml
+params:
+  modelMappings:
+    - deployment: my-claude
+      model: claude-opus-4-5
+    - deployment: my-deepseek
+      model: deepseek-v3.1
+    - deployment: my-mistral
+      model: mistral-large
+    - deployment: apim-gpt-5-6
+      model: gpt-5.6-terra
+```
+
+The first three are Foundry's own models, priced from `azure_ai/`. The last is an OpenAI model hosted on Foundry, which appears only in `azure/`, and the policy finds it there.
+
+### Example 3: Use with LLM Cost Based Ratelimit
+
+List `llm-cost-based-ratelimit` before `azure-llm-cost`. Response-phase policies execute in reverse order, so `azure-llm-cost` runs first and calculates the cost, and `llm-cost-based-ratelimit` deducts it afterwards.
+
+```yaml
+operationPolicies:
+  - name: llm-cost-based-ratelimit
+    version: v1
+    paths:
+      - path: /chat/completions
+        methods: [POST]
+        params:
+          budgetLimits:
+            - amount: 10
+              duration: "24h"
   - name: azure-llm-cost
     version: v0
     paths:
-      - path: /openai/*
+      - path: /chat/completions
         methods: [POST]
         params:
           modelMappings:
             - deployment: apim-4o-mini
               model: gpt-4o-mini
-            - deployment: prod-gpt5
-              model: gpt-5.1
 ```
 
-### Deployments on different price tiers
+## How It Works
 
-```yaml
-params:
-  modelMappings:
-    - deployment: apim-4o-mini
-      model: gpt-4o-mini
-      region: eu              # a Data Zone deployment
-    - deployment: prod-gpt5
-      model: gpt-5.1          # region omitted, so Global Standard
-```
+1. **Response phase**: The response body is accumulated, so streamed and buffered responses are treated alike.
+2. **The product is identified** from the provider template on the route. `azure-openai` selects the `azure/` catalog and `azureai-foundry` selects `azure_ai/`. The request path cannot be used, because Azure AI Foundry serves the OpenAI-compatible API on the same path Azure OpenAI does. A route using neither template is left unpriced and a warning is logged, rather than being billed against a catalog that may not apply.
+3. **The model name is resolved** from the response body, then the request body, then the deployment segment of the URL. Each candidate is looked up in `modelMappings` first and used directly second, so a mapping always wins over the name Azure reported.
+4. **The pricing entry is located** by exact key match. An Azure OpenAI route tries `azure/<region>/` then `azure/`. A Foundry route tries `azure_ai/` first and then falls back to `azure/`, which is how the OpenAI models hosted on Foundry are priced. The fallback runs one way only: a Foundry-native model on an Azure OpenAI route is reported unpriced, since Azure OpenAI cannot serve one and the route is therefore misconfigured.
+5. **Tokens are charged** by category. Audio tokens, reasoning tokens, and web search queries are subtracted from the totals before being charged separately, so nothing is counted twice, and any category the entry gives no rate for is charged at the ordinary text rate. Priority and above-272k rates apply where the entry defines them, each falling back to the ordinary rate.
+6. **The result is written** to `SharedContext`, published as analytics metadata, and the response continues unmodified.
 
-### Azure AI Foundry
+Which name Azure reports in step 3 depends on the endpoint. The chat completions endpoints report the real model name, as do Foundry's native `/models/chat/completions` and its Anthropic Messages endpoint. The Responses API and the Assistants API echo back the `model` from the request, which is the deployment name, so those two cannot be priced without a mapping.
 
-Nothing extra to set. One attachment covers a Foundry resource's own models *and* any OpenAI models it hosts — each is priced from the right catalog automatically.
+An unmapped deployment is priced on two assumptions, both logged once per deployment: that Global Standard rates apply, and that the reported name is itself a model name. The second is the one to watch, because a deployment named after a real model but running a different one is priced as its name suggests. A deployment called `gpt-4o` that actually runs `gpt-4o-mini` is charged at `gpt-4o` rates, with nothing in the response to contradict it. This is why every deployment should be mapped, even where the endpoint would resolve on its own.
 
-```yaml
-params:
-  modelMappings:
-    - deployment: my-llama
-      model: Llama-3.3-70B-Instruct
-    - deployment: apim-gpt-5.6-terra
-      model: gpt-5.6-terra          # an OpenAI model hosted on Foundry
-```
+## Limitations
 
-## How prices are looked up
+- Model names must match a pricing key exactly. There is no partial matching, because `gpt-4o` and `gpt-4o-mini` are priced very differently and matching loosely would quietly bill the wrong rate. A model absent from the database is reported unpriced instead.
+- Azure reports dated snapshots such as `gpt-4.1-2025-04-14`, and each needs its own key. A newly released snapshot is unpriced until the database is updated or a mapping points the deployment at a model it already carries.
+- Image, character, per-second, and code interpreter charges are not applied. A model priced only in those units is reported unpriced.
+- `region` prefixes keys in the `azure/` catalog only. The `azure_ai/` keys shipped today are not tier-scoped, so it has no effect on a Foundry-native model, though it still applies to an OpenAI model hosted on Foundry.
 
-Most users do not need this section. It matters if you maintain your own pricing file.
+## Related Policies
 
-### Two catalogs
-
-The pricing file holds two sets of keys:
-
-```
-azure/<model>          Azure OpenAI models
-azure_ai/<model>       Azure AI Foundry's own models
-```
-
-A single Foundry resource can serve **both** — the OpenAI models it hosts are priced from `azure/`, its own models from `azure_ai/`. So the endpoint you connect to does not tell us which catalog applies, and there is no setting for it.
-
-Both catalogs are always searched. The request path decides the order, which only matters for a model name that appears in both:
-
-| Request path | Search order |
-|---|---|
-| contains `/openai/` | `azure/<region>/` → `azure/` → `azure_ai/` |
-| anything else | `azure_ai/` → `azure/<region>/` → `azure/` |
-
-### Model names must match exactly
-
-There is no partial matching. A model your file does not carry is reported unpriced rather than billed at a similar model's rate — a deliberate choice, since `gpt-5.6-luna` and `gpt-5.6`, or `gpt-4o-mini` and `gpt-4o`, are very differently priced.
-
-Two things follow:
-
-- **New dated snapshots need their own keys.** Azure reports names like `gpt-4.1-2025-04-14`. When Azure ships a new one, add its key to your pricing file. Until then, those calls fall back to whatever model your mapping declares, and are unpriced if that is missing too.
-- **The unprefixed `azure/<model>` key is the fallback for every tier.** Most entries in the shipped file are unprefixed and hold Global Standard rates. If a deployment declares `us`, `eu`, `apac`, or `regional` and the file has no key for that tier, the unprefixed rate is used and a warning is logged naming the key to add. The shipped file has no `apac` or `regional` keys at all.
-
-## Troubleshooting
-
-**The cost shows as 0 and `x-llm-cost-status` is `not_calculated`.** Check the gateway logs — the policy always says why:
-
-| Log message | Cause | Fix |
-|---|---|---|
-| `model not found for costing` | The model has no key in the pricing file. The message lists the names that were tried. | Add a `modelMappings` entry for the deployment, or add the key to the pricing file. |
-| `model has no per-token pricing` | The model is billed by another unit — image, embedding, rerank, speech. | Nothing to do; these cannot be priced per token. |
-| `response has no usage data` | The response carried no token counts. | For streaming, request usage — for example `"stream_options": {"include_usage": true}`. |
-| `no pricing entry for the configured tier` | A `region` was declared but the file has no key for it, so the base rate was used. | Add the `azure/<region>/<model>` key named in the message. |
-
-**Costs look right but never appear in analytics.** The analytics field is `llmCost`. If it is `0` while the logs show a calculated cost, check that the policy is attached to the route actually serving the request.
-
-## What is and is not counted
-
-**Counted:** input and output tokens, cached input tokens at their discounted rate, Anthropic-style cache writes including the 1-hour tier, long-context and priority rates where the model has them, and streaming responses (priced once at the end of the stream).
-
-**Not counted:** audio tokens are billed at the text rate, and image, character, per-second, web-search and code-interpreter charges are not applied. Models priced only by those units are reported unpriced.
+- [LLM Cost](../../../llm-cost/v1.1/docs/llm-cost.md) prices calls to a vendor's own endpoint. Use it instead of this policy for non-Azure routes, never alongside it.
+- [LLM Cost Based Ratelimit](../../../llm-cost-based-ratelimit/v1.0/docs/llm-cost-based-ratelimit.md) reads `x-llm-cost` and enforces a spending budget.
 
 ## Notes
 
-- The pricing file is read once at startup. **Restart the gateway** to pick up changes to it.
-- `modelMappings` is per-attachment, so different routes can describe different deployments.
-- The pricing file is yours to maintain — add, correct, or extend entries as your deployments change.
-- The shipped file contains a few legacy `azure/global/...` keys. Azure has no deployment type called "Global", only Global Standard, so they duplicate the unprefixed keys and are never used. Prefer `azure/global-standard/...` if you add tier-specific entries.
+- The pricing file is loaded once at process startup. Restart the gateway to pick up changes to it.
+- `modelMappings` is set per attachment, so different routes can describe different deployments.
+- Adding a rate for a new model, tier, or token category is a data change to the pricing database and needs no new gateway build.
+- When a cost of `0` appears, read `x-llm-cost-status` rather than the amount. The gateway log always records why a request went unpriced, naming the model or deployment involved.

@@ -55,7 +55,7 @@ func init() {
 }
 
 func TestLookupPricing_AzureOpenAI_DefaultTier(t *testing.T) {
-	p, key, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(openAIPath, regionGlobalStandard))
+	p, key, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	if !ok {
 		t.Fatal("expected match for gpt-4o-2024-08-06")
 	}
@@ -68,7 +68,7 @@ func TestLookupPricing_AzureOpenAI_DefaultTier(t *testing.T) {
 }
 
 func TestLookupPricing_AzureOpenAI_RegionEU(t *testing.T) {
-	p, key, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(openAIPath, regionEU))
+	p, key, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(templateAzureOpenAI, regionEU))
 	if !ok {
 		t.Fatal("expected match for gpt-4o-2024-08-06 with region=eu")
 	}
@@ -81,7 +81,7 @@ func TestLookupPricing_AzureOpenAI_RegionEU(t *testing.T) {
 }
 
 func TestLookupPricing_AzureOpenAI_RegionUS(t *testing.T) {
-	_, key, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(openAIPath, regionUS))
+	_, key, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(templateAzureOpenAI, regionUS))
 	if !ok {
 		t.Fatal("expected match for gpt-4o-2024-08-06 with region=us")
 	}
@@ -94,7 +94,7 @@ func TestLookupPricing_AzureOpenAI_RegionUS(t *testing.T) {
 // unprefixed. gpt-5.4 has no azure/global-standard/ entry, so it must fall back
 // to the unprefixed base key, which holds Global Standard rates.
 func TestLookupPricing_GlobalStandardFallsBackToBase(t *testing.T) {
-	_, key, ok := lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(openAIPath, regionGlobalStandard))
+	_, key, ok := lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	if !ok {
 		t.Fatal("expected global-standard to fall back to the base key")
 	}
@@ -107,7 +107,7 @@ func TestLookupPricing_GlobalStandardFallsBackToBase(t *testing.T) {
 // file carries one — this is how an operator corrects the base entries that
 // hold Data Zone rather than Global Standard rates.
 func TestLookupPricing_GlobalStandardPrefixPreferredWhenPresent(t *testing.T) {
-	_, key, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-mini", namespacesFor(openAIPath, regionGlobalStandard))
+	_, key, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-mini", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	if !ok {
 		t.Fatal("expected a match for gpt-4o-mini")
 	}
@@ -120,7 +120,7 @@ func TestLookupPricing_GlobalStandardPrefixPreferredWhenPresent(t *testing.T) {
 // apac and regional carry no entries in the shipped file at all.
 func TestLookupPricing_AllTiersFallBackToBase(t *testing.T) {
 	for _, region := range []azureRegion{regionAPAC, regionRegional} {
-		_, key, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(openAIPath, region))
+		_, key, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(templateAzureOpenAI, region))
 		if !ok {
 			t.Fatalf("region=%q: expected fallback to the base key", region)
 		}
@@ -132,8 +132,8 @@ func TestLookupPricing_AllTiersFallBackToBase(t *testing.T) {
 
 // An unset region behaves as global-standard.
 func TestLookupPricing_EmptyRegionDefaultsToGlobalStandard(t *testing.T) {
-	_, withEmpty, ok1 := lookupPricingWithKey(testPricingMap, "gpt-4o-mini", namespacesFor(openAIPath, ""))
-	_, withGS, ok2 := lookupPricingWithKey(testPricingMap, "gpt-4o-mini", namespacesFor(openAIPath, regionGlobalStandard))
+	_, withEmpty, ok1 := lookupPricingWithKey(testPricingMap, "gpt-4o-mini", namespacesFor(templateAzureOpenAI, ""))
+	_, withGS, ok2 := lookupPricingWithKey(testPricingMap, "gpt-4o-mini", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	if !ok1 || !ok2 || withEmpty != withGS {
 		t.Errorf("empty region should behave as global-standard: %q vs %q", withEmpty, withGS)
 	}
@@ -142,7 +142,7 @@ func TestLookupPricing_EmptyRegionDefaultsToGlobalStandard(t *testing.T) {
 func TestLookupPricing_RegionIgnoredForFoundry(t *testing.T) {
 	// "eu"/"us" only ever prefix "azure/" candidates; a Foundry-only model
 	// must still resolve under azure_ai/ regardless of the region setting.
-	p, key, ok := lookupPricingWithKey(testPricingMap, "claude-opus-4-5", namespacesFor(foundryPath, regionEU))
+	p, key, ok := lookupPricingWithKey(testPricingMap, "claude-opus-4-5", namespacesFor(templateAzureAI, regionEU))
 	if !ok {
 		t.Fatal("expected match for claude-opus-4-5 even with region=eu set")
 	}
@@ -167,19 +167,19 @@ func TestLogTierFallback_WarnsOncePerRegionModel(t *testing.T) {
 	count := func() int { return strings.Count(buf.String(), "no pricing entry for the configured tier") }
 
 	// gpt-5.4-nano has no eu entry, so eu falls back to the base key.
-	lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(openAIPath, regionEU))
+	lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(templateAzureOpenAI, regionEU))
 	if got := count(); got != 1 {
 		t.Fatalf("expected 1 warning on first fallback, got %d", got)
 	}
 	// Repeat lookups for the same pair must not warn again.
 	for i := 0; i < 5; i++ {
-		lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(openAIPath, regionEU))
+		lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(templateAzureOpenAI, regionEU))
 	}
 	if got := count(); got != 1 {
 		t.Errorf("expected the warning to be deduped, got %d", got)
 	}
 	// A different region for the same model is a separate pair.
-	lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(openAIPath, regionAPAC))
+	lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(templateAzureOpenAI, regionAPAC))
 	if got := count(); got != 2 {
 		t.Errorf("expected a separate warning per region, got %d", got)
 	}
@@ -196,11 +196,11 @@ func TestLogTierFallback_SilentCases(t *testing.T) {
 	tierFallbackSeen = sync.Map{}
 
 	// global-standard falling back to base is the normal, correct path.
-	lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(openAIPath, regionGlobalStandard))
+	lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	// A tier entry that exists is not a fallback at all.
-	lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(openAIPath, regionEU))
+	lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(templateAzureOpenAI, regionEU))
 	// Foundry has no tier pricing, so the region does not apply.
-	lookupPricingWithKey(testPricingMap, "claude-opus-4-5", namespacesFor(foundryPath, regionEU))
+	lookupPricingWithKey(testPricingMap, "claude-opus-4-5", namespacesFor(templateAzureAI, regionEU))
 
 	if n := strings.Count(buf.String(), "no pricing entry for the configured tier"); n != 0 {
 		t.Errorf("expected no warnings, got %d:\n%s", n, buf.String())
@@ -216,69 +216,21 @@ func TestLookupPricing_ExactMatchOnly(t *testing.T) {
 		"gpt-5-2025-06-04",         // unlisted snapshot of a listed family
 		"gpt-4o-mini-unknownvar",   // variant of a listed model
 	} {
-		if _, key, ok := lookupPricingWithKey(testPricingMap, name, namespacesFor(openAIPath, regionGlobalStandard)); ok {
+		if _, key, ok := lookupPricingWithKey(testPricingMap, name, namespacesFor(templateAzureOpenAI, regionGlobalStandard)); ok {
 			t.Errorf("%q resolved to %q; only exact matches should resolve", name, key)
 		}
 	}
 }
 
-// A model held by only one catalog resolves from either surface, because both
-// namespaces are always searched.
-func TestLookupPricing_BothNamespacesSearched(t *testing.T) {
-	// Foundry-native model reached over the OpenAI-compatible surface.
-	if _, key, ok := lookupPricingWithKey(testPricingMap, "claude-opus-4-5", namespacesFor(openAIPath, regionGlobalStandard)); !ok || key != "azure_ai/claude-opus-4-5" {
-		t.Errorf("expected azure_ai/claude-opus-4-5, got %q (ok=%v)", key, ok)
-	}
-	// Azure OpenAI model hosted on Foundry, reached over its native surface.
-	if _, key, ok := lookupPricingWithKey(testPricingMap, "gpt-5.6-terra", namespacesFor(foundryPath, regionGlobalStandard)); !ok || key != "azure/gpt-5.6-terra" {
-		t.Errorf("expected azure/gpt-5.6-terra, got %q (ok=%v)", key, ok)
-	}
-	// The tier prefix only applies within azure/, so a Foundry model is
-	// unaffected by the region.
-	if _, key, ok := lookupPricingWithKey(testPricingMap, "claude-opus-4-5", namespacesFor(foundryPath, regionEU)); !ok || key != "azure_ai/claude-opus-4-5" {
-		t.Errorf("expected azure_ai/claude-opus-4-5 regardless of region, got %q (ok=%v)", key, ok)
-	}
-}
-
 // For a name held by both catalogs at different rates, the request path decides.
 func TestLookupPricing_PathBreaksNamespaceTies(t *testing.T) {
-	_, viaOpenAI, _ := lookupPricingWithKey(testPricingMap, "mistral-large-latest", namespacesFor(openAIPath, regionGlobalStandard))
-	_, viaFoundry, _ := lookupPricingWithKey(testPricingMap, "mistral-large-latest", namespacesFor(foundryPath, regionGlobalStandard))
+	_, viaOpenAI, _ := lookupPricingWithKey(testPricingMap, "mistral-large-latest", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
+	_, viaFoundry, _ := lookupPricingWithKey(testPricingMap, "mistral-large-latest", namespacesFor(templateAzureAI, regionGlobalStandard))
 	if viaOpenAI != "azure/mistral-large-latest" {
 		t.Errorf("an /openai/ path should pick the Azure OpenAI entry, got %q", viaOpenAI)
 	}
 	if viaFoundry != "azure_ai/mistral-large-latest" {
 		t.Errorf("a Foundry path should pick the Foundry entry, got %q", viaFoundry)
-	}
-}
-
-// The namespace order comes from the request path, because one Foundry resource
-// serves both the OpenAI-compatible surface and its own native one.
-func TestNamespacesFor(t *testing.T) {
-	openAIFirst := namespacesFor("/az-01/openai/v1/chat/completions", regionGlobalStandard)
-	if openAIFirst[0] != "azure/global-standard/" || openAIFirst[len(openAIFirst)-1] != "azure_ai/" {
-		t.Errorf("an /openai/ path should search azure/ first, azure_ai/ last: %v", openAIFirst)
-	}
-	foundryFirst := namespacesFor("/az-01/models/chat/completions", regionGlobalStandard)
-	if foundryFirst[0] != "azure_ai/" {
-		t.Errorf("a non-/openai/ path should search azure_ai/ first: %v", foundryFirst)
-	}
-	// Both orders always cover both namespaces, so either surface can resolve
-	// a model the other catalog happens to hold.
-	for _, order := range [][]string{openAIFirst, foundryFirst} {
-		var hasAzure, hasFoundry bool
-		for _, p := range order {
-			hasAzure = hasAzure || p == "azure/"
-			hasFoundry = hasFoundry || p == "azure_ai/"
-		}
-		if !hasAzure || !hasFoundry {
-			t.Errorf("both namespaces must always be searched: %v", order)
-		}
-	}
-	// The proxy hop keeps the /openai/ segment, so ordering survives it.
-	viaProxy := namespacesFor("/default/az-01-proxy/openai/deployments/d/chat/completions", regionGlobalStandard)
-	if viaProxy[0] != "azure/global-standard/" {
-		t.Errorf("a proxied /openai/ path should still search azure/ first: %v", viaProxy)
 	}
 }
 
@@ -291,16 +243,12 @@ func TestFoundryServesBothCatalogs(t *testing.T) {
 	}}
 	// An OpenAI model on Foundry, over the OpenAI-compatible path. The response
 	// reports a dated snapshot the file does not carry, so the mapping resolves it.
-	gpt := p.computeCost(
-		[]byte(`{"model":"gpt-5.6-terra-2026-07-09","service_tier":"default","usage":{"prompt_tokens":203,"completion_tokens":282,"prompt_tokens_details":{"cached_tokens":0}}}`),
-		[]byte(`{"model":"apim-gpt-5.6-terra"}`), "/openai/v1/chat/completions")
+	gpt := p.computeCost([]byte(`{"model":"gpt-5.6-terra-2026-07-09","service_tier":"default","usage":{"prompt_tokens":203,"completion_tokens":282,"prompt_tokens_details":{"cached_tokens":0}}}`), []byte(`{"model":"apim-gpt-5.6-terra"}`), "/openai/v1/chat/completions", templateAzureOpenAI)
 	if !gpt.calculated || gpt.modelKey != "azure/gpt-5.6-terra" {
 		t.Errorf("expected azure/gpt-5.6-terra, got %q (calculated=%v)", gpt.modelKey, gpt.calculated)
 	}
 	// A Foundry-native model over its own path.
-	claude := p.computeCost(
-		[]byte(`{"model":"claude-opus-4-5","usage":{"input_tokens":32,"output_tokens":282}}`),
-		[]byte(`{"model":"my-claude"}`), "/models/chat/completions")
+	claude := p.computeCost([]byte(`{"model":"claude-opus-4-5","usage":{"input_tokens":32,"output_tokens":282}}`), []byte(`{"model":"my-claude"}`), "/models/chat/completions", templateAzureAI)
 	if !claude.calculated || claude.modelKey != "azure_ai/claude-opus-4-5" {
 		t.Errorf("expected azure_ai/claude-opus-4-5, got %q (calculated=%v)", claude.modelKey, claude.calculated)
 	}
@@ -316,18 +264,18 @@ func TestFoundryResponsesNeedsMapping(t *testing.T) {
 	const path = "/az-01/openai/v1/responses"
 
 	unmapped := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{}}
-	if res := unmapped.computeCost(body, req, path); res.calculated {
+	if res := unmapped.computeCost(body, req, path, templateAzureOpenAI); res.calculated {
 		t.Errorf("expected unpriced without a mapping, got %q", res.modelKey)
 	}
 
 	mapped := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{
 		"apim-gpt-5.6-terra": {model: "gpt-5.6-terra"},
 	}}
-	res := mapped.computeCost(body, req, path)
+	res := mapped.computeCost(body, req, path, templateAzureOpenAI)
 	if !res.calculated || res.modelKey != "azure/gpt-5.6-terra" {
 		t.Fatalf("expected azure/gpt-5.6-terra, got %q (calculated=%v)", res.modelKey, res.calculated)
 	}
-	e, _, _ := lookupPricingWithKey(testPricingMap, "gpt-5.6-terra", namespacesFor(path, regionGlobalStandard))
+	e, _, _ := lookupPricingWithKey(testPricingMap, "gpt-5.6-terra", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	want := 203*e.InputCostPerToken + 300*e.OutputCostPerToken
 	if !almostEqual(res.cost, want) {
 		t.Errorf("got %v, want %v", res.cost, want)
@@ -335,14 +283,14 @@ func TestFoundryResponsesNeedsMapping(t *testing.T) {
 }
 
 func TestLookupPricing_UnknownModel(t *testing.T) {
-	_, _, ok := lookupPricingWithKey(testPricingMap, "totally-unknown-model-xyz", namespacesFor(openAIPath, regionGlobalStandard))
+	_, _, ok := lookupPricingWithKey(testPricingMap, "totally-unknown-model-xyz", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	if ok {
 		t.Error("expected lookup to fail for a totally unknown model")
 	}
 }
 
 func TestLookupPricing_CaseInsensitiveAndTrimmed(t *testing.T) {
-	_, key, ok := lookupPricingWithKey(testPricingMap, "  GPT-4o-2024-08-06  ", namespacesFor(openAIPath, regionGlobalStandard))
+	_, key, ok := lookupPricingWithKey(testPricingMap, "  GPT-4o-2024-08-06  ", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	if !ok {
 		t.Fatal("expected case-insensitive, trimmed match to succeed")
 	}
@@ -352,7 +300,7 @@ func TestLookupPricing_CaseInsensitiveAndTrimmed(t *testing.T) {
 }
 
 func TestModelPricing_Unpriced(t *testing.T) {
-	p, _, ok := lookupPricingWithKey(testPricingMap, "cohere-rerank-v4.0-pro", namespacesFor(foundryPath, regionGlobalStandard))
+	p, _, ok := lookupPricingWithKey(testPricingMap, "cohere-rerank-v4.0-pro", namespacesFor(templateAzureAI, regionGlobalStandard))
 	if !ok {
 		t.Fatal("expected match for cohere-rerank-v4.0-pro")
 	}
@@ -360,7 +308,7 @@ func TestModelPricing_Unpriced(t *testing.T) {
 		t.Error("expected cohere-rerank-v4.0-pro to be treated as unpriced (no per-token rate)")
 	}
 
-	priced, _, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(openAIPath, regionGlobalStandard))
+	priced, _, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	if !ok {
 		t.Fatal("expected match for gpt-4o-2024-08-06")
 	}
@@ -370,7 +318,7 @@ func TestModelPricing_Unpriced(t *testing.T) {
 }
 
 func TestResolveRates_BaseRate(t *testing.T) {
-	p, _, _ := lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(openAIPath, regionGlobalStandard))
+	p, _, _ := lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	r := resolveRates(1000, false, p)
 	if !almostEqual(r.input, 2.5e-6) || !almostEqual(r.output, 1.5e-5) {
 		t.Errorf("expected base rates, got input=%v output=%v", r.input, r.output)
@@ -378,7 +326,7 @@ func TestResolveRates_BaseRate(t *testing.T) {
 }
 
 func TestResolveRates_Above272kOnly(t *testing.T) {
-	p, _, _ := lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(openAIPath, regionGlobalStandard))
+	p, _, _ := lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	r := resolveRates(300_000, false, p)
 	if !almostEqual(r.input, 5e-6) || !almostEqual(r.output, 2.25e-5) {
 		t.Errorf("expected above-272k rates, got input=%v output=%v", r.input, r.output)
@@ -386,7 +334,7 @@ func TestResolveRates_Above272kOnly(t *testing.T) {
 }
 
 func TestResolveRates_PriorityOnly(t *testing.T) {
-	p, _, _ := lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(openAIPath, regionGlobalStandard))
+	p, _, _ := lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	r := resolveRates(1000, true, p)
 	if !almostEqual(r.input, 5e-6) || !almostEqual(r.output, 3e-5) {
 		t.Errorf("expected priority rates, got input=%v output=%v", r.input, r.output)
@@ -394,7 +342,7 @@ func TestResolveRates_PriorityOnly(t *testing.T) {
 }
 
 func TestResolveRates_Above272kAndPriorityCombined(t *testing.T) {
-	p, _, _ := lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(openAIPath, regionGlobalStandard))
+	p, _, _ := lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	r := resolveRates(300_000, true, p)
 	if !almostEqual(r.input, 1e-5) || !almostEqual(r.output, 4.5e-5) {
 		t.Errorf("expected combined above-272k+priority rates, got input=%v output=%v", r.input, r.output)
@@ -516,7 +464,7 @@ func TestNormalizeUsage_InvalidJSON(t *testing.T) {
 }
 
 func TestCalculateCost_ReadOnlyCaching(t *testing.T) {
-	p, _, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(openAIPath, regionGlobalStandard))
+	p, _, ok := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	if !ok {
 		t.Fatal("expected pricing lookup to succeed")
 	}
@@ -528,7 +476,7 @@ func TestCalculateCost_ReadOnlyCaching(t *testing.T) {
 }
 
 func TestCalculateCost_AnthropicCaching(t *testing.T) {
-	p, _, ok := lookupPricingWithKey(testPricingMap, "claude-opus-4-5", namespacesFor(foundryPath, regionGlobalStandard))
+	p, _, ok := lookupPricingWithKey(testPricingMap, "claude-opus-4-5", namespacesFor(templateAzureAI, regionGlobalStandard))
 	if !ok {
 		t.Fatal("expected pricing lookup to succeed")
 	}
@@ -544,7 +492,7 @@ func TestCalculateCost_AnthropicCaching(t *testing.T) {
 // This guards the prompt_token_details / prompt_tokens_details spelling trap,
 // where a missed cached count is silently billed as uncached input.
 func TestCalculateCost_CachedTokensAreDiscounted(t *testing.T) {
-	p, _, _ := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(openAIPath, regionGlobalStandard))
+	p, _, _ := lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	withCache := calculateCost(Usage{TotalInputTokens: 1000, OutputTokens: 0, CachedReadTokens: 500}, p)
 	noCache := calculateCost(Usage{TotalInputTokens: 1000, OutputTokens: 0}, p)
 	if !(withCache < noCache) {
@@ -594,7 +542,7 @@ func TestComputeCost_ChatCompletions_NoConfigNeeded(t *testing.T) {
 	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{
 		"prompt_tokens":1000,"completion_tokens":200,
 		"prompt_tokens_details":{"cached_tokens":300}}}`)
-	result := p.computeCost(body, nil, "/openai/deployments/apim-4o-mini/chat/completions")
+	result := p.computeCost(body, nil, "/openai/deployments/apim-4o-mini/chat/completions", templateAzureOpenAI)
 	if !result.calculated {
 		t.Fatal("expected cost to be calculated")
 	}
@@ -613,7 +561,7 @@ func TestComputeCost_DataZoneDeploymentTier(t *testing.T) {
 	p := newPolicy(regionEU, map[string]string{"dep-eu": "gpt-4o-2024-08-06"})
 	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":1000,"completion_tokens":200,
 		"prompt_tokens_details":{"cached_tokens":300}}}`)
-	result := p.computeCost(body, []byte(`{"model":"dep-eu"}`), "")
+	result := p.computeCost(body, []byte(`{"model":"dep-eu"}`), "", templateAzureOpenAI)
 	want := 700*2.75e-6 + 300*1.375e-6 + 200*1.1e-5
 	if !result.calculated || !almostEqual(result.cost, want) {
 		t.Errorf("got %v (calculated=%v), want %v", result.cost, result.calculated, want)
@@ -632,7 +580,7 @@ func TestComputeCost_ResponsesAPI_UnpricedWithoutMapping(t *testing.T) {
 	p := newPolicy(regionGlobalStandard, nil)
 	body := []byte(`{"model":"apim-4o-mini","usage":{
 		"input_tokens":1000,"input_tokens_details":{"cached_tokens":0},"output_tokens":200}}`)
-	if result := p.computeCost(body, nil, "/openai/responses"); result.calculated {
+	if result := p.computeCost(body, nil, "/openai/responses", templateAzureOpenAI); result.calculated {
 		t.Error("expected unpriced: a bare deployment name has no pricing entry")
 	}
 }
@@ -641,7 +589,7 @@ func TestComputeCost_ResponsesAPI_PricedWithMapping(t *testing.T) {
 	p := newPolicy(regionGlobalStandard, map[string]string{"apim-4o-mini": "gpt-4o-mini-2024-07-18"})
 	body := []byte(`{"model":"apim-4o-mini","usage":{
 		"input_tokens":1000,"input_tokens_details":{"cached_tokens":200},"output_tokens":200}}`)
-	result := p.computeCost(body, nil, "/openai/responses")
+	result := p.computeCost(body, nil, "/openai/responses", templateAzureOpenAI)
 	if !result.calculated {
 		t.Fatal("expected cost to be calculated via the model mapping")
 	}
@@ -659,7 +607,7 @@ func TestComputeCost_ThreadRun_SingularDetailsSpelling(t *testing.T) {
 	// Thread runs use "prompt_token_details" (singular), unlike chat completions.
 	body := []byte(`{"model":"apim-4o-mini","usage":{
 		"prompt_tokens":1000,"completion_tokens":200,"prompt_token_details":{"cached_tokens":400}}}`)
-	result := p.computeCost(body, nil, "/openai/threads/t1/runs/r1")
+	result := p.computeCost(body, nil, "/openai/threads/t1/runs/r1", templateAzureOpenAI)
 	if !result.calculated {
 		t.Fatal("expected cost to be calculated")
 	}
@@ -676,7 +624,7 @@ func TestComputeCost_ThreadRun_SingularDetailsSpelling(t *testing.T) {
 func TestComputeCost_MappingViaPathDeployment(t *testing.T) {
 	p := newPolicy(regionGlobalStandard, map[string]string{"apim-4o-mini": "gpt-4o-mini-2024-07-18"})
 	body := []byte(`{"usage":{"prompt_tokens":100,"completion_tokens":50}}`)
-	result := p.computeCost(body, nil, "/openai/deployments/apim-4o-mini/chat/completions?api-version=2024-02-01")
+	result := p.computeCost(body, nil, "/openai/deployments/apim-4o-mini/chat/completions?api-version=2024-02-01", templateAzureOpenAI)
 	if !result.calculated {
 		t.Fatal("expected the deployment from the path to resolve via mapping")
 	}
@@ -690,7 +638,7 @@ func TestComputeCost_MappingViaPathDeployment(t *testing.T) {
 func TestComputeCost_MappingWinsOverDirectLookup(t *testing.T) {
 	p := newPolicy(regionGlobalStandard, map[string]string{"gpt-4o-2024-08-06": "gpt-4o-mini-2024-07-18"})
 	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":1000,"completion_tokens":0}}`)
-	result := p.computeCost(body, nil, "")
+	result := p.computeCost(body, nil, "", templateAzureOpenAI)
 	if result.modelKey != "azure/gpt-4o-mini-2024-07-18" {
 		t.Errorf("expected the mapping to win, got model key %q", result.modelKey)
 	}
@@ -701,7 +649,7 @@ func TestComputeCost_FallsBackToRequestBodyModel(t *testing.T) {
 	response := []byte(`{"usage":{"prompt_tokens":1000,"completion_tokens":200,
 		"prompt_tokens_details":{"cached_tokens":300}}}`)
 	request := []byte(`{"model":"gpt-4o-2024-08-06","messages":[]}`)
-	result := p.computeCost(response, request, "")
+	result := p.computeCost(response, request, "", templateAzureOpenAI)
 	want := 700*2.5e-6 + 300*1.25e-6 + 200*1e-5
 	if !result.calculated || !almostEqual(result.cost, want) {
 		t.Errorf("got %v (calculated=%v), want %v", result.cost, result.calculated, want)
@@ -742,7 +690,7 @@ func TestComputeCost_TierModifiers(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := p.computeCost([]byte(tc.body), nil, "")
+			result := p.computeCost([]byte(tc.body), nil, "", templateAzureOpenAI)
 			if !result.calculated || !almostEqual(result.cost, tc.want) {
 				t.Errorf("got %v (calculated=%v), want %v", result.cost, result.calculated, tc.want)
 			}
@@ -770,7 +718,7 @@ func TestComputeCost_GracefulDegradation(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := p.computeCost([]byte(tc.response), nil, tc.path)
+			result := p.computeCost([]byte(tc.response), nil, tc.path, templateAzureOpenAI)
 			if result.calculated {
 				t.Error("expected calculated=false")
 			}
@@ -786,7 +734,7 @@ func TestComputeCost_GracefulDegradation(t *testing.T) {
 func TestComputeCost_MappingToUnknownModel(t *testing.T) {
 	p := newPolicy(regionGlobalStandard, map[string]string{"apim-4o-mini": "no-such-model-xyz"})
 	body := []byte(`{"model":"apim-4o-mini","usage":{"input_tokens":10,"output_tokens":5}}`)
-	if result := p.computeCost(body, nil, ""); result.calculated {
+	if result := p.computeCost(body, nil, "", templateAzureOpenAI); result.calculated {
 		t.Error("expected unpriced when the mapped model has no pricing entry")
 	}
 }
@@ -803,7 +751,7 @@ func TestComputeCost_StreamingSSE(t *testing.T) {
 		"data: {\"model\":\"gpt-4o-2024-08-06\",\"service_tier\":\"default\",\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n" +
 		"data: {\"model\":\"gpt-4o-2024-08-06\",\"usage\":{\"prompt_tokens\":1000,\"completion_tokens\":200,\"prompt_tokens_details\":{\"cached_tokens\":300}}}\n" +
 		"data: [DONE]\n"
-	result := p.computeCost([]byte(sse), nil, "")
+	result := p.computeCost([]byte(sse), nil, "", templateAzureOpenAI)
 	if !result.calculated {
 		t.Fatal("expected cost to be calculated from the merged SSE stream")
 	}
@@ -864,8 +812,8 @@ func TestRegionIsPerDeployment(t *testing.T) {
 	// The response reports the real model; the tier comes from the deployment.
 	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":1000,"completion_tokens":0}}`)
 
-	euRes := p.computeCost(body, []byte(`{"model":"dep-eu"}`), "")
-	glRes := p.computeCost(body, []byte(`{"model":"dep-global"}`), "")
+	euRes := p.computeCost(body, []byte(`{"model":"dep-eu"}`), "", templateAzureOpenAI)
+	glRes := p.computeCost(body, []byte(`{"model":"dep-global"}`), "", templateAzureOpenAI)
 
 	if euRes.modelKey != "azure/eu/gpt-4o-2024-08-06" {
 		t.Errorf("eu deployment resolved to %q", euRes.modelKey)
@@ -884,7 +832,7 @@ func TestRegionFromPathDeployment(t *testing.T) {
 		"dep-eu": {model: "gpt-4o-2024-08-06", region: regionEU},
 	}}
 	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":1000,"completion_tokens":0}}`)
-	res := p.computeCost(body, nil, "/openai/deployments/dep-eu/chat/completions")
+	res := p.computeCost(body, nil, "/openai/deployments/dep-eu/chat/completions", templateAzureOpenAI)
 	if res.modelKey != "azure/eu/gpt-4o-2024-08-06" {
 		t.Errorf("expected the path deployment's tier, got %q", res.modelKey)
 	}
@@ -894,7 +842,7 @@ func TestRegionFromPathDeployment(t *testing.T) {
 func TestRegionDefaultsWhenDeploymentUnlisted(t *testing.T) {
 	p := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{}}
 	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":1000,"completion_tokens":0}}`)
-	res := p.computeCost(body, []byte(`{"model":"unlisted"}`), "")
+	res := p.computeCost(body, []byte(`{"model":"unlisted"}`), "", templateAzureOpenAI)
 	if res.modelKey != "azure/global-standard/gpt-4o-2024-08-06" {
 		t.Errorf("expected the default tier, got %q", res.modelKey)
 	}
@@ -1007,7 +955,7 @@ func TestCompliance_Legacy_ChatCompletions_NoConfig(t *testing.T) {
 	request := `{"messages":[{"role":"user","content":"Say hello!"}]}`
 	path := "/az-01/openai/deployments/apim-gpt-4.1/chat/completions?api-version=2024-02-01"
 
-	result := p.computeCost([]byte(chatCompletionsResponse), []byte(request), path)
+	result := p.computeCost([]byte(chatCompletionsResponse), []byte(request), path, templateAzureOpenAI)
 	if !result.calculated {
 		t.Fatal("legacy chat completions must price with no configuration")
 	}
@@ -1030,7 +978,7 @@ func TestCompliance_V1_ChatCompletions_NoConfig(t *testing.T) {
 	request := `{"messages":[{"role":"user","content":"Say hello!"}],"model":"apim-gpt-4.1"}`
 	path := "/az-01/openai/v1/chat/completions"
 
-	result := p.computeCost([]byte(chatCompletionsResponse), []byte(request), path)
+	result := p.computeCost([]byte(chatCompletionsResponse), []byte(request), path, templateAzureOpenAI)
 	if !result.calculated {
 		t.Fatal("v1 chat completions must price with no configuration")
 	}
@@ -1049,7 +997,7 @@ func TestCompliance_V1_Responses_UnpricedWithoutMapping(t *testing.T) {
 	request := `{"input":[{"role":"user","content":"Say hello!"}],"model":"apim-gpt-4.1"}`
 	path := "/az-01/openai/v1/responses"
 
-	if result := p.computeCost([]byte(responsesAPIResponse), []byte(request), path); result.calculated {
+	if result := p.computeCost([]byte(responsesAPIResponse), []byte(request), path, templateAzureOpenAI); result.calculated {
 		t.Error("expected unpriced: /responses reports only the deployment name")
 	}
 }
@@ -1060,7 +1008,7 @@ func TestCompliance_V1_Responses_PricedWithMapping(t *testing.T) {
 	request := `{"input":[{"role":"user","content":"Say hello!"}],"model":"apim-gpt-4.1"}`
 	path := "/az-01/openai/v1/responses"
 
-	result := p.computeCost([]byte(responsesAPIResponse), []byte(request), path)
+	result := p.computeCost([]byte(responsesAPIResponse), []byte(request), path, templateAzureOpenAI)
 	if !result.calculated {
 		t.Fatal("expected /responses to price via the model mapping")
 	}
@@ -1088,7 +1036,7 @@ func TestCompliance_V1_MappingMustNotDisplaceResolvedModel(t *testing.T) {
 		"prompt_tokens_details":{"cached_tokens":0}}}`
 	request := `{"messages":[],"model":"apim-gpt-4o"}`
 
-	result := p.computeCost([]byte(response), []byte(request), "/az-01/openai/v1/chat/completions")
+	result := p.computeCost([]byte(response), []byte(request), "/az-01/openai/v1/chat/completions", templateAzureOpenAI)
 	if !result.calculated {
 		t.Fatal("expected a calculated cost")
 	}
@@ -1109,7 +1057,7 @@ func TestCompliance_MappingStillCorrectsCollidingDeploymentName(t *testing.T) {
 	p := newPolicy(regionGlobalStandard, map[string]string{"gpt-4o": "gpt-4.1-2025-04-14"})
 	response := `{"model":"gpt-4o","usage":{"input_tokens":100,"output_tokens":50}}`
 
-	result := p.computeCost([]byte(response), nil, "/az-01/openai/v1/responses")
+	result := p.computeCost([]byte(response), nil, "/az-01/openai/v1/responses", templateAzureOpenAI)
 	if result.modelKey != "azure/gpt-4.1-2025-04-14" {
 		t.Errorf("expected the mapping to correct the colliding name, got %q", result.modelKey)
 	}
@@ -1121,7 +1069,7 @@ func TestCompliance_Legacy_Responses_404Body(t *testing.T) {
 	body := `{"error":{"code":"404","message":"Resource not found"}}`
 	path := "/az-01/openai/deployments/apim-gpt-4.1/responses?api-version=2024-02-01"
 
-	result := p.computeCost([]byte(body), nil, path)
+	result := p.computeCost([]byte(body), nil, path, templateAzureOpenAI)
 	if result.calculated {
 		t.Error("a 404 error body has no usage and must not be priced")
 	}
@@ -1139,28 +1087,28 @@ func TestCompliance_Legacy_Responses_404Body(t *testing.T) {
 // Exact hit on the first prefix tried: 1 map lookup.
 func BenchmarkLookup_ExactHitFirstPrefix(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		lookupPricingWithKey(testPricingMap, "gpt-4o-mini", namespacesFor(openAIPath, regionGlobalStandard))
+		lookupPricingWithKey(testPricingMap, "gpt-4o-mini", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	}
 }
 
 // Exact hit on the base key: 2 map lookups (tier prefix misses first).
 func BenchmarkLookup_ExactHitBaseKey(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(openAIPath, regionGlobalStandard))
+		lookupPricingWithKey(testPricingMap, "gpt-5.4", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	}
 }
 
 // A name with no matching key: both prefixes are probed, then it gives up.
 func BenchmarkLookup_Unresolved(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06-custom", namespacesFor(openAIPath, regionGlobalStandard))
+		lookupPricingWithKey(testPricingMap, "gpt-4o-2024-08-06-custom", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	}
 }
 
 // Worst case: nothing matches, so every prefix at every strip depth is probed.
 func BenchmarkLookup_FullMiss(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		lookupPricingWithKey(testPricingMap, "totally-unknown-model-with-many-segments-xyz", namespacesFor(openAIPath, regionGlobalStandard))
+		lookupPricingWithKey(testPricingMap, "totally-unknown-model-with-many-segments-xyz", namespacesFor(templateAzureOpenAI, regionGlobalStandard))
 	}
 }
 
@@ -1175,7 +1123,7 @@ func BenchmarkComputeCost_BufferedChatCompletion(b *testing.B) {
 	path := "/az-01/openai/v1/chat/completions"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		p.computeCost(body, req, path)
+		p.computeCost(body, req, path, templateAzureOpenAI)
 	}
 }
 
@@ -1186,7 +1134,7 @@ func BenchmarkComputeCost_ResponsesViaMapping(b *testing.B) {
 	req := []byte(`{"input":[{"role":"user","content":"Say hello!"}],"model":"apim-gpt-4.1"}`)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		p.computeCost(body, req, "/az-01/openai/v1/responses")
+		p.computeCost(body, req, "/az-01/openai/v1/responses", templateAzureOpenAI)
 	}
 }
 
@@ -1204,9 +1152,90 @@ func benchStream(b *testing.B, events int) {
 	body := []byte(sb.String())
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		p.computeCost(body, nil, "")
+		p.computeCost(body, nil, "", templateAzureOpenAI)
 	}
 }
 
 func BenchmarkComputeCost_Streaming_10Events(b *testing.B)  { benchStream(b, 10) }
 func BenchmarkComputeCost_Streaming_200Events(b *testing.B) { benchStream(b, 200) }
+
+// TestNamespacesFor_HandleSelectsCatalog pins the catalog to the route's
+// template. Azure OpenAI cannot serve a Foundry-native model, so it never
+// reads azure_ai/; Foundry serves the OpenAI models too, so it falls back.
+func TestNamespacesFor_HandleSelectsCatalog(t *testing.T) {
+	openAI := namespacesFor(templateAzureOpenAI, regionGlobalStandard)
+	if got := strings.Join(openAI, ","); got != "azure/global-standard/,azure/" {
+		t.Errorf("azure-openai must search only the azure/ catalog, got %q", got)
+	}
+
+	foundry := namespacesFor(templateAzureAI, regionGlobalStandard)
+	if got := strings.Join(foundry, ","); got != "azure_ai/,azure/global-standard/,azure/" {
+		t.Errorf("azureai-foundry must search azure_ai/ first then fall back, got %q", got)
+	}
+
+	// The tier prefix scopes the azure/ catalog only.
+	if got := strings.Join(namespacesFor(templateAzureAI, regionEU), ","); got != "azure_ai/,azure/eu/,azure/" {
+		t.Errorf("region must apply to azure/ only, got %q", got)
+	}
+}
+
+// TestNamespacesFor_NonAzureTemplateYieldsNothing covers a route that names no
+// Azure template. Returning nil is what stops the policy pricing traffic it has
+// no catalog for.
+func TestNamespacesFor_NonAzureTemplateYieldsNothing(t *testing.T) {
+	for _, handle := range []string{"", "openai", "anthropic", "azure-openai-prod", "  "} {
+		if got := namespacesFor(handle, regionGlobalStandard); got != nil {
+			t.Errorf("handle %q must yield no catalog, got %v", handle, got)
+		}
+		if isAzureTemplate(handle) {
+			t.Errorf("handle %q must not be treated as an Azure template", handle)
+		}
+	}
+	// Case and surrounding space are not the operator's problem.
+	for _, handle := range []string{"Azure-OpenAI", " azureai-foundry "} {
+		if !isAzureTemplate(handle) {
+			t.Errorf("handle %q should be recognised", handle)
+		}
+	}
+}
+
+// TestResolvePricing_NonAzureTemplateNotPriced is the case this policy must not
+// get wrong: attached to a route that is not Azure, it leaves the request
+// unpriced rather than billing it from the Azure catalog.
+func TestResolvePricing_NonAzureTemplateNotPriced(t *testing.T) {
+	p := newPolicy(regionGlobalStandard, map[string]string{})
+	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
+
+	if _, key, _, ok := p.resolvePricing(body, nil, openAIPath, ""); ok {
+		t.Errorf("absent handle must not price, got %q", key)
+	}
+	if _, key, _, ok := p.resolvePricing(body, nil, openAIPath, "openai"); ok {
+		t.Errorf("non-Azure handle must not price, got %q", key)
+	}
+	// Same model, correct handle, prices normally.
+	if _, key, _, ok := p.resolvePricing(body, nil, openAIPath, templateAzureOpenAI); !ok || key != "azure/global-standard/gpt-4o-2024-08-06" {
+		t.Errorf("azure-openai handle should price, got %q (ok=%v)", key, ok)
+	}
+}
+
+// TestResolvePricing_CatalogsAreNotCrossRead asserts the mutual exclusion the
+// handle buys: a Foundry-native model is unreachable from an Azure OpenAI
+// route, so a misattached policy fails loudly instead of inventing a rate.
+func TestResolvePricing_CatalogsAreNotCrossRead(t *testing.T) {
+	p := newPolicy(regionGlobalStandard, map[string]string{})
+	claude := []byte(`{"model":"claude-opus-4-5","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
+
+	if _, key, _, ok := p.resolvePricing(claude, nil, openAIPath, templateAzureOpenAI); ok {
+		t.Errorf("a Foundry-native model must not resolve on an azure-openai route, got %q", key)
+	}
+	if _, key, _, ok := p.resolvePricing(claude, nil, foundryPath, templateAzureAI); !ok || key != "azure_ai/claude-opus-4-5" {
+		t.Errorf("expected azure_ai/claude-opus-4-5, got %q (ok=%v)", key, ok)
+	}
+
+	// An OpenAI model on Foundry still prices, via the azure/ fallback, which
+	// is what keeps the 109 OpenAI models absent from azure_ai/ chargeable.
+	openAIModel := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
+	if _, key, _, ok := p.resolvePricing(openAIModel, nil, foundryPath, templateAzureAI); !ok || key != "azure/global-standard/gpt-4o-2024-08-06" {
+		t.Errorf("expected the azure/ fallback to price it, got %q (ok=%v)", key, ok)
+	}
+}

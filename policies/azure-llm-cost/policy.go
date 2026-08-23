@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-// Package azurellmcost calculates the monetary cost of LLM requests routed to
-// Azure OpenAI Service ("azure/...") and Azure AI Foundry ("azure_ai/...") from
-// the token usage returned in the upstream response. It is independent of, and
-// shares no code with, the llm-cost policy.
 package azurellmcost
 
 import (
@@ -27,6 +23,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 
 	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
 )
@@ -35,18 +32,10 @@ const (
 	sseDataPrefix  = "data: "
 	sseDone        = "[DONE]"
 	sseEventPrefix = "event:"
-
-	// streamAccumKey is the per-request metadata key used to accumulate
-	// streaming response chunks, namespaced so it cannot collide with another
-	// policy's accumulator.
 	streamAccumKey = "azure-llm-cost:stream-accum"
 )
 
 const (
-	// These metadata keys intentionally match the ones llm-cost writes, so
-	// downstream consumers (llm-cost-based-ratelimit, the analytics publisher)
-	// work unchanged regardless of which cost policy ran. A route is expected
-	// to attach at most one of the two.
 	MetadataLLMCost       = "x-llm-cost"
 	MetadataLLMCostStatus = "x-llm-cost-status"
 
@@ -55,33 +44,28 @@ const (
 	metadataTotalTokenCount      = "aitoken:totaltokencount"
 	metadataModelID              = "aitoken:modelid"
 
+	metadataTemplateHandle = "template_handle"
+
 	costStatusCalculated    = "calculated"
 	costStatusNotCalculated = "not_calculated"
 )
 
-// AzureLLMCostPolicy calculates LLM cost for Azure OpenAI and Azure AI Foundry
-// responses and stores the result in SharedContext.Metadata.
+// AzureLLMCostPolicy prices Azure OpenAI and Azure AI Foundry responses.
 type AzureLLMCostPolicy struct {
 	pricingMap map[string]ModelPricing
 
-	// modelMappings describes each Azure deployment the route can reach, keyed
-	// by the lowercased deployment name. The model is needed because most Azure
-	// endpoints echo the deployment name rather than the underlying model (chat
-	// completions is the exception — it reports the real model). The region is
-	// the deployment's pricing tier, which Azure never reports.
+	// Keyed by lowercased deployment name. Needed because most Azure endpoints
+	// echo the deployment rather than the model, and never report the tier.
 	modelMappings map[string]deploymentMapping
 }
 
-// deploymentMapping is the operator's description of one deployment.
 type deploymentMapping struct {
 	model  string
 	region azureRegion
 }
 
-// GetPolicy is the v1alpha2 factory entry point. A fresh instance is returned
-// per call because region and modelMappings are per-attachment parameters. The
-// pricing map itself is loaded once and cached by file path, so many instances
-// can share the same pricing_file without reloading it.
+// GetPolicy returns a fresh instance per call, since modelMappings is
+// per-attachment. The pricing map itself is cached by file path.
 func GetPolicy(_ policy.PolicyMetadata, params map[string]interface{}) (policy.Policy, error) {
 	pricingFile, _ := params["pricing_file"].(string)
 	if pricingFile == "" {
@@ -95,21 +79,16 @@ func GetPolicy(_ policy.PolicyMetadata, params map[string]interface{}) (policy.P
 	if err != nil {
 		return nil, fmt.Errorf("azure-llm-cost: invalid modelMappings: %w", err)
 	}
-	// modelMappings is declared required in the policy schema, but an absent or
-	// empty value is not treated as fatal here: failing instance creation would
-	// tear down the whole route's policy chain and 500 every request on it.
-	// Costing simply falls back to whatever model name the response reports.
 	if len(mappings) == 0 {
 		slog.Warn("azure-llm-cost: no modelMappings configured; only endpoints that " +
-			"report a resolvable model name (chat completions) will be priced")
+			"report a resolvable model name will be priced under global standard rates")
 	}
 	slog.Info("azure-llm-cost: policy instance created",
 		"pricing_file", pricingFile, "entries", len(pm), "model_mappings", len(mappings))
 	return &AzureLLMCostPolicy{pricingMap: pm, modelMappings: mappings}, nil
 }
 
-// parseRegion reads a mapping entry's region. Anything unset or unrecognized
-// falls back to Global Standard, Azure's own default deployment type.
+// parseRegion falls back to Global Standard for anything unrecognized.
 func parseRegion(raw interface{}) azureRegion {
 	s, _ := raw.(string)
 	switch r := azureRegion(strings.ToLower(strings.TrimSpace(s))); r {
@@ -120,9 +99,7 @@ func parseRegion(raw interface{}) azureRegion {
 	}
 }
 
-// parseModelMappings reads the modelMappings parameter, an array of
-// {deployment, model, region} objects, into a lookup map keyed by the
-// lowercased deployment name.
+// parseModelMappings builds a lookup keyed by the lowercased deployment name.
 func parseModelMappings(raw interface{}) (map[string]deploymentMapping, error) {
 	if raw == nil {
 		return nil, nil
@@ -149,10 +126,8 @@ func parseModelMappings(raw interface{}) (map[string]deploymentMapping, error) {
 	return mappings, nil
 }
 
-// Mode declares streaming response processing (which also covers buffered
-// responses — the kernel delivers those as a single chunk with EndOfStream) and
-// buffered request processing, needed to fall back to the request body's
-// $.model when the response does not carry a usable one.
+// Streaming also covers buffered responses, delivered as one chunk with
+// EndOfStream. The request is buffered so $.model stays readable.
 func (p *AzureLLMCostPolicy) Mode() policy.ProcessingMode {
 	return policy.ProcessingMode{
 		RequestHeaderMode:  policy.HeaderModeSkip,
@@ -162,7 +137,7 @@ func (p *AzureLLMCostPolicy) Mode() policy.ProcessingMode {
 	}
 }
 
-// NeedsMoreResponseData always returns false; chunks are accumulated manually.
+// NeedsMoreResponseData is always false; chunks are accumulated manually.
 func (p *AzureLLMCostPolicy) NeedsMoreResponseData(_ []byte) bool {
 	return false
 }
@@ -177,12 +152,11 @@ func (p *AzureLLMCostPolicy) OnResponseBody(_ context.Context, respCtx *policy.R
 	if respCtx.ResponseBody != nil && respCtx.ResponseBody.Present {
 		body = respCtx.ResponseBody.Content
 	}
-	result := p.computeCost(body, requestBody, respCtx.RequestPath)
+	result := p.computeCost(body, requestBody, respCtx.RequestPath, templateHandleFrom(respCtx.SharedContext))
 	return setCostMetadata(respCtx.SharedContext, result)
 }
 
-// OnResponseBodyChunk accumulates streaming chunks and computes cost at
-// end-of-stream.
+// OnResponseBodyChunk accumulates chunks and prices at end of stream.
 func (p *AzureLLMCostPolicy) OnResponseBodyChunk(
 	_ context.Context,
 	respCtx *policy.ResponseStreamContext,
@@ -211,7 +185,7 @@ func (p *AzureLLMCostPolicy) OnResponseBodyChunk(
 		requestBody = respCtx.RequestBody.Content
 	}
 
-	result := p.computeCost(accumulated, requestBody, respCtx.RequestPath)
+	result := p.computeCost(accumulated, requestBody, respCtx.RequestPath, templateHandleFrom(respCtx.SharedContext))
 	setCostMetadata(respCtx.SharedContext, result)
 
 	analyticsMetadata := map[string]any{MetadataLLMCost: result.cost}
@@ -231,11 +205,8 @@ type costResult struct {
 	calculated bool
 }
 
-// computeCost resolves the model, looks up pricing, parses usage and computes
-// cost. Any failure (empty body, unparseable JSON, unresolvable model,
-// unpriceable entry, missing usage) yields a zero-valued uncalculated result —
-// never an error, and never a change to the proxied response.
-func (p *AzureLLMCostPolicy) computeCost(responseBody, requestBody []byte, requestPath string) costResult {
+// computeCost never errors; every failure yields an uncalculated result.
+func (p *AzureLLMCostPolicy) computeCost(responseBody, requestBody []byte, requestPath, templateHandle string) costResult {
 	if len(responseBody) == 0 {
 		slog.Warn("azure-llm-cost: empty response body, skipping cost calculation")
 		return costResult{}
@@ -247,7 +218,7 @@ func (p *AzureLLMCostPolicy) computeCost(responseBody, requestBody []byte, reque
 		return costResult{}
 	}
 
-	pricing, key, candidates, found := p.resolvePricing(normalized, requestBody, requestPath)
+	pricing, key, candidates, found := p.resolvePricing(normalized, requestBody, requestPath, templateHandle)
 	if !found {
 		slog.Warn("azure-llm-cost: model not found for costing, request not priced",
 			"candidates", strings.Join(candidates, ","))
@@ -277,30 +248,21 @@ func (p *AzureLLMCostPolicy) computeCost(responseBody, requestBody []byte, reque
 	return costResult{cost: cost, modelKey: key, usage: usage, calculated: true}
 }
 
-// resolvePricing finds the pricing entry for a request.
+// resolvePricing takes the model name from the first source that resolves:
 //
-// The deployment and the model name are resolved independently. The deployment
-// is always identifiable — from the path on the legacy API surface, from the
-// request body's "model" on the v1 surface — and its mapping entry supplies the
-// pricing tier, which Azure never reports. The model name is then taken from
-// the highest-authority source available:
+//  1. response body's model   real model on chat completions, deployment on v1 /responses
+//  2. request body's model    deployment name, v1 surface
+//  3. deployment path segment legacy surface only
 //
-//  1. the response body's model — the resolved underlying model on chat
-//     completions (both surfaces), but the deployment name on v1 /responses
-//  2. the request body's model — the deployment name on the v1 surface
-//  3. the deployment segment of the request path — the legacy surface only
-//
-// Each candidate is resolved through its mapping before a direct lookup, so an
-// operator can correct a deployment whose name collides with a real model name,
-// while a higher-authority candidate is never displaced by a lower one's
-// mapping.
-//
-// The namespaces searched, and their order, come from the request path — see
-// namespacesFor.
-//
-// The candidate list is returned for logging when nothing resolves.
-func (p *AzureLLMCostPolicy) resolvePricing(responseBody, requestBody []byte, requestPath string) (ModelPricing, string, []string, bool) {
-	prefixes := namespacesFor(requestPath, p.regionForRequest(requestBody, requestPath))
+// Each is tried through its mapping first, so an operator can correct a
+// deployment whose name collides with a real model. Candidates are returned for
+// logging when nothing resolves.
+func (p *AzureLLMCostPolicy) resolvePricing(responseBody, requestBody []byte, requestPath, templateHandle string) (ModelPricing, string, []string, bool) {
+	if !isAzureTemplate(templateHandle) {
+		logNonAzureTemplate(templateHandle)
+		return ModelPricing{}, "", nil, false
+	}
+	prefixes := namespacesFor(templateHandle, p.regionForRequest(requestBody, requestPath))
 
 	var candidates []string
 	add := func(name string) {
@@ -334,20 +296,60 @@ func (p *AzureLLMCostPolicy) resolvePricing(responseBody, requestBody []byte, re
 	return ModelPricing{}, "", candidates, false
 }
 
-// regionForRequest returns the pricing tier of the deployment this request
-// targeted. The deployment is named in the request body on the v1 API surface
-// and in the path on the legacy one; a deployment absent from modelMappings
-// falls back to Global Standard.
+// templateHandleFrom reads the handle the kernel records for the route.
+func templateHandleFrom(sharedCtx *policy.SharedContext) string {
+	if sharedCtx == nil || sharedCtx.Metadata == nil {
+		return ""
+	}
+	handle, _ := sharedCtx.Metadata[metadataTemplateHandle].(string)
+	return handle
+}
+
+// regionForRequest returns the deployment's tier, or Global Standard.
 func (p *AzureLLMCostPolicy) regionForRequest(requestBody []byte, requestPath string) azureRegion {
+	var unmapped []string
 	for _, deployment := range []string{extractModelName(requestBody), deploymentFromPath(requestPath)} {
+		deployment = strings.ToLower(strings.TrimSpace(deployment))
 		if deployment == "" {
 			continue
 		}
-		if m, ok := p.modelMappings[strings.ToLower(strings.TrimSpace(deployment))]; ok {
+		if m, ok := p.modelMappings[deployment]; ok {
 			return m.region
 		}
+		unmapped = append(unmapped, deployment)
+	}
+	for _, deployment := range unmapped {
+		logUnmappedDeployment(deployment)
 	}
 	return regionGlobalStandard
+}
+
+// nonAzureTemplateSeen keeps logNonAzureTemplate to once per handle.
+var nonAzureTemplateSeen sync.Map
+
+// logNonAzureTemplate warns that the route names neither Azure template, so the
+// request is left unpriced rather than billed from a guessed catalog.
+func logNonAzureTemplate(templateHandle string) {
+	if _, seen := nonAzureTemplateSeen.LoadOrStore(templateHandle, struct{}{}); seen {
+		return
+	}
+	slog.Warn("azure-llm-cost: route does not use an Azure provider template, not pricing request",
+		"template_handle", templateHandle,
+		"expected", templateAzureOpenAI+" or "+templateAzureAI)
+}
+
+// unmappedDeploymentSeen keeps logUnmappedDeployment to once per deployment.
+var unmappedDeploymentSeen sync.Map
+
+// logUnmappedDeployment warns that an unmapped deployment makes both the tier and
+// the model assumptions, and neither is otherwise logged.
+func logUnmappedDeployment(deployment string) {
+	if _, seen := unmappedDeploymentSeen.LoadOrStore(deployment, struct{}{}); seen {
+		return
+	}
+	slog.Warn("azure-llm-cost: deployment not found in modelMappings, "+
+		"assuming global-standard rates and pricing the reported name as a model",
+		"deployment", deployment)
 }
 
 func setCostMetadata(sharedCtx *policy.SharedContext, result costResult) policy.ResponseAction {
@@ -369,8 +371,7 @@ func setCostMetadata(sharedCtx *policy.SharedContext, result costResult) policy.
 	}
 }
 
-// extractModelName reads a model name from $.model, or $.message.model for the
-// Anthropic streaming envelope (present after SSE merging).
+// extractModelName reads $.model, or $.message.model for Anthropic streams.
 func extractModelName(body []byte) string {
 	if len(body) == 0 {
 		return ""
@@ -393,8 +394,7 @@ func extractModelName(body []byte) string {
 	return ""
 }
 
-// deploymentFromPath extracts the deployment segment from an Azure OpenAI
-// request path such as /openai/deployments/{deployment}/chat/completions.
+// deploymentFromPath reads {deployment} from /openai/deployments/{deployment}/...
 func deploymentFromPath(requestPath string) string {
 	const marker = "/deployments/"
 	i := strings.Index(requestPath, marker)
@@ -408,7 +408,6 @@ func deploymentFromPath(requestPath string) string {
 	return rest
 }
 
-// isSSEContent reports whether the body looks like SSE data.
 func isSSEContent(b []byte) bool {
 	for _, line := range strings.Split(string(b), "\n") {
 		if strings.HasPrefix(line, sseDataPrefix) || strings.HasPrefix(line, sseEventPrefix) {
@@ -418,8 +417,7 @@ func isSSEContent(b []byte) bool {
 	return false
 }
 
-// normalizeStreamBody merges SSE events into a single JSON object so the model
-// and usage parsers work unchanged on streamed and buffered responses alike.
+// normalizeStreamBody merges SSE events so the parsers work on either shape.
 func normalizeStreamBody(body []byte) ([]byte, error) {
 	if isSSEContent(body) {
 		return mergeSSEEvents(body)
@@ -427,11 +425,9 @@ func normalizeStreamBody(body []byte) ([]byte, error) {
 	return body, nil
 }
 
-// mergeSSEEvents parses each SSE data/event line as JSON and shallow-merges the
-// top-level keys into one object (later events win), deep-merging "usage" so
-// fields split across events survive. Later-wins matters in practice: Azure's
-// first chat-completions chunk carries an empty "model", which subsequent
-// chunks overwrite with the real model name.
+// mergeSSEEvents shallow-merges top-level keys, later events winning, and
+// deep-merges "usage". Later-wins matters: Azure's first chunk has an empty
+// "model" that later chunks replace.
 func mergeSSEEvents(body []byte) ([]byte, error) {
 	var events [][]byte
 	for _, line := range strings.Split(string(body), "\n") {
@@ -472,8 +468,7 @@ func mergeJSONEvents(events [][]byte) ([]byte, error) {
 					}
 				}
 			}
-			// Skip empty strings so an early chunk's blank "model" cannot
-			// overwrite a real value set by a later chunk out of order.
+			// Skip empties so a blank "model" cannot overwrite a real value.
 			if s, ok := v.(string); ok && s == "" {
 				if _, exists := merged[k]; exists {
 					continue

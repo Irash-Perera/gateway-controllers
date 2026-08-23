@@ -30,10 +30,8 @@ var (
 	pricingCacheMu sync.RWMutex
 )
 
-// loadPricingFromFile reads the pricing JSON file at path and returns a map
-// of model key -> ModelPricing, restricted to "azure/" and
-// "azure_ai/" prefixed keys. Results are cached at the package level by file
-// path; a gateway restart is required to pick up changes to the pricing file.
+// loadPricingFromFile returns the "azure/" and "azure_ai/" entries, cached by
+// path, so a restart is needed to pick up edits.
 func loadPricingFromFile(path string) (map[string]ModelPricing, error) {
 	pricingCacheMu.RLock()
 	if pm, ok := pricingCache[path]; ok {
@@ -73,9 +71,8 @@ func loadPricingFromDisk(path string) (map[string]ModelPricing, error) {
 			slog.Warn("azure-llm-cost: skipping invalid pricing entry", "key", key, "error", err)
 			continue
 		}
-		// Source keys aren't consistently cased (e.g. "azure_ai/Llama-3.3-70B-Instruct"),
-		// but lookupPricingWithKey lowercases every candidate it builds — normalize here
-		// so lookups are consistently case-insensitive.
+		// Source keys are inconsistently cased and every lookup candidate is
+		// lowercased, so normalize here.
 		pm[strings.ToLower(key)] = p
 	}
 	if len(pm) == 0 {
@@ -84,60 +81,51 @@ func loadPricingFromDisk(path string) (map[string]ModelPricing, error) {
 	return pm, nil
 }
 
-// ModelPricing holds the cost rate fields this policy uses for a single
-// pricing entry. This policy shares its pricing_file with the llm-cost
-// policy — both point their pricing_file system parameter at the same
-// gateway-provided pricing JSON (/etc/policy-engine/llm-pricing/model_prices.json).
-// Field names here match that shared file's schema; only fields relevant to
-// Azure OpenAI / Azure AI Foundry text-token billing are parsed — every
-// other field (max_input_tokens, mode, etc.) is ignored.
+// ModelPricing carries the rate fields this policy uses. Names follow the
+// schema of the pricing file shared with llm-cost; other fields are ignored.
 type ModelPricing struct {
-	// Provider is the pricing file's own namespace tag ("azure", "azure_ai",
-	// or the legacy "azure_text" for Azure OpenAI's completions-API models).
-	// It is informational only — which usage-parsing path runs is decided by
-	// which key namespace resolution matched (see lookupPricingWithKey), not by
-	// this field, so "azure_text" entries are handled identically to "azure".
+	// Informational only. The parsing path is decided by which key namespace
+	// matched, so the legacy "azure_text" behaves exactly like "azure".
 	Provider string `json:"provider"`
 
 	InputCostPerToken  float64 `json:"input_cost_per_token"`
 	OutputCostPerToken float64 `json:"output_cost_per_token"`
 
-	// Prompt caching. CacheReadInputTokenCost alone means read-only caching
-	// (Azure OpenAI, Foundry GPT): reads are discounted, writes are free.
-	// CacheCreationInputTokenCost additionally present means Anthropic-style
-	// caching (Foundry Claude): writes are billed too.
+	// Read cost alone means read-only caching, where writes are free. A
+	// creation cost too means Anthropic-style, where writes are billed.
+	// Audio, reasoning and server-tool rates. Absent for most entries, in which
+	// case the corresponding tokens fall back to the text rate.
+	InputCostPerAudioToken      float64 `json:"input_cost_per_audio_token"`
+	OutputCostPerAudioToken     float64 `json:"output_cost_per_audio_token"`
+	OutputCostPerReasoningToken float64 `json:"output_cost_per_reasoning_token"`
+	SearchContextCostPerQuery   float64 `json:"search_context_cost_per_query"`
+
 	CacheReadInputTokenCost             float64 `json:"cache_read_input_token_cost"`
 	CacheCreationInputTokenCost         float64 `json:"cache_creation_input_token_cost"`
 	CacheCreationInputTokenCostAbove1hr float64 `json:"cache_creation_input_token_cost_above_1hr"`
 
-	// Long-context tier (>272k input tokens). Overrides the base rate only
-	// when the corresponding field is present and the request qualifies.
+	// Long-context tier (>272k input tokens), applied only when present.
 	InputCostPerTokenAbove272k       float64 `json:"input_cost_per_token_above_272k_tokens"`
 	OutputCostPerTokenAbove272k      float64 `json:"output_cost_per_token_above_272k_tokens"`
 	CacheReadInputTokenCostAbove272k float64 `json:"cache_read_input_token_cost_above_272k_tokens"`
 
-	// Priority service tier. Overrides the base rate only when the
-	// corresponding field is present and the response reports priority tier.
+	// Priority tier, applied only when present and the response reports it.
 	InputCostPerTokenPriority       float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerTokenPriority      float64 `json:"output_cost_per_token_priority"`
 	CacheReadInputTokenCostPriority float64 `json:"cache_read_input_token_cost_priority"`
 
-	// Combined long-context + priority tier. Takes precedence over the plain
-	// above-272k rate when both conditions hold and this field is present.
+	// Combined tier, preferred over the plain above-272k rate when present.
 	InputCostPerTokenAbove272kPriority       float64 `json:"input_cost_per_token_above_272k_tokens_priority"`
 	OutputCostPerTokenAbove272kPriority      float64 `json:"output_cost_per_token_above_272k_tokens_priority"`
 	CacheReadInputTokenCostAbove272kPriority float64 `json:"cache_read_input_token_cost_above_272k_tokens_priority"`
 }
 
-// Unpriced reports whether this entry carries no per-token input rate at
-// all — e.g. image, embedding, or rerank entries billed by a different unit.
-// Requests resolving to such an entry are treated as unpriceable.
+// Unpriced reports an entry billed by some unit other than tokens.
 func (p ModelPricing) Unpriced() bool {
 	return p.InputCostPerToken == 0 && p.OutputCostPerToken == 0
 }
 
-// effectiveRates holds the resolved per-token rates after applying
-// long-context tiering and priority-tier overrides.
+// effectiveRates holds the rates after long-context and priority overrides.
 type effectiveRates struct {
 	input       float64
 	output      float64
@@ -145,12 +133,8 @@ type effectiveRates struct {
 	cacheCreate float64
 }
 
-// resolveRates selects the correct per-token rates for the given usage and
-// pricing entry. Long-context (>272k input tokens) and priority-tier
-// overrides are each applied only when the corresponding field is present on
-// the entry; a request that qualifies for both uses the combined
-// "_above_272k_tokens_priority" fields when present, falling back to
-// whichever single override is available.
+// resolveRates applies each override only where the entry carries the field. A
+// request qualifying for both prefers the combined fields.
 func resolveRates(inputTokensForTiering int64, isPriority bool, pricing ModelPricing) effectiveRates {
 	r := effectiveRates{
 		input:       pricing.InputCostPerToken,
@@ -191,46 +175,48 @@ func resolveRates(inputTokensForTiering int64, isPriority bool, pricing ModelPri
 	return r
 }
 
-// openAIPathSegment marks the OpenAI-compatible API surface. Azure OpenAI
-// serves only that surface, while Azure AI Foundry serves it for the OpenAI
-// models it hosts and its own "/models/..." surface for everything else.
-const openAIPathSegment = "/openai/"
+// Handles of the templates shipped for each product. The kernel records the
+// route's template under template_handle.
+const (
+	templateAzureOpenAI = "azure-openai"
+	templateAzureAI     = "azureai-foundry"
+)
 
-// namespacesFor returns the pricing-key prefixes to search, most likely first.
-//
-// The two namespaces are separate catalogs — "azure/" holds Azure OpenAI models
-// and "azure_ai/" the Foundry-native ones — but a single Foundry resource can
-// serve both, so the endpoint host does not determine which applies. The request
-// path does: an OpenAI-compatible path indicates an Azure OpenAI model whichever
-// resource served it.
-//
-// Both namespaces are always searched. The order only decides which wins for a
-// model name that appears in both, and the path is the better guide to that.
-func namespacesFor(requestPath string, region azureRegion) []string {
+// isAzureTemplate reports whether the handle names one of the Azure templates.
+func isAzureTemplate(templateHandle string) bool {
+	switch strings.ToLower(strings.TrimSpace(templateHandle)) {
+	case templateAzureOpenAI, templateAzureAI:
+		return true
+	}
+	return false
+}
+
+// Foundry also serves the OpenAI models, which are catalogued only under
+// azure/, so it falls back there. Azure OpenAI cannot serve a Foundry-native
+// model and so never reads azure_ai/.
+func namespacesFor(templateHandle string, region azureRegion) []string {
 	if region == "" {
 		region = regionGlobalStandard
 	}
 	azureOpenAI := []string{"azure/" + string(region) + "/", "azure/"}
-	foundry := []string{"azure_ai/"}
 
-	if strings.Contains(strings.ToLower(requestPath), openAIPathSegment) {
-		return append(azureOpenAI, foundry...)
+	switch strings.ToLower(strings.TrimSpace(templateHandle)) {
+	case templateAzureOpenAI:
+		return azureOpenAI
+	case templateAzureAI:
+		return append([]string{"azure_ai/"}, azureOpenAI...)
 	}
-	return append(foundry, azureOpenAI...)
+	return nil
 }
 
-// azureRegion identifies the Azure deployment type whose key prefix is tried
-// first when resolving a model. The values mirror Azure's pay-per-token
-// deployment types; provisioned (PTU) types bill reserved capacity rather than
-// tokens, so they are not represented:
+// azureRegion is the deployment type whose prefix is tried first. Provisioned
+// (PTU) types bill reserved capacity, not tokens, so are absent:
 //
-//	global-standard  Global Standard    — any region; Azure's default
-//	us / eu / apac   Data Zone Standard — pinned to that data zone
-//	regional         Standard           — pinned to a single region
+//	global-standard  Global Standard      any region; Azure's default
+//	us / eu / apac   Data Zone Standard   pinned to that data zone
+//	regional         Standard             pinned to a single region
 //
-// Configured per deployment, since the deployment type is chosen per deployment
-// rather than per resource. Only meaningful for Azure OpenAI; Azure AI Foundry
-// has no tier-scoped pricing.
+// Applied to the azure/ catalog only; azure_ai/ keys are not tier-scoped.
 type azureRegion string
 
 const (
@@ -241,14 +227,9 @@ const (
 	regionRegional       azureRegion = "regional"
 )
 
-// lookupPricingWithKey resolves a model name to a pricing entry and the key that
-// matched it, searching the given namespace prefixes in order. The name must
-// match a key exactly; there is no partial matching, so a model the file does
-// not carry is reported unresolved rather than billed at a near neighbour's rate.
-//
-// The pricing file is customer-maintained, so this order is the policy's
-// published contract: adding an "azure/<region>/<model>" key is how an operator
-// makes a tier-specific rate take effect.
+// lookupPricingWithKey requires an exact key match, so an unknown model is
+// reported unresolved rather than billed at a near neighbour's rate. Adding an
+// "azure/<region>/<model>" key is how an operator sets a tier-specific rate.
 func lookupPricingWithKey(pricingMap map[string]ModelPricing, modelName string, prefixes []string) (ModelPricing, string, bool) {
 	modelName = strings.ToLower(strings.TrimSpace(modelName))
 	if modelName == "" {
@@ -263,18 +244,11 @@ func lookupPricingWithKey(pricingMap map[string]ModelPricing, modelName string, 
 	return ModelPricing{}, "", false
 }
 
-// tierFallbackSeen records the (region, model) pairs already reported by
-// logTierFallback, so a misconfigured tier is surfaced once rather than on
-// every request.
+// tierFallbackSeen keeps logTierFallback to once per (region, model).
 var tierFallbackSeen sync.Map
 
-// logTierFallback reports that a tier-specific pricing entry was requested but
-// not found, so the unprefixed base entry was billed instead. The rates differ
-// between tiers, so this is worth surfacing — the fix is to add an
-// "azure/<region>/<model>" key to the pricing file.
-//
-// The default global-standard tier is deliberately silent: the base entries
-// already hold Global Standard rates.
+// logTierFallback warns that a tier-specific entry was missing and the base
+// entry was billed. Silent for global-standard, whose rates are the base.
 func logTierFallback(prefixes []string, modelName, matchedPrefix string) {
 	if matchedPrefix != "azure/" {
 		return
