@@ -15,6 +15,18 @@ permissions:
 env: 
   DEPENDENCY_SCOPE: api-platform # Change this value based on the repository. See https://github.com/wso2/engineering-governance/blob/main/dependency-registry/README.md#available-scopes
 
+                                                                                 # SECURITY
+# This workflow uses `pull_request_target`, so it runs with repository write
+# permissions while the workspace contains untrusted pull request code.
+#
+# It is safe only because it never EXECUTES anything from the pull request: it
+# reads go.mod/go.sum as data and runs a trusted script checked out separately
+# from wso2/engineering-governance.
+#
+# Do NOT add build or dependency-resolution steps here - `go build`,
+# `go mod download`, `go test`, `make`, or any script from the PR tree would
+# execute contributor-controlled code with this workflow's permissions.
+# Put those in a `pull_request`-triggered workflow instead.
 jobs:
   validate-go-dependencies:
     name: Validate Go Dependencies
@@ -25,6 +37,11 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
+          # This workflow runs on pull_request_target, so it has repository
+          # credentials while checking out untrusted pull request code. Without
+          # this, the job token is written to .git/config inside a workspace the
+          # contributor controls.
+          persist-credentials: false
 
       - name: Detect modified go.mod files
         id: detect-changes
@@ -56,6 +73,7 @@ jobs:
           repository: wso2/engineering-governance
           path: engineering-governance
           ref: main
+          persist-credentials: false
 
       - name: Extract and validate dependencies
         if: steps.detect-changes.outputs.has_changes == 'true'

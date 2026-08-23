@@ -52,10 +52,10 @@ additionalProviders:
         apiVersion: "2024-02-15-preview"
 ```
 
-For a single-provider proxy (no router in front), attach it directly under `spec.policies` so it runs on every request:
+For a single-provider proxy (no router in front), attach it directly under `spec.operationPolicies` so it runs on every request:
 
 ```yaml
-policies:
+operationPolicies:
   - name: openai-to-azure-openai-transformer
     version: v1
     paths:

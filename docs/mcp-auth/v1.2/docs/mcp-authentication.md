@@ -31,23 +31,23 @@ Configured by the administrator in `config.toml` under `policy_configurations.mc
 
 | Parameter | Type | Required | Default | Path | Description |
 |-----------|------|----------|---------|------|-------------|
-| `keyManagers` | `KeyManager` array | Yes | - | jwtauth_v1 | List of key manager definitions. Each entry must include a unique `name` and `issuer`, and either `jwks.remote` or `jwks.local` configuration. |
-| `jwksCacheTtl` | string | No | - | jwtauth_v1 | Duration string for JWKS caching (e.g., `"5m"`). If omitted a default is used. |
-| `jwksFetchTimeout` | string | No | - | jwtauth_v1 | Timeout for HTTP fetch of JWKS (e.g., `"5s"`). |
-| `jwksFetchRetryCount` | integer | No | - | jwtauth_v1 | Number of retries for JWKS fetch on transient failures. |
-| `jwksFetchRetryInterval` | string | No | - | jwtauth_v1 | Interval between JWKS fetch retries (e.g., `"2s"`). |
+| `keymanagers` | `KeyManager` array | Yes | - | jwtauth_v1 | List of key manager definitions. Each entry must include a unique `name` and `issuer`, and either `jwks.remote` or `jwks.local` configuration. |
+| `jwkscachettl` | string | No | - | jwtauth_v1 | Duration string for JWKS caching (e.g., `"5m"`). If omitted a default is used. |
+| `jwksfetchtimeout` | string | No | - | jwtauth_v1 | Timeout for HTTP fetch of JWKS (e.g., `"5s"`). |
+| `jwksfetchretrycount` | integer | No | - | jwtauth_v1 | Number of retries for JWKS fetch on transient failures. |
+| `jwksfetchretryinterval` | string | No | - | jwtauth_v1 | Interval between JWKS fetch retries (e.g., `"2s"`). |
 | `leeway` | string | No | - | jwtauth_v1 | Clock skew allowance for `exp`/`nbf` checks (e.g., `"30s"`). |
-| `authHeaderScheme` | string | No | `"Bearer"` | jwtauth_v1 | Expected scheme prefix in the authorization header. |
-| `headerName` | string | No | `"Authorization"` | jwtauth_v1 | Header name to extract the token from. |
-| `onFailureStatusCode` | integer | No | `401` | jwtauth_v1 | HTTP status code returned on authentication failure. Allowed values: `401`, `403`. |
-| `errorMessageFormat` | string | No | `"json"` | jwtauth_v1 | Format of the error response. Allowed values: `"json"`, `"plain"`, `"minimal"`. |
-| `errorMessage` | string | No | - | jwtauth_v1 | Custom error message to include in the response body on authentication failure. |
-| `validateIssuer` | boolean | No | - | jwtauth_v1 | Whether to validate the token's issuer claim against configured key managers. |
-| `gatewayHost` | string | No | `"localhost"` | mcpauth_v1 | The outward-facing gateway host name used when deriving the protected resource metadata URL and response. |
+| `authheaderscheme` | string | No | `"Bearer"` | jwtauth_v1 | Expected scheme prefix in the authorization header. |
+| `headername` | string | No | `"Authorization"` | jwtauth_v1 | Header name to extract the token from. |
+| `onfailurestatuscode` | integer | No | `401` | jwtauth_v1 | HTTP status code returned on authentication failure. Allowed values: `401`, `403`. |
+| `errormessageformat` | string | No | `"json"` | jwtauth_v1 | Format of the error response. Allowed values: `"json"`, `"plain"`, `"minimal"`. |
+| `errormessage` | string | No | - | jwtauth_v1 | Custom error message to include in the response body on authentication failure. |
+| `validateissuer` | boolean | No | - | jwtauth_v1 | Whether to validate the token's issuer claim against configured key managers. |
+| `gatewayhost` | string | No | `"localhost"` | mcpauth_v1 | The outward-facing gateway host name used when deriving the protected resource metadata URL and response. |
 
 #### KeyManager Configuration
 
-Each key manager in the `keyManagers` array supports the following structure:
+Each key manager in the `keymanagers` array supports the following structure:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -65,34 +65,34 @@ Each key manager in the `keyManagers` array supports the following structure:
 
 ```toml
 [policy_configurations.mcpauth_v1]
-gatewayHost = "gw.example.com"
+gatewayhost = "gw.example.com"
 
 [policy_configurations.jwtauth_v1]
-jwksCacheTtl = "5m"
-jwksFetchTimeout = "5s"
-jwksFetchRetryCount = 3
-jwksFetchRetryInterval = "2s"
+jwkscachettl = "5m"
+jwksfetchtimeout = "5s"
+jwksfetchretrycount = 3
+jwksfetchretryinterval = "2s"
 leeway = "30s"
-authHeaderScheme = "Bearer"
-headerName = "Authorization"
-onFailureStatusCode = 401
-errorMessageFormat = "json"
-errorMessage = "Authentication failed."
-validateIssuer = true
+authheaderscheme = "Bearer"
+headername = "Authorization"
+onfailurestatuscode = 401
+errormessageformat = "json"
+errormessage = "Authentication failed."
+validateissuer = true
 
-[[policy_configurations.jwtauth_v1.keyManagers]]
+[[policy_configurations.jwtauth_v1.keymanagers]]
 name = "PrimaryIDP"
 issuer = "https://idp.example.com/oauth2/token"
 
-[policy_configurations.jwtauth_v1.keyManagers.jwks.remote]
+[policy_configurations.jwtauth_v1.keymanagers.jwks.remote]
 uri = "https://idp.example.com/oauth2/jwks"
 skipTlsVerify = false
 
-[[policy_configurations.jwtauth_v1.keyManagers]]
+[[policy_configurations.jwtauth_v1.keymanagers]]
 name = "SecondaryIDP"
 issuer = "https://auth.example.org/oauth2/token"
 
-[policy_configurations.jwtauth_v1.keyManagers.jwks.remote]
+[policy_configurations.jwtauth_v1.keymanagers.jwks.remote]
 uri = "https://auth.example.org/oauth2/jwks"
 skipTlsVerify = false
 ```
@@ -109,7 +109,7 @@ These parameters are configured per-API/route by the API developer:
 | `resources` | `SecurityConfig` object | No | `{"enabled": true}` | Security configuration for MCP resources. |
 | `prompts` | `SecurityConfig` object | No | `{"enabled": true}` | Security configuration for MCP prompts. |
 | `methods` | `SecurityConfig` object | No | `{"enabled": true}` | Security configuration for MCP (JSON-RPC) methods. |
-| `issuers` | string array | No | `[]` | List of issuer names from `system.keyManagers` to publish in protected resource metadata and use for token validation. If empty, runtime uses all configured key managers. |
+| `issuers` | string array | No | `[]` | List of issuer names from `system.keymanagers` to publish in protected resource metadata and use for token validation. If empty, runtime uses all configured key managers. |
 | `requiredScopes` | string array | No | `[]` | Scopes to advertise in protected-resource metadata for the MCP authorization flow. They are **not enforced** by this policy; use the MCP Authorization policy to enforce scopes. |
 | `claimMappings` | object | No | `{}` | Map of claimName → downstream header or context key to expose claims for downstream services. |
 | `userIdClaim` | string | No | `"sub"` | Claim name used to extract the user ID for analytics. |
@@ -143,7 +143,7 @@ MCP servers are frequently third-party processes, so this policy does **not** re
 
 | `forwardToken` | What the upstream receives |
 |----------------|----------------------------|
-| `false` (default) | Nothing. The inbound token header (`system.headerName`, default `Authorization`) is removed before the request is proxied. |
+| `false` (default) | Nothing. The inbound token header (`system.headername`, default `Authorization`) is removed before the request is proxied. |
 | `true` | The token under `forwardedTokenHeader` (default `x-forwarded-authorization`). The inbound token header is still removed unless `forwardedTokenHeader` names that same header. |
 
 `forwardTokenStripScheme` controls the shape of the forwarded value: `false` (default) forwards `Bearer eyJ...`, `true` forwards `eyJ...`.
@@ -157,7 +157,7 @@ If a peer policy such as [Set Headers](../../../set-headers/v1.1/docs/set-header
 Apply MCP authentication to an API using a specific key manager:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: Mcp
 metadata:
     name: mcp-server-api-v1.0
@@ -183,7 +183,7 @@ spec:
 Disable authentication for specific tools while keeping it enabled for others:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: Mcp
 metadata:
     name: mcp-server-api-v1.0
@@ -220,7 +220,7 @@ spec:
 Advertise required scopes in the protected resource metadata (scopes are not enforced by this policy):
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: Mcp
 metadata:
     name: mcp-server-api-v1.0
@@ -249,7 +249,7 @@ spec:
 Map JWT claims to downstream headers for use by backend services:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: Mcp
 metadata:
     name: mcp-server-api-v1.0
@@ -279,7 +279,7 @@ spec:
 Completely disable authentication for MCP resources while keeping it for tools:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: Mcp
 metadata:
     name: mcp-server-api-v1.0
@@ -313,7 +313,7 @@ spec:
 By default the user ID published to analytics is taken from the `sub` claim. Point `userIdClaim` at a different claim when your identity provider carries the meaningful identifier elsewhere:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: Mcp
 metadata:
     name: mcp-server-api-v1.0
@@ -340,7 +340,7 @@ spec:
 Forward the token under a dedicated header so the MCP server can identify the caller, while the inbound `Authorization` header is still stripped:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: Mcp
 metadata:
     name: mcp-server-api-v1.0
@@ -370,7 +370,7 @@ The MCP server receives `X-Backend-Authorization: Bearer eyJ...`.
 Some MCP servers expect the raw token without the `Bearer` prefix:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: Mcp
 metadata:
     name: mcp-server-api-v1.0
@@ -401,7 +401,7 @@ The MCP server receives `X-MCP-Token: eyJ...`.
 A common pattern is to authenticate the client with its own token and hand the MCP server a completely different credential. Because `set-headers` owns `Authorization` once it writes to it, this policy leaves that value alone:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: Mcp
 metadata:
     name: mcp-server-api-v1.0
@@ -435,9 +435,9 @@ The client's token is validated by `mcp-auth`, and the MCP server receives the s
 
 | Situation | Status | Body |
 |-----------|--------|------|
-| Token missing, expired, or otherwise invalid | `onFailureStatusCode` (default `401`) | Shaped by `errorMessageFormat`; accompanied by a `WWW-Authenticate: Bearer resource_metadata="…"` header. |
-| Request body is not valid JSON, or not a valid JSON-RPC request object | `400` | A JSON-RPC 2.0 error object — code `-32700` (Parse error) for invalid JSON syntax, `-32600` (Invalid Request) otherwise. Not affected by `errorMessageFormat`. |
-| Policy configuration is invalid (e.g. a malformed `keyManagers` entry) | `500` | JSON error object. |
+| Token missing, expired, or otherwise invalid | `onfailurestatuscode` (default `401`) | Shaped by `errormessageformat`; accompanied by a `WWW-Authenticate: Bearer resource_metadata="…"` header. |
+| Request body is not valid JSON, or not a valid JSON-RPC request object | `400` | A JSON-RPC 2.0 error object — code `-32700` (Parse error) for invalid JSON syntax, `-32600` (Invalid Request) otherwise. Not affected by `errormessageformat`. |
+| Policy configuration is invalid (e.g. a malformed `keymanagers` entry) | `500` | JSON error object. |
 
 ## Related Policies
 

@@ -90,7 +90,7 @@ Inside the `gateway/build.yaml`, ensure the policy module is added under `polici
 Deploy an LLM provider with round-robin load balancing across multiple models:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: LlmProvider
 metadata:
   name: round-robin-provider
@@ -98,7 +98,7 @@ spec:
   displayName: Round Robin Provider
   version: v1.0
   template: openai
-  vhost: openai
+  context: /openai
   upstream:
     url: "https://api.openai.com/v1"
     auth:
@@ -110,7 +110,7 @@ spec:
     exceptions:
       - path: /chat/completions
         methods: [POST]
-  policies:
+  operationPolicies:
     - name: model-round-robin
       version: v1
       paths:
@@ -126,13 +126,10 @@ spec:
 
 **Test the round-robin distribution:**
 
-**Note**: Ensure that "openai" is mapped to the appropriate IP address (e.g., 127.0.0.1) in your `/etc/hosts` file, or remove the vhost from the LLM provider configuration and use localhost to invoke.
-
 ```bash
 # First request - will use gpt-4
-curl -X POST http://openai:8080/chat/completions \
+curl -X POST http://localhost:8080/openai/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Host: openai" \
   -d '{
     "model": "gpt-4",
     "messages": [
@@ -144,9 +141,8 @@ curl -X POST http://openai:8080/chat/completions \
   }'
 
 # Second request - will use gpt-3.5-turbo
-curl -X POST http://openai:8080/chat/completions \
+curl -X POST http://localhost:8080/openai/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Host: openai" \
   -d '{
     "model": "gpt-4",
     "messages": [
@@ -158,9 +154,8 @@ curl -X POST http://openai:8080/chat/completions \
   }'
 
 # Third request - will use gpt-4-turbo
-curl -X POST http://openai:8080/chat/completions \
+curl -X POST http://localhost:8080/openai/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Host: openai" \
   -d '{
     "model": "gpt-4",
     "messages": [
@@ -198,7 +193,7 @@ spec:
       transformer:
         type: openai-to-bedrock-transformer
         version: v0
-  policies:
+  operationPolicies:
     - name: model-round-robin
       version: v1
       paths:

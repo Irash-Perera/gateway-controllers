@@ -145,7 +145,7 @@ Inside the `gateway/build.yaml`, ensure the policy module is added under `polici
 ### Example 1: Basic JWT Authentication
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: jwt-auth-basic-api
@@ -176,7 +176,7 @@ Requires the `test-audience` audience, all of `read:data` / `list:data`, and at 
 replaces the deprecated `requiredScopes`.)
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: jwt-auth-audience-api
@@ -212,7 +212,7 @@ spec:
 
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: jwt-auth-scopes-claims-api
@@ -273,7 +273,7 @@ CLAIMS = (status = active)          AND  (department ∈ {platform, engineering}
 ### Example 4: Claim Mapping to Downstream Headers
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: jwt-auth-claims-api
@@ -302,7 +302,7 @@ spec:
 ### Example 5: Custom Token Header
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: jwt-auth-custom-header-api
@@ -328,7 +328,7 @@ spec:
 ### Example 6: Custom User ID Claim for Analytics
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: jwt-auth-claims-api
@@ -360,7 +360,7 @@ spec:
 By default, the JWT is forwarded to the upstream after successful validation under the `x-forwarded-authorization` header. Set `forwardToken: false` to strip it before proxying.
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: jwt-auth-strip-token-api
@@ -388,7 +388,7 @@ spec:
 When `forwardToken` is `true` (the default), the validated JWT is forwarded to the upstream under the header named by `forwardedTokenHeader` (default `x-forwarded-authorization`). Use this to preserve the incoming `Authorization` header for other purposes, or to hand the token to a backend that expects a specific header name.
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: jwt-auth-forwarded-header-api
@@ -417,7 +417,7 @@ spec:
 Some upstreams expect the raw token value without the `Bearer` (or other) scheme prefix. Set `forwardTokenStripScheme: true` to forward the bare token under `forwardedTokenHeader` instead of the full header value. For example, an incoming `Authorization: Bearer eyJ...` results in the upstream receiving `X-JWT-Token: eyJ...`.
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: jwt-auth-token-value-api

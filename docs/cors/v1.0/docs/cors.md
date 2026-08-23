@@ -55,7 +55,7 @@ Inside the `gateway/build.yaml`, ensure the policy module is added under `polici
 Enable CORS for a public API that allows requests from any origin:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: weather-api-v1.0
@@ -92,7 +92,7 @@ spec:
 Allow requests from specific origins with credential support:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: user-api-v1.0
@@ -143,7 +143,7 @@ spec:
 Allow HTTPS origins at any subdomain depth under `example.com`:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: api-v1.0
@@ -185,7 +185,7 @@ spec:
 Control which headers can be sent and which can be accessed:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: public-api-v1.0
@@ -231,7 +231,7 @@ spec:
 Forward preflight requests that don't match the policy to upstream:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: RestApi
 metadata:
   name: dynamic-api-v1.0

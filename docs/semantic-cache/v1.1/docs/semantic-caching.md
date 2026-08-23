@@ -115,7 +115,7 @@ Inside the `gateway/build.yaml`, ensure the policy module is added under `polici
 Deploy an LLM provider with semantic caching using OpenAI embeddings and Redis vector store:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: LlmProvider
 metadata:
   name: cached-chat-provider
@@ -123,7 +123,7 @@ spec:
   displayName: OpenAI Cached Provider
   version: v1.0
   template: openai
-  vhost: openai
+  context: /openai
   upstream:
     url: "https://api.openai.com/v1"
     auth:
@@ -135,7 +135,7 @@ spec:
     exceptions:
       - path: /chat/completions
         methods: [POST]
-  policies:
+  operationPolicies:
     - name: semantic-cache
       version: v1
       paths:
@@ -149,13 +149,10 @@ spec:
 
 **Test the semantic cache:**
 
-**Note**: Ensure that "openai" is mapped to the appropriate IP address (e.g., 127.0.0.1) in your `/etc/hosts` file, or remove the vhost from the LLM provider configuration and use localhost to invoke.
-
 ```bash
 # First request - cache miss, will call upstream
-curl -X POST http://openai:8080/chat/completions \
+curl -X POST http://localhost:8080/openai/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Host: openai" \
   -H "Authorization: Bearer <consumer-token>" \
   -d '{
     "model": "gpt-4",
@@ -168,9 +165,8 @@ curl -X POST http://openai:8080/chat/completions \
   }'
 
 # Second request with similar but different wording, from the SAME caller - cache hit!
-curl -X POST http://openai:8080/chat/completions \
+curl -X POST http://localhost:8080/openai/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Host: openai" \
   -H "Authorization: Bearer <consumer-token>" \
   -d '{
     "model": "gpt-4",

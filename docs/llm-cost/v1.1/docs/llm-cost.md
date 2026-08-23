@@ -61,7 +61,7 @@ This policy runs in the response phase and is designed to be placed before cost-
 ### Example 1: Attach LLM Cost Policy to an OpenAI Provider
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: LlmProvider
 metadata:
   name: openai-provider
@@ -69,8 +69,9 @@ spec:
   displayName: OpenAI Provider
   version: v1.0
   context: /openai
+  template: openai
   upstream:
-    url: https://api.openai.com
+    url: https://api.openai.com/v1
     auth:
       type: api-key
       header: Authorization
@@ -80,7 +81,7 @@ spec:
     exceptions:
       - path: /chat/completions
         methods: [POST]
-  policies:
+  operationPolicies:
     - name: llm-cost
       version: v1
       paths:
@@ -98,7 +99,7 @@ After each successful response, the policy stores the calculated cost in `Shared
 The primary use case is pairing this policy with `llm-cost-based-ratelimit` to enforce monetary budget limits. Place `llm-cost-based-ratelimit` before `llm-cost` in the policy list -- because response-phase policies execute in reverse order, `llm-cost` runs first in the response to calculate the cost, and then `llm-cost-based-ratelimit` deducts it:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: LlmProvider
 metadata:
   name: openai-provider
@@ -106,8 +107,9 @@ spec:
   displayName: OpenAI Provider
   version: v1.0
   context: /openai
+  template: openai
   upstream:
-    url: https://api.openai.com
+    url: https://api.openai.com/v1
     auth:
       type: api-key
       header: Authorization
@@ -117,7 +119,7 @@ spec:
     exceptions:
       - path: /chat/completions
         methods: [POST]
-  policies:
+  operationPolicies:
     - name: llm-cost-based-ratelimit
       version: v1
       paths:
@@ -139,7 +141,7 @@ spec:
 Attach the policy to the Bedrock runtime paths used by your provider. The policy obtains the model ID from the `/model/{modelId}/...` request path when the response does not include it:
 
 ```yaml
-policies:
+operationPolicies:
   - name: llm-cost
     version: v1
     paths:

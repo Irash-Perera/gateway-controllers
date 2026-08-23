@@ -142,7 +142,7 @@ Attaching the policy provider-wide (`globalPolicies`) shares one token bucket ac
 The `LlmProviderTemplate` tells the policy where to find token usage information in the LLM provider's response. Here is an example template for an OpenAI-compatible provider:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: LlmProviderTemplate
 metadata:
   name: openai-template
@@ -172,7 +172,7 @@ The `identifier` fields use JSONPath expressions to locate token counts in the r
 Apply a simple total token limit to an LLM provider:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: LlmProvider
 metadata:
   name: openai-provider
@@ -182,7 +182,7 @@ spec:
   context: /openai
   template: openai-template
   upstream:
-    url: https://api.openai.com
+    url: https://api.openai.com/v1
     auth:
       type: api-key
       header: Authorization
@@ -192,7 +192,7 @@ spec:
     exceptions:
       - path: /chat/completions
         methods: [POST]
-  policies:
+  operationPolicies:
     - name: token-based-ratelimit
       version: v1
       paths:
@@ -211,7 +211,7 @@ This limits the `/chat/completions` path to 10,000 total tokens per minute. Once
 Apply independent limits for prompt (input) and completion (output) tokens:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: LlmProvider
 metadata:
   name: openai-provider
@@ -221,7 +221,7 @@ spec:
   context: /openai
   template: openai-template
   upstream:
-    url: https://api.openai.com
+    url: https://api.openai.com/v1
     auth:
       type: api-key
       header: Authorization
@@ -231,7 +231,7 @@ spec:
     exceptions:
       - path: /chat/completions
         methods: [POST]
-  policies:
+  operationPolicies:
     - name: token-based-ratelimit
       version: v1
       paths:
@@ -253,7 +253,7 @@ This enforces 5,000 prompt tokens per minute and 8,000 completion tokens per min
 Enforce both short-term and long-term token budgets:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: LlmProvider
 metadata:
   name: openai-provider
@@ -263,7 +263,7 @@ spec:
   context: /openai
   template: openai-template
   upstream:
-    url: https://api.openai.com
+    url: https://api.openai.com/v1
     auth:
       type: api-key
       header: Authorization
@@ -273,7 +273,7 @@ spec:
     exceptions:
       - path: /chat/completions
         methods: [POST]
-  policies:
+  operationPolicies:
     - name: token-based-ratelimit
       version: v1
       paths:
@@ -294,7 +294,7 @@ This enforces a burst limit of 10,000 total tokens per minute and a daily budget
 Apply limits to all three token types with multiple time windows:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: LlmProvider
 metadata:
   name: openai-provider
@@ -304,7 +304,7 @@ spec:
   context: /openai
   template: openai-template
   upstream:
-    url: https://api.openai.com
+    url: https://api.openai.com/v1
     auth:
       type: api-key
       header: Authorization
@@ -314,7 +314,7 @@ spec:
     exceptions:
       - path: /chat/completions
         methods: [POST]
-  policies:
+  operationPolicies:
     - name: token-based-ratelimit
       version: v1
       paths:
@@ -345,7 +345,7 @@ This applies per-minute and daily limits across all token types. Each token type
 Apply different token limits to different paths within the same LLM provider:
 
 ```yaml
-apiVersion: gateway.api-platform.wso2.com/v1alpha1
+apiVersion: gateway.api-platform.wso2.com/v1
 kind: LlmProvider
 metadata:
   name: openai-provider
@@ -355,7 +355,7 @@ spec:
   context: /openai
   template: openai-template
   upstream:
-    url: https://api.openai.com
+    url: https://api.openai.com/v1
     auth:
       type: api-key
       header: Authorization
@@ -367,7 +367,7 @@ spec:
         methods: [POST]
       - path: /completions
         methods: [POST]
-  policies:
+  operationPolicies:
     - name: token-based-ratelimit
       version: v1
       paths:
