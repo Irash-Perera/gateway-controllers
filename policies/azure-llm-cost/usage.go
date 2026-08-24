@@ -123,7 +123,9 @@ func normalizeUsage(responseBody []byte) (Usage, error) {
 	if u.CacheCreation != nil {
 		cacheWrite5m = u.CacheCreation.Ephemeral5mInputTokens
 		cacheWrite1hr = u.CacheCreation.Ephemeral1hInputTokens
-	} else {
+	}
+	// An unrecognized bucket name leaves it empty, so fall back to the flat total rather than dropping
+	if cacheWrite5m == 0 && cacheWrite1hr == 0 {
 		cacheWrite5m = u.CacheCreationInputTokens
 	}
 
