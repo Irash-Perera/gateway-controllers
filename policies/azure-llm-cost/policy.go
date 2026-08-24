@@ -341,14 +341,14 @@ func logNonAzureTemplate(templateHandle string) {
 // unmappedDeploymentSeen keeps logUnmappedDeployment to once per deployment.
 var unmappedDeploymentSeen sync.Map
 
-// logUnmappedDeployment warns that an unmapped deployment makes both the tier and
-// the model assumptions, and neither is otherwise logged.
+// logUnmappedDeployment warns that no mapping matched, so the tier fell back to
+// Global Standard.
 func logUnmappedDeployment(deployment string) {
 	if _, seen := unmappedDeploymentSeen.LoadOrStore(deployment, struct{}{}); seen {
 		return
 	}
 	slog.Warn("azure-llm-cost: deployment not found in modelMappings, "+
-		"assuming global-standard rates and pricing the reported name as a model",
+		"billing at global standard rates",
 		"deployment", deployment)
 }
 

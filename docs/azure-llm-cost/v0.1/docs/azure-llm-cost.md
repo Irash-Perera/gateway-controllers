@@ -160,9 +160,14 @@ operationPolicies:
 5. **Tokens are charged** by category. Audio tokens, reasoning tokens, and web search queries are subtracted from the totals before being charged separately, so nothing is counted twice, and any category the entry gives no rate for is charged at the ordinary text rate. Priority and above-272k rates apply where the entry defines them, each falling back to the ordinary rate.
 6. **The result is written** to `SharedContext`, published as analytics metadata, and the response continues unmodified.
 
-Which name Azure reports in step 3 depends on the endpoint. The chat completions endpoints report the real model name, as do Foundry's native `/models/chat/completions` and its Anthropic Messages endpoint. The Responses API and the Assistants API echo back the `model` from the request, which is the deployment name, so those two cannot be priced without a mapping.
+How much the mapping has to do depends on what the response reports in step 3. When it reports the real model, as the chat completions endpoints do on both products, the mapping is only needed for the pricing tier. When it reports the deployment name, as the Responses endpoints do, the mapping supplies the model as well.
 
-An unmapped deployment is priced on two assumptions, both logged once per deployment: that Global Standard rates apply, and that the reported name is itself a model name. The second is the one to watch, because a deployment named after a real model but running a different one is priced as its name suggests. A deployment called `gpt-4o` that actually runs `gpt-4o-mini` is charged at `gpt-4o` rates, with nothing in the response to contradict it. This is why every deployment should be mapped, even where the endpoint would resolve on its own.
+Leaving a deployment out of `modelMappings` therefore costs you two things:
+
+- **The tier falls back to Global Standard**, because only the mapping carries it. This is logged once per deployment.
+- **On the endpoints that report the deployment name**, that name is priced as though it were a model. This is not logged.
+
+The second only bites where the response reports the deployment name. There, a deployment called `gpt-4o` that actually runs `gpt-4o-mini` is charged at `gpt-4o` rates, and nothing in the response contradicts it. A mapping fixes that. On chat completions the same deployment prices correctly on its own, because the response names the model that really ran, but the mapping is still what supplies its tier. Mapping every deployment covers both cases.
 
 ## Limitations
 
