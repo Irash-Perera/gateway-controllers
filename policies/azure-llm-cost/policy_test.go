@@ -18,6 +18,7 @@ package azurellmcost
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"math"
@@ -1238,4 +1239,77 @@ func TestResolvePricing_CatalogsAreNotCrossRead(t *testing.T) {
 	if _, key, _, ok := p.resolvePricing(openAIModel, nil, foundryPath, templateAzureAI); !ok || key != "azure/global-standard/gpt-4o-2024-08-06" {
 		t.Errorf("expected the azure/ fallback to price it, got %q (ok=%v)", key, ok)
 	}
+}
+
+// sharedContextWithTemplate mimics what the kernel records for an Azure route.
+func sharedContextWithTemplate(handle string) *policy.SharedContext {
+	return &policy.SharedContext{
+		Metadata: map[string]interface{}{metadataTemplateHandle: handle},
+	}
+}
+
+// Both response phases must publish the same analytics fields. Only streamed
+// responses used to carry the token counts, so a non-streaming request lost its
+// model id and every count, which the pipeline needs before it emits AI data.
+func TestAnalyticsMetadata_SameOnBothResponsePhases(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
+	req := []byte(`{"model":"apim-4o"}`)
+	const path = "/openai/v1/chat/completions"
+
+	p := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{
+		"apim-4o": {model: "gpt-4o-2024-08-06"},
+	}}
+
+	buffered := p.OnResponseBody(context.Background(), &policy.ResponseContext{
+		SharedContext: sharedContextWithTemplate(templateAzureOpenAI),
+		RequestPath:   path,
+		RequestBody:   &policy.Body{Content: req, Present: true},
+		ResponseBody:  &policy.Body{Content: body, Present: true},
+	}, nil)
+
+	streamed := p.OnResponseBodyChunk(context.Background(), &policy.ResponseStreamContext{
+		SharedContext: sharedContextWithTemplate(templateAzureOpenAI),
+		RequestPath:   path,
+		RequestBody:   &policy.Body{Content: req, Present: true},
+	}, &policy.StreamBody{Chunk: body, EndOfStream: true}, nil)
+
+	bufferedMeta := buffered.(policy.DownstreamResponseModifications).AnalyticsMetadata
+	streamedMeta := streamed.(policy.ForwardResponseChunk).AnalyticsMetadata
+
+	for _, key := range []string{
+		MetadataLLMCost, metadataModelID, metadataPromptTokenCount,
+		metadataCompletionTokenCount, metadataTotalTokenCount,
+	} {
+		bv, bok := bufferedMeta[key]
+		sv, sok := streamedMeta[key]
+		if !bok {
+			t.Errorf("buffered phase is missing %q", key)
+			continue
+		}
+		if !sok {
+			t.Errorf("streamed phase is missing %q", key)
+			continue
+		}
+		if bv != sv {
+			t.Errorf("%q differs: buffered=%v streamed=%v", key, bv, sv)
+		}
+	}
+	if len(bufferedMeta) != len(streamedMeta) {
+		t.Errorf("field count differs: buffered=%d streamed=%d", len(bufferedMeta), len(streamedMeta))
+	}
+}
+
+// An unpriced request reports the cost alone from both phases, so a consumer
+// cannot tell them apart there either.
+func TestAnalyticsMetadata_UnpricedReportsCostOnlyFromBothPhases(t *testing.T) {
+	p := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{}}
+	unpriced := costResult{}
+	got := analyticsFor(unpriced)
+	if len(got) != 1 {
+		t.Errorf("expected only the cost, got %v", got)
+	}
+	if _, ok := got[MetadataLLMCost]; !ok {
+		t.Errorf("cost must always be reported, got %v", got)
+	}
+	_ = p
 }

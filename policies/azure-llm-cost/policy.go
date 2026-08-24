@@ -153,7 +153,8 @@ func (p *AzureLLMCostPolicy) OnResponseBody(_ context.Context, respCtx *policy.R
 		body = respCtx.ResponseBody.Content
 	}
 	result := p.computeCost(body, requestBody, respCtx.RequestPath, templateHandleFrom(respCtx.SharedContext))
-	return setCostMetadata(respCtx.SharedContext, result)
+	setCostMetadata(respCtx.SharedContext, result)
+	return policy.DownstreamResponseModifications{AnalyticsMetadata: analyticsFor(result)}
 }
 
 // OnResponseBodyChunk accumulates chunks and prices at end of stream.
@@ -188,14 +189,21 @@ func (p *AzureLLMCostPolicy) OnResponseBodyChunk(
 	result := p.computeCost(accumulated, requestBody, respCtx.RequestPath, templateHandleFrom(respCtx.SharedContext))
 	setCostMetadata(respCtx.SharedContext, result)
 
-	analyticsMetadata := map[string]any{MetadataLLMCost: result.cost}
-	if result.calculated {
-		analyticsMetadata[metadataModelID] = result.modelKey
-		analyticsMetadata[metadataPromptTokenCount] = strconv.FormatInt(result.usage.TotalInputTokens, 10)
-		analyticsMetadata[metadataCompletionTokenCount] = strconv.FormatInt(result.usage.OutputTokens, 10)
-		analyticsMetadata[metadataTotalTokenCount] = strconv.FormatInt(result.usage.TotalInputTokens+result.usage.OutputTokens, 10)
+	return policy.ForwardResponseChunk{AnalyticsMetadata: analyticsFor(result)}
+}
+
+// analyticsFor builds the analytics metadata both response phases publish, so a
+// streamed and a buffered response report the same fields.
+func analyticsFor(result costResult) map[string]interface{} {
+	metadata := map[string]interface{}{MetadataLLMCost: result.cost}
+	if !result.calculated {
+		return metadata
 	}
-	return policy.ForwardResponseChunk{AnalyticsMetadata: analyticsMetadata}
+	metadata[metadataModelID] = result.modelKey
+	metadata[metadataPromptTokenCount] = strconv.FormatInt(result.usage.TotalInputTokens, 10)
+	metadata[metadataCompletionTokenCount] = strconv.FormatInt(result.usage.OutputTokens, 10)
+	metadata[metadataTotalTokenCount] = strconv.FormatInt(result.usage.TotalInputTokens+result.usage.OutputTokens, 10)
+	return metadata
 }
 
 type costResult struct {
@@ -352,10 +360,11 @@ func logUnmappedDeployment(deployment string) {
 		"deployment", deployment)
 }
 
-func setCostMetadata(sharedCtx *policy.SharedContext, result costResult) policy.ResponseAction {
+// setCostMetadata publishes the cost and its status for downstream policies.
+func setCostMetadata(sharedCtx *policy.SharedContext, result costResult) {
 	if sharedCtx == nil {
 		slog.Warn("azure-llm-cost: SharedContext is nil, cannot set cost metadata")
-		return policy.DownstreamResponseModifications{}
+		return
 	}
 	if sharedCtx.Metadata == nil {
 		sharedCtx.Metadata = make(map[string]interface{})
@@ -366,9 +375,6 @@ func setCostMetadata(sharedCtx *policy.SharedContext, result costResult) policy.
 	}
 	sharedCtx.Metadata[MetadataLLMCost] = fmt.Sprintf("%.10f", result.cost)
 	sharedCtx.Metadata[MetadataLLMCostStatus] = status
-	return policy.DownstreamResponseModifications{
-		AnalyticsMetadata: map[string]interface{}{MetadataLLMCost: result.cost},
-	}
 }
 
 // extractModelName reads $.model, or $.message.model for Anthropic streams.
