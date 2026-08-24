@@ -1313,3 +1313,59 @@ func TestAnalyticsMetadata_UnpricedReportsCostOnlyFromBothPhases(t *testing.T) {
 	}
 	_ = p
 }
+
+// A trailing chunk that repeats "usage": null or "model": null must not erase
+// what an earlier event supplied. Azure sends content-filter chunks after the
+// usage-bearing one, and a plain overwrite reported a priced call as unpriced.
+func TestMergeSSE_TrailingNullDoesNotEraseEarlierValue(t *testing.T) {
+	const usageEvent = `data: {"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":21,"completion_tokens":1337,"total_tokens":1358}}` + "\n\n"
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			"nulls before usage, the ordinary stream",
+			`data: {"model":"gpt-4o-2024-08-06","usage":null}` + "\n\n" + usageEvent + "data: [DONE]\n\n",
+		},
+		{
+			"usage:null in a trailing filter chunk",
+			usageEvent + `data: {"model":"gpt-4o-2024-08-06","usage":null,"content_filter_results":{}}` + "\n\n" + "data: [DONE]\n\n",
+		},
+		{
+			"model:null in a trailing chunk",
+			usageEvent + `data: {"model":null}` + "\n\n" + "data: [DONE]\n\n",
+		},
+		{
+			"model blank in a trailing chunk",
+			usageEvent + `data: {"model":"","choices":[]}` + "\n\n" + "data: [DONE]\n\n",
+		},
+	}
+
+	p := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{}}
+	for _, c := range cases {
+		res := p.computeCost([]byte(c.body), nil, "/openai/v1/chat/completions", templateAzureOpenAI)
+		if !res.calculated {
+			t.Errorf("%s: expected a priced result, got calculated=false", c.name)
+			continue
+		}
+		if res.modelKey != "azure/global-standard/gpt-4o-2024-08-06" {
+			t.Errorf("%s: model resolved to %q", c.name, res.modelKey)
+		}
+		if res.usage.TotalInputTokens != 21 || res.usage.OutputTokens != 1337 {
+			t.Errorf("%s: tokens lost, in=%d out=%d", c.name, res.usage.TotalInputTokens, res.usage.OutputTokens)
+		}
+	}
+}
+
+// A null for a key no earlier event supplied is still recorded, so the merged
+// body keeps the shape the provider sent.
+func TestMergeSSE_LeadingNullIsPreserved(t *testing.T) {
+	merged, err := normalizeStreamBody([]byte(`data: {"model":"gpt-4o","usage":null}` + "\n\n" + "data: [DONE]\n\n"))
+	if err != nil {
+		t.Fatalf("merge failed: %v", err)
+	}
+	if !strings.Contains(string(merged), `"usage":null`) {
+		t.Errorf("expected usage:null to survive when nothing else supplied it, got %s", merged)
+	}
+}

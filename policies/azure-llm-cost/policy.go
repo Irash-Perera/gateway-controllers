@@ -474,8 +474,9 @@ func mergeJSONEvents(events [][]byte) ([]byte, error) {
 					}
 				}
 			}
-			// Skip empties so a blank "model" cannot overwrite a real value.
-			if s, ok := v.(string); ok && s == "" {
+			// A later null or blank must not erase what an earlier event supplied.
+			// Azure's trailing filter chunks repeat "model" blank and "usage" null.
+			if v == nil || v == "" {
 				if _, exists := merged[k]; exists {
 					continue
 				}
