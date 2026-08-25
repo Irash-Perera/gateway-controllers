@@ -300,6 +300,87 @@ func TestLookupPricing_CaseInsensitiveAndTrimmed(t *testing.T) {
 	}
 }
 
+// TestNamespacesFor_HandleSelectsCatalog pins the catalog to the route's
+// template. Azure OpenAI cannot serve a Foundry-native model, so it never
+// reads azure_ai/; Foundry serves the OpenAI models too, so it falls back.
+func TestNamespacesFor_HandleSelectsCatalog(t *testing.T) {
+	openAI := namespacesFor(templateAzureOpenAI, regionGlobalStandard)
+	if got := strings.Join(openAI, ","); got != "azure/global-standard/,azure/" {
+		t.Errorf("azure-openai must search only the azure/ catalog, got %q", got)
+	}
+
+	foundry := namespacesFor(templateAzureAI, regionGlobalStandard)
+	if got := strings.Join(foundry, ","); got != "azure_ai/,azure/global-standard/,azure/" {
+		t.Errorf("azureai-foundry must search azure_ai/ first then fall back, got %q", got)
+	}
+
+	// The tier prefix scopes the azure/ catalog only.
+	if got := strings.Join(namespacesFor(templateAzureAI, regionEU), ","); got != "azure_ai/,azure/eu/,azure/" {
+		t.Errorf("region must apply to azure/ only, got %q", got)
+	}
+}
+
+// TestNamespacesFor_NonAzureTemplateYieldsNothing covers a route that names no
+// Azure template. Returning nil is what stops the policy pricing traffic it has
+// no catalog for.
+func TestNamespacesFor_NonAzureTemplateYieldsNothing(t *testing.T) {
+	for _, handle := range []string{"", "openai", "anthropic", "azure-openai-prod", "  "} {
+		if got := namespacesFor(handle, regionGlobalStandard); got != nil {
+			t.Errorf("handle %q must yield no catalog, got %v", handle, got)
+		}
+		if isAzureTemplate(handle) {
+			t.Errorf("handle %q must not be treated as an Azure template", handle)
+		}
+	}
+	// Case and surrounding space are not the operator's problem.
+	for _, handle := range []string{"Azure-OpenAI", " azureai-foundry "} {
+		if !isAzureTemplate(handle) {
+			t.Errorf("handle %q should be recognised", handle)
+		}
+	}
+}
+
+// TestResolvePricing_NonAzureTemplateNotPriced is the case this policy must not
+// get wrong: attached to a route that is not Azure, it leaves the request
+// unpriced rather than billing it from the Azure catalog.
+func TestResolvePricing_NonAzureTemplateNotPriced(t *testing.T) {
+	p := newPolicy(regionGlobalStandard, map[string]string{})
+	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
+
+	if _, key, _, ok := p.resolvePricing(body, nil, openAIPath, ""); ok {
+		t.Errorf("absent handle must not price, got %q", key)
+	}
+	if _, key, _, ok := p.resolvePricing(body, nil, openAIPath, "openai"); ok {
+		t.Errorf("non-Azure handle must not price, got %q", key)
+	}
+	// Same model, correct handle, prices normally.
+	if _, key, _, ok := p.resolvePricing(body, nil, openAIPath, templateAzureOpenAI); !ok || key != "azure/global-standard/gpt-4o-2024-08-06" {
+		t.Errorf("azure-openai handle should price, got %q (ok=%v)", key, ok)
+	}
+}
+
+// TestResolvePricing_CatalogsAreNotCrossRead asserts the mutual exclusion the
+// handle buys: a Foundry-native model is unreachable from an Azure OpenAI
+// route, so a misattached policy fails loudly instead of inventing a rate.
+func TestResolvePricing_CatalogsAreNotCrossRead(t *testing.T) {
+	p := newPolicy(regionGlobalStandard, map[string]string{})
+	claude := []byte(`{"model":"claude-opus-4-5","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
+
+	if _, key, _, ok := p.resolvePricing(claude, nil, openAIPath, templateAzureOpenAI); ok {
+		t.Errorf("a Foundry-native model must not resolve on an azure-openai route, got %q", key)
+	}
+	if _, key, _, ok := p.resolvePricing(claude, nil, foundryPath, templateAzureAI); !ok || key != "azure_ai/claude-opus-4-5" {
+		t.Errorf("expected azure_ai/claude-opus-4-5, got %q (ok=%v)", key, ok)
+	}
+
+	// An OpenAI model on Foundry still prices, via the azure/ fallback, which
+	// is what keeps the 109 OpenAI models absent from azure_ai/ chargeable.
+	openAIModel := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
+	if _, key, _, ok := p.resolvePricing(openAIModel, nil, foundryPath, templateAzureAI); !ok || key != "azure/global-standard/gpt-4o-2024-08-06" {
+		t.Errorf("expected the azure/ fallback to price it, got %q (ok=%v)", key, ok)
+	}
+}
+
 func TestModelPricing_Unpriced(t *testing.T) {
 	p, _, ok := lookupPricingWithKey(testPricingMap, "cohere-rerank-v4.0-pro", namespacesFor(templateAzureAI, regionGlobalStandard))
 	if !ok {
@@ -515,10 +596,18 @@ func newPolicy(region azureRegion, mappings map[string]string) *AzureLLMCostPoli
 	return &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: m}
 }
 
+// sharedContextWithTemplate mimics what the kernel records for an Azure route.
+func sharedContextWithTemplate(handle string) *policy.SharedContext {
+	return &policy.SharedContext{
+		Metadata: map[string]interface{}{metadataTemplateHandle: handle},
+	}
+}
+
 // azureOpenAIUpstream is the upstream endpoint of an Azure OpenAI resource;
 // tests pass it wherever the provider should resolve to Azure OpenAI.
 // Request paths that select each namespace order.
 const openAIPath = "/az-01/openai/v1/chat/completions"
+
 const foundryPath = "/az-01/models/chat/completions"
 
 func TestAzureLLMCostPolicy_Mode(t *testing.T) {
@@ -537,6 +626,72 @@ func TestAzureLLMCostPolicy_Mode(t *testing.T) {
 // Chat completions — the one endpoint that reports the real model name, so it
 // must price with no configuration at all.
 // ---------------------------------------------------------------------------
+
+// Both response phases must publish the same analytics fields. Only streamed
+// responses used to carry the token counts, so a non-streaming request lost its
+// model id and every count, which the pipeline needs before it emits AI data.
+func TestAnalyticsMetadata_SameOnBothResponsePhases(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
+	req := []byte(`{"model":"apim-4o"}`)
+	const path = "/openai/v1/chat/completions"
+
+	p := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{
+		"apim-4o": {model: "gpt-4o-2024-08-06"},
+	}}
+
+	buffered := p.OnResponseBody(context.Background(), &policy.ResponseContext{
+		SharedContext: sharedContextWithTemplate(templateAzureOpenAI),
+		RequestPath:   path,
+		RequestBody:   &policy.Body{Content: req, Present: true},
+		ResponseBody:  &policy.Body{Content: body, Present: true},
+	}, nil)
+
+	streamed := p.OnResponseBodyChunk(context.Background(), &policy.ResponseStreamContext{
+		SharedContext: sharedContextWithTemplate(templateAzureOpenAI),
+		RequestPath:   path,
+		RequestBody:   &policy.Body{Content: req, Present: true},
+	}, &policy.StreamBody{Chunk: body, EndOfStream: true}, nil)
+
+	bufferedMeta := buffered.(policy.DownstreamResponseModifications).AnalyticsMetadata
+	streamedMeta := streamed.(policy.ForwardResponseChunk).AnalyticsMetadata
+
+	for _, key := range []string{
+		MetadataLLMCost, metadataModelID, metadataPromptTokenCount,
+		metadataCompletionTokenCount, metadataTotalTokenCount,
+	} {
+		bv, bok := bufferedMeta[key]
+		sv, sok := streamedMeta[key]
+		if !bok {
+			t.Errorf("buffered phase is missing %q", key)
+			continue
+		}
+		if !sok {
+			t.Errorf("streamed phase is missing %q", key)
+			continue
+		}
+		if bv != sv {
+			t.Errorf("%q differs: buffered=%v streamed=%v", key, bv, sv)
+		}
+	}
+	if len(bufferedMeta) != len(streamedMeta) {
+		t.Errorf("field count differs: buffered=%d streamed=%d", len(bufferedMeta), len(streamedMeta))
+	}
+}
+
+// An unpriced request reports the cost alone from both phases, so a consumer
+// cannot tell them apart there either.
+func TestAnalyticsMetadata_UnpricedReportsCostOnlyFromBothPhases(t *testing.T) {
+	p := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{}}
+	unpriced := costResult{}
+	got := analyticsFor(unpriced)
+	if len(got) != 1 {
+		t.Errorf("expected only the cost, got %v", got)
+	}
+	if _, ok := got[MetadataLLMCost]; !ok {
+		t.Errorf("cost must always be reported, got %v", got)
+	}
+	_ = p
+}
 
 func TestComputeCost_ChatCompletions_NoConfigNeeded(t *testing.T) {
 	p := newPolicy(regionGlobalStandard, nil)
@@ -768,6 +923,62 @@ func TestComputeCost_StreamingSSE(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Parameter parsing
 // ---------------------------------------------------------------------------
+
+// A trailing chunk that repeats "usage": null or "model": null must not erase
+// what an earlier event supplied. Azure sends content-filter chunks after the
+// usage-bearing one, and a plain overwrite reported a priced call as unpriced.
+func TestMergeSSE_TrailingNullDoesNotEraseEarlierValue(t *testing.T) {
+	const usageEvent = `data: {"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":21,"completion_tokens":1337,"total_tokens":1358}}` + "\n\n"
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			"nulls before usage, the ordinary stream",
+			`data: {"model":"gpt-4o-2024-08-06","usage":null}` + "\n\n" + usageEvent + "data: [DONE]\n\n",
+		},
+		{
+			"usage:null in a trailing filter chunk",
+			usageEvent + `data: {"model":"gpt-4o-2024-08-06","usage":null,"content_filter_results":{}}` + "\n\n" + "data: [DONE]\n\n",
+		},
+		{
+			"model:null in a trailing chunk",
+			usageEvent + `data: {"model":null}` + "\n\n" + "data: [DONE]\n\n",
+		},
+		{
+			"model blank in a trailing chunk",
+			usageEvent + `data: {"model":"","choices":[]}` + "\n\n" + "data: [DONE]\n\n",
+		},
+	}
+
+	p := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{}}
+	for _, c := range cases {
+		res := p.computeCost([]byte(c.body), nil, "/openai/v1/chat/completions", templateAzureOpenAI)
+		if !res.calculated {
+			t.Errorf("%s: expected a priced result, got calculated=false", c.name)
+			continue
+		}
+		if res.modelKey != "azure/global-standard/gpt-4o-2024-08-06" {
+			t.Errorf("%s: model resolved to %q", c.name, res.modelKey)
+		}
+		if res.usage.TotalInputTokens != 21 || res.usage.OutputTokens != 1337 {
+			t.Errorf("%s: tokens lost, in=%d out=%d", c.name, res.usage.TotalInputTokens, res.usage.OutputTokens)
+		}
+	}
+}
+
+// A null for a key no earlier event supplied is still recorded, so the merged
+// body keeps the shape the provider sent.
+func TestMergeSSE_LeadingNullIsPreserved(t *testing.T) {
+	merged, err := normalizeStreamBody([]byte(`data: {"model":"gpt-4o","usage":null}` + "\n\n" + "data: [DONE]\n\n"))
+	if err != nil {
+		t.Fatalf("merge failed: %v", err)
+	}
+	if !strings.Contains(string(merged), `"usage":null`) {
+		t.Errorf("expected usage:null to survive when nothing else supplied it, got %s", merged)
+	}
+}
 
 func TestParseRegion(t *testing.T) {
 	for in, want := range map[string]azureRegion{
@@ -1157,215 +1368,6 @@ func benchStream(b *testing.B, events int) {
 	}
 }
 
-func BenchmarkComputeCost_Streaming_10Events(b *testing.B)  { benchStream(b, 10) }
+func BenchmarkComputeCost_Streaming_10Events(b *testing.B) { benchStream(b, 10) }
+
 func BenchmarkComputeCost_Streaming_200Events(b *testing.B) { benchStream(b, 200) }
-
-// TestNamespacesFor_HandleSelectsCatalog pins the catalog to the route's
-// template. Azure OpenAI cannot serve a Foundry-native model, so it never
-// reads azure_ai/; Foundry serves the OpenAI models too, so it falls back.
-func TestNamespacesFor_HandleSelectsCatalog(t *testing.T) {
-	openAI := namespacesFor(templateAzureOpenAI, regionGlobalStandard)
-	if got := strings.Join(openAI, ","); got != "azure/global-standard/,azure/" {
-		t.Errorf("azure-openai must search only the azure/ catalog, got %q", got)
-	}
-
-	foundry := namespacesFor(templateAzureAI, regionGlobalStandard)
-	if got := strings.Join(foundry, ","); got != "azure_ai/,azure/global-standard/,azure/" {
-		t.Errorf("azureai-foundry must search azure_ai/ first then fall back, got %q", got)
-	}
-
-	// The tier prefix scopes the azure/ catalog only.
-	if got := strings.Join(namespacesFor(templateAzureAI, regionEU), ","); got != "azure_ai/,azure/eu/,azure/" {
-		t.Errorf("region must apply to azure/ only, got %q", got)
-	}
-}
-
-// TestNamespacesFor_NonAzureTemplateYieldsNothing covers a route that names no
-// Azure template. Returning nil is what stops the policy pricing traffic it has
-// no catalog for.
-func TestNamespacesFor_NonAzureTemplateYieldsNothing(t *testing.T) {
-	for _, handle := range []string{"", "openai", "anthropic", "azure-openai-prod", "  "} {
-		if got := namespacesFor(handle, regionGlobalStandard); got != nil {
-			t.Errorf("handle %q must yield no catalog, got %v", handle, got)
-		}
-		if isAzureTemplate(handle) {
-			t.Errorf("handle %q must not be treated as an Azure template", handle)
-		}
-	}
-	// Case and surrounding space are not the operator's problem.
-	for _, handle := range []string{"Azure-OpenAI", " azureai-foundry "} {
-		if !isAzureTemplate(handle) {
-			t.Errorf("handle %q should be recognised", handle)
-		}
-	}
-}
-
-// TestResolvePricing_NonAzureTemplateNotPriced is the case this policy must not
-// get wrong: attached to a route that is not Azure, it leaves the request
-// unpriced rather than billing it from the Azure catalog.
-func TestResolvePricing_NonAzureTemplateNotPriced(t *testing.T) {
-	p := newPolicy(regionGlobalStandard, map[string]string{})
-	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
-
-	if _, key, _, ok := p.resolvePricing(body, nil, openAIPath, ""); ok {
-		t.Errorf("absent handle must not price, got %q", key)
-	}
-	if _, key, _, ok := p.resolvePricing(body, nil, openAIPath, "openai"); ok {
-		t.Errorf("non-Azure handle must not price, got %q", key)
-	}
-	// Same model, correct handle, prices normally.
-	if _, key, _, ok := p.resolvePricing(body, nil, openAIPath, templateAzureOpenAI); !ok || key != "azure/global-standard/gpt-4o-2024-08-06" {
-		t.Errorf("azure-openai handle should price, got %q (ok=%v)", key, ok)
-	}
-}
-
-// TestResolvePricing_CatalogsAreNotCrossRead asserts the mutual exclusion the
-// handle buys: a Foundry-native model is unreachable from an Azure OpenAI
-// route, so a misattached policy fails loudly instead of inventing a rate.
-func TestResolvePricing_CatalogsAreNotCrossRead(t *testing.T) {
-	p := newPolicy(regionGlobalStandard, map[string]string{})
-	claude := []byte(`{"model":"claude-opus-4-5","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
-
-	if _, key, _, ok := p.resolvePricing(claude, nil, openAIPath, templateAzureOpenAI); ok {
-		t.Errorf("a Foundry-native model must not resolve on an azure-openai route, got %q", key)
-	}
-	if _, key, _, ok := p.resolvePricing(claude, nil, foundryPath, templateAzureAI); !ok || key != "azure_ai/claude-opus-4-5" {
-		t.Errorf("expected azure_ai/claude-opus-4-5, got %q (ok=%v)", key, ok)
-	}
-
-	// An OpenAI model on Foundry still prices, via the azure/ fallback, which
-	// is what keeps the 109 OpenAI models absent from azure_ai/ chargeable.
-	openAIModel := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
-	if _, key, _, ok := p.resolvePricing(openAIModel, nil, foundryPath, templateAzureAI); !ok || key != "azure/global-standard/gpt-4o-2024-08-06" {
-		t.Errorf("expected the azure/ fallback to price it, got %q (ok=%v)", key, ok)
-	}
-}
-
-// sharedContextWithTemplate mimics what the kernel records for an Azure route.
-func sharedContextWithTemplate(handle string) *policy.SharedContext {
-	return &policy.SharedContext{
-		Metadata: map[string]interface{}{metadataTemplateHandle: handle},
-	}
-}
-
-// Both response phases must publish the same analytics fields. Only streamed
-// responses used to carry the token counts, so a non-streaming request lost its
-// model id and every count, which the pipeline needs before it emits AI data.
-func TestAnalyticsMetadata_SameOnBothResponsePhases(t *testing.T) {
-	body := []byte(`{"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`)
-	req := []byte(`{"model":"apim-4o"}`)
-	const path = "/openai/v1/chat/completions"
-
-	p := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{
-		"apim-4o": {model: "gpt-4o-2024-08-06"},
-	}}
-
-	buffered := p.OnResponseBody(context.Background(), &policy.ResponseContext{
-		SharedContext: sharedContextWithTemplate(templateAzureOpenAI),
-		RequestPath:   path,
-		RequestBody:   &policy.Body{Content: req, Present: true},
-		ResponseBody:  &policy.Body{Content: body, Present: true},
-	}, nil)
-
-	streamed := p.OnResponseBodyChunk(context.Background(), &policy.ResponseStreamContext{
-		SharedContext: sharedContextWithTemplate(templateAzureOpenAI),
-		RequestPath:   path,
-		RequestBody:   &policy.Body{Content: req, Present: true},
-	}, &policy.StreamBody{Chunk: body, EndOfStream: true}, nil)
-
-	bufferedMeta := buffered.(policy.DownstreamResponseModifications).AnalyticsMetadata
-	streamedMeta := streamed.(policy.ForwardResponseChunk).AnalyticsMetadata
-
-	for _, key := range []string{
-		MetadataLLMCost, metadataModelID, metadataPromptTokenCount,
-		metadataCompletionTokenCount, metadataTotalTokenCount,
-	} {
-		bv, bok := bufferedMeta[key]
-		sv, sok := streamedMeta[key]
-		if !bok {
-			t.Errorf("buffered phase is missing %q", key)
-			continue
-		}
-		if !sok {
-			t.Errorf("streamed phase is missing %q", key)
-			continue
-		}
-		if bv != sv {
-			t.Errorf("%q differs: buffered=%v streamed=%v", key, bv, sv)
-		}
-	}
-	if len(bufferedMeta) != len(streamedMeta) {
-		t.Errorf("field count differs: buffered=%d streamed=%d", len(bufferedMeta), len(streamedMeta))
-	}
-}
-
-// An unpriced request reports the cost alone from both phases, so a consumer
-// cannot tell them apart there either.
-func TestAnalyticsMetadata_UnpricedReportsCostOnlyFromBothPhases(t *testing.T) {
-	p := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{}}
-	unpriced := costResult{}
-	got := analyticsFor(unpriced)
-	if len(got) != 1 {
-		t.Errorf("expected only the cost, got %v", got)
-	}
-	if _, ok := got[MetadataLLMCost]; !ok {
-		t.Errorf("cost must always be reported, got %v", got)
-	}
-	_ = p
-}
-
-// A trailing chunk that repeats "usage": null or "model": null must not erase
-// what an earlier event supplied. Azure sends content-filter chunks after the
-// usage-bearing one, and a plain overwrite reported a priced call as unpriced.
-func TestMergeSSE_TrailingNullDoesNotEraseEarlierValue(t *testing.T) {
-	const usageEvent = `data: {"model":"gpt-4o-2024-08-06","usage":{"prompt_tokens":21,"completion_tokens":1337,"total_tokens":1358}}` + "\n\n"
-
-	cases := []struct {
-		name string
-		body string
-	}{
-		{
-			"nulls before usage, the ordinary stream",
-			`data: {"model":"gpt-4o-2024-08-06","usage":null}` + "\n\n" + usageEvent + "data: [DONE]\n\n",
-		},
-		{
-			"usage:null in a trailing filter chunk",
-			usageEvent + `data: {"model":"gpt-4o-2024-08-06","usage":null,"content_filter_results":{}}` + "\n\n" + "data: [DONE]\n\n",
-		},
-		{
-			"model:null in a trailing chunk",
-			usageEvent + `data: {"model":null}` + "\n\n" + "data: [DONE]\n\n",
-		},
-		{
-			"model blank in a trailing chunk",
-			usageEvent + `data: {"model":"","choices":[]}` + "\n\n" + "data: [DONE]\n\n",
-		},
-	}
-
-	p := &AzureLLMCostPolicy{pricingMap: testPricingMap, modelMappings: map[string]deploymentMapping{}}
-	for _, c := range cases {
-		res := p.computeCost([]byte(c.body), nil, "/openai/v1/chat/completions", templateAzureOpenAI)
-		if !res.calculated {
-			t.Errorf("%s: expected a priced result, got calculated=false", c.name)
-			continue
-		}
-		if res.modelKey != "azure/global-standard/gpt-4o-2024-08-06" {
-			t.Errorf("%s: model resolved to %q", c.name, res.modelKey)
-		}
-		if res.usage.TotalInputTokens != 21 || res.usage.OutputTokens != 1337 {
-			t.Errorf("%s: tokens lost, in=%d out=%d", c.name, res.usage.TotalInputTokens, res.usage.OutputTokens)
-		}
-	}
-}
-
-// A null for a key no earlier event supplied is still recorded, so the merged
-// body keeps the shape the provider sent.
-func TestMergeSSE_LeadingNullIsPreserved(t *testing.T) {
-	merged, err := normalizeStreamBody([]byte(`data: {"model":"gpt-4o","usage":null}` + "\n\n" + "data: [DONE]\n\n"))
-	if err != nil {
-		t.Fatalf("merge failed: %v", err)
-	}
-	if !strings.Contains(string(merged), `"usage":null`) {
-		t.Errorf("expected usage:null to survive when nothing else supplied it, got %s", merged)
-	}
-}

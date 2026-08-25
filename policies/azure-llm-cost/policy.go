@@ -18,21 +18,12 @@ package azurellmcost
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
-	"sync"
 
 	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
-)
-
-const (
-	sseDataPrefix  = "data: "
-	sseDone        = "[DONE]"
-	sseEventPrefix = "event:"
-	streamAccumKey = "azure-llm-cost:stream-accum"
 )
 
 const (
@@ -256,54 +247,6 @@ func (p *AzureLLMCostPolicy) computeCost(responseBody, requestBody []byte, reque
 	return costResult{cost: cost, modelKey: key, usage: usage, calculated: true}
 }
 
-// resolvePricing takes the model name from the first source that resolves:
-//
-//  1. response body's model   real model on chat completions, deployment on v1 /responses
-//  2. request body's model    deployment name, v1 surface
-//  3. deployment path segment legacy surface only
-//
-// Each is tried through its mapping first, so an operator can correct a
-// deployment whose name collides with a real model. Candidates are returned for
-// logging when nothing resolves.
-func (p *AzureLLMCostPolicy) resolvePricing(responseBody, requestBody []byte, requestPath, templateHandle string) (ModelPricing, string, []string, bool) {
-	if !isAzureTemplate(templateHandle) {
-		logNonAzureTemplate(templateHandle)
-		return ModelPricing{}, "", nil, false
-	}
-	prefixes := namespacesFor(templateHandle, p.regionForRequest(requestBody, requestPath))
-
-	var candidates []string
-	add := func(name string) {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return
-		}
-		for _, existing := range candidates {
-			if strings.EqualFold(existing, name) {
-				return
-			}
-		}
-		candidates = append(candidates, name)
-	}
-	add(extractModelName(responseBody))
-	add(extractModelName(requestBody))
-	add(deploymentFromPath(requestPath))
-
-	for _, name := range candidates {
-		if mapped, ok := p.modelMappings[strings.ToLower(name)]; ok {
-			if pricing, key, found := lookupPricingWithKey(p.pricingMap, mapped.model, prefixes); found {
-				return pricing, key, candidates, true
-			}
-			slog.Warn("azure-llm-cost: mapped model has no pricing entry",
-				"deployment", name, "mapped_model", mapped.model)
-		}
-		if pricing, key, found := lookupPricingWithKey(p.pricingMap, name, prefixes); found {
-			return pricing, key, candidates, true
-		}
-	}
-	return ModelPricing{}, "", candidates, false
-}
-
 // templateHandleFrom reads the handle the kernel records for the route.
 func templateHandleFrom(sharedCtx *policy.SharedContext) string {
 	if sharedCtx == nil || sharedCtx.Metadata == nil {
@@ -311,53 +254,6 @@ func templateHandleFrom(sharedCtx *policy.SharedContext) string {
 	}
 	handle, _ := sharedCtx.Metadata[metadataTemplateHandle].(string)
 	return handle
-}
-
-// regionForRequest returns the deployment's tier, or Global Standard.
-func (p *AzureLLMCostPolicy) regionForRequest(requestBody []byte, requestPath string) azureRegion {
-	var unmapped []string
-	for _, deployment := range []string{extractModelName(requestBody), deploymentFromPath(requestPath)} {
-		deployment = strings.ToLower(strings.TrimSpace(deployment))
-		if deployment == "" {
-			continue
-		}
-		if m, ok := p.modelMappings[deployment]; ok {
-			return m.region
-		}
-		unmapped = append(unmapped, deployment)
-	}
-	for _, deployment := range unmapped {
-		logUnmappedDeployment(deployment)
-	}
-	return regionGlobalStandard
-}
-
-// nonAzureTemplateSeen keeps logNonAzureTemplate to once per handle.
-var nonAzureTemplateSeen sync.Map
-
-// logNonAzureTemplate warns that the route names neither Azure template, so the
-// request is left unpriced rather than billed from a guessed catalog.
-func logNonAzureTemplate(templateHandle string) {
-	if _, seen := nonAzureTemplateSeen.LoadOrStore(templateHandle, struct{}{}); seen {
-		return
-	}
-	slog.Warn("azure-llm-cost: route does not use an Azure provider template, not pricing request",
-		"template_handle", templateHandle,
-		"expected", templateAzureOpenAI+" or "+templateAzureAI)
-}
-
-// unmappedDeploymentSeen keeps logUnmappedDeployment to once per deployment.
-var unmappedDeploymentSeen sync.Map
-
-// logUnmappedDeployment warns that no mapping matched, so the tier fell back to
-// Global Standard.
-func logUnmappedDeployment(deployment string) {
-	if _, seen := unmappedDeploymentSeen.LoadOrStore(deployment, struct{}{}); seen {
-		return
-	}
-	slog.Warn("azure-llm-cost: deployment not found in modelMappings, "+
-		"billing at global standard rates",
-		"deployment", deployment)
 }
 
 // setCostMetadata publishes the cost and its status for downstream policies.
@@ -375,117 +271,4 @@ func setCostMetadata(sharedCtx *policy.SharedContext, result costResult) {
 	}
 	sharedCtx.Metadata[MetadataLLMCost] = fmt.Sprintf("%.10f", result.cost)
 	sharedCtx.Metadata[MetadataLLMCostStatus] = status
-}
-
-// extractModelName reads $.model, or $.message.model for Anthropic streams.
-func extractModelName(body []byte) string {
-	if len(body) == 0 {
-		return ""
-	}
-	var probe struct {
-		Model   string `json:"model"`
-		Message *struct {
-			Model string `json:"model"`
-		} `json:"message"`
-	}
-	if err := json.Unmarshal(body, &probe); err != nil {
-		return ""
-	}
-	if probe.Model != "" {
-		return probe.Model
-	}
-	if probe.Message != nil {
-		return probe.Message.Model
-	}
-	return ""
-}
-
-// deploymentFromPath reads {deployment} from /openai/deployments/{deployment}/...
-func deploymentFromPath(requestPath string) string {
-	const marker = "/deployments/"
-	i := strings.Index(requestPath, marker)
-	if i < 0 {
-		return ""
-	}
-	rest := requestPath[i+len(marker):]
-	if end := strings.IndexAny(rest, "/?"); end >= 0 {
-		rest = rest[:end]
-	}
-	return rest
-}
-
-func isSSEContent(b []byte) bool {
-	for _, line := range strings.Split(string(b), "\n") {
-		if strings.HasPrefix(line, sseDataPrefix) || strings.HasPrefix(line, sseEventPrefix) {
-			return true
-		}
-	}
-	return false
-}
-
-// normalizeStreamBody merges SSE events so the parsers work on either shape.
-func normalizeStreamBody(body []byte) ([]byte, error) {
-	if isSSEContent(body) {
-		return mergeSSEEvents(body)
-	}
-	return body, nil
-}
-
-// mergeSSEEvents shallow-merges top-level keys, later events winning, and
-// deep-merges "usage". Later-wins matters: Azure's first chunk has an empty
-// "model" that later chunks replace.
-func mergeSSEEvents(body []byte) ([]byte, error) {
-	var events [][]byte
-	for _, line := range strings.Split(string(body), "\n") {
-		line = strings.TrimRight(line, "\r")
-		var value string
-		switch {
-		case strings.HasPrefix(line, sseDataPrefix):
-			value = strings.TrimPrefix(line, sseDataPrefix)
-		case strings.HasPrefix(line, sseEventPrefix):
-			value = strings.TrimSpace(strings.TrimPrefix(line, sseEventPrefix))
-		default:
-			continue
-		}
-		value = strings.TrimSpace(value)
-		if value == "" || value == sseDone || !json.Valid([]byte(value)) {
-			continue
-		}
-		events = append(events, []byte(value))
-	}
-	return mergeJSONEvents(events)
-}
-
-func mergeJSONEvents(events [][]byte) ([]byte, error) {
-	merged := make(map[string]interface{})
-	for _, data := range events {
-		var event map[string]interface{}
-		if err := json.Unmarshal(data, &event); err != nil {
-			continue
-		}
-		for k, v := range event {
-			if k == "usage" && v != nil {
-				if newMap, ok := v.(map[string]interface{}); ok {
-					if existing, ok := merged[k].(map[string]interface{}); ok {
-						for ek, ev := range newMap {
-							existing[ek] = ev
-						}
-						continue
-					}
-				}
-			}
-			// A later null or blank must not erase what an earlier event supplied.
-			// Azure's trailing filter chunks repeat "model" blank and "usage" null.
-			if v == nil || v == "" {
-				if _, exists := merged[k]; exists {
-					continue
-				}
-			}
-			merged[k] = v
-		}
-	}
-	if len(merged) == 0 {
-		return nil, fmt.Errorf("no valid JSON events found")
-	}
-	return json.Marshal(merged)
 }
