@@ -1,5 +1,5 @@
 name: azure-llm-cost
-version: v0.1.0
+version: v1.0.0
 description: |
   Calculates the cost of Azure OpenAI and Azure AI Foundry calls from the token
   usage in the response, and stores it in SharedContext as "x-llm-cost" (USD).

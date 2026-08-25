@@ -91,15 +91,24 @@ type ModelPricing struct {
 	InputCostPerToken  float64 `json:"input_cost_per_token"`
 	OutputCostPerToken float64 `json:"output_cost_per_token"`
 
-	// Read cost alone means read-only caching, where writes are free. A
-	// creation cost too means Anthropic-style, where writes are billed.
 	// Audio, reasoning and server-tool rates. Absent for most entries, in which
 	// case the corresponding tokens fall back to the text rate.
 	InputCostPerAudioToken      float64 `json:"input_cost_per_audio_token"`
 	OutputCostPerAudioToken     float64 `json:"output_cost_per_audio_token"`
 	OutputCostPerReasoningToken float64 `json:"output_cost_per_reasoning_token"`
-	SearchContextCostPerQuery   float64 `json:"search_context_cost_per_query"`
 
+	// Anthropic is the only vendor with web search in the Azure catalogs and bills one flat rate,
+	// so its three sizes are equal. OpenAI's sizes differ, but the size is a
+	// request-side tool option that the response never reports, so the medium
+	// rate is the documented default rather than a per-call guess.
+	SearchContextCostPerQuery struct {
+		High   float64 `json:"search_context_size_high"`
+		Medium float64 `json:"search_context_size_medium"`
+		Low    float64 `json:"search_context_size_low"`
+	} `json:"search_context_cost_per_query"`
+
+	// Read cost alone means read-only caching, where writes are free. A
+	// creation cost too means Anthropic-style, where writes are billed.
 	CacheReadInputTokenCost             float64 `json:"cache_read_input_token_cost"`
 	CacheCreationInputTokenCost         float64 `json:"cache_creation_input_token_cost"`
 	CacheCreationInputTokenCostAbove1hr float64 `json:"cache_creation_input_token_cost_above_1hr"`
