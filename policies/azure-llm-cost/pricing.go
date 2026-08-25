@@ -97,15 +97,9 @@ type ModelPricing struct {
 	OutputCostPerAudioToken     float64 `json:"output_cost_per_audio_token"`
 	OutputCostPerReasoningToken float64 `json:"output_cost_per_reasoning_token"`
 
-	// Anthropic is the only vendor with web search in the Azure catalogs and bills one flat rate,
-	// so its three sizes are equal. OpenAI's sizes differ, but the size is a
-	// request-side tool option that the response never reports, so the medium
-	// rate is the documented default rather than a per-call guess.
-	SearchContextCostPerQuery struct {
-		High   float64 `json:"search_context_size_high"`
-		Medium float64 `json:"search_context_size_medium"`
-		Low    float64 `json:"search_context_size_low"`
-	} `json:"search_context_cost_per_query"`
+	// The search context cost is a single number for all sizes, or a JSON object with
+	// multiple sizes of context.
+	SearchContextCostPerQuery json.RawMessage `json:"search_context_cost_per_query"`
 
 	// Read cost alone means read-only caching, where writes are free. A
 	// creation cost too means Anthropic-style, where writes are billed.
@@ -127,6 +121,21 @@ type ModelPricing struct {
 	InputCostPerTokenAbove272kPriority       float64 `json:"input_cost_per_token_above_272k_tokens_priority"`
 	OutputCostPerTokenAbove272kPriority      float64 `json:"output_cost_per_token_above_272k_tokens_priority"`
 	CacheReadInputTokenCostAbove272kPriority float64 `json:"cache_read_input_token_cost_above_272k_tokens_priority"`
+}
+
+// searchQueryRate returns the per-query web search rate. The context size is a
+// request-side tool option the response never reports, so the medium rate is
+// charged; a single number applies to every size.
+func (p ModelPricing) searchQueryRate() float64 {
+	var flat float64
+	if json.Unmarshal(p.SearchContextCostPerQuery, &flat) == nil {
+		return flat
+	}
+	var sizes struct {
+		Medium float64 `json:"search_context_size_medium"`
+	}
+	_ = json.Unmarshal(p.SearchContextCostPerQuery, &sizes)
+	return sizes.Medium
 }
 
 // Unpriced reports an entry billed by some unit other than tokens.

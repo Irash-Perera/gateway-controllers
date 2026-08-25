@@ -219,5 +219,5 @@ func calculateCost(u Usage, p ModelPricing) float64 {
 		float64(textOutput)*rates.output +
 		float64(u.AudioOutputTokens)*audioOut +
 		float64(u.ReasoningTokens)*reasoning +
-		float64(u.WebSearchRequests)*p.SearchContextCostPerQuery.Medium
+		float64(u.WebSearchRequests)*p.searchQueryRate()
 }
