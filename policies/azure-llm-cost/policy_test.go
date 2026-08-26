@@ -897,6 +897,77 @@ func TestComputeCost_MappingToUnknownModel(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Streaming
+
+// The Responses API stream nests the completed response one level down, so
+// usage and model sit under "response" rather than at the top level. Captured
+// from a live Azure OpenAI /openai/v1/responses stream.
+func TestComputeCost_ResponsesAPI_StreamingNestsUsage(t *testing.T) {
+	body := `event: response.created
+data: {"type":"response.created","response":{"id":"resp_1","object":"response","status":"in_progress","model":"apim-gpt-5.6-terra","usage":null},"sequence_number":0}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"Could","item_id":"msg_1","output_index":0,"sequence_number":4}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":" you","item_id":"msg_1","output_index":0,"sequence_number":5}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","model":"apim-gpt-5.6-terra","service_tier":"default","usage":{"input_tokens":15,"input_tokens_details":{"cached_tokens":0},"output_tokens":119,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":134}},"sequence_number":125}
+
+`
+	p := newPolicy(regionGlobalStandard, map[string]string{"apim-gpt-5.6-terra": "gpt-5.6-terra"})
+	res := p.computeCost([]byte(body), []byte(`{"model":"apim-gpt-5.6-terra"}`),
+		"/openai/v1/responses", templateAzureOpenAI)
+
+	if !res.calculated {
+		t.Fatal("streamed /responses must be priced; usage is nested under \"response\"")
+	}
+	if res.usage.TotalInputTokens != 15 || res.usage.OutputTokens != 119 {
+		t.Errorf("tokens = in %d out %d, want in 15 out 119",
+			res.usage.TotalInputTokens, res.usage.OutputTokens)
+	}
+	if res.modelKey != "azure/gpt-5.6-terra" {
+		t.Errorf("modelKey = %q, want azure/gpt-5.6-terra", res.modelKey)
+	}
+}
+
+// The nested response also carries the model and the service tier, so both are
+// readable without a mapping.
+func TestNormalizeUsage_NestedResponseEnvelope(t *testing.T) {
+	body := []byte(`{"type":"response.completed","response":{"model":"gpt-5.6-terra","service_tier":"priority","usage":{"input_tokens":15,"output_tokens":119,"total_tokens":134}}}`)
+
+	if got := extractModelName(body); got != "gpt-5.6-terra" {
+		t.Errorf("extractModelName = %q, want gpt-5.6-terra", got)
+	}
+	u, err := normalizeUsage(body)
+	if err != nil {
+		t.Fatalf("normalizeUsage: %v", err)
+	}
+	if u.TotalInputTokens != 15 || u.OutputTokens != 119 {
+		t.Errorf("tokens = in %d out %d, want in 15 out 119", u.TotalInputTokens, u.OutputTokens)
+	}
+	if !u.IsPriority {
+		t.Error("service_tier inside the envelope must still select the priority tier")
+	}
+}
+
+// A top-level usage object must keep winning over a nested one, so the
+// non-streaming shapes are unaffected.
+func TestNormalizeUsage_TopLevelUsageWinsOverNested(t *testing.T) {
+	body := []byte(`{"model":"top","usage":{"prompt_tokens":7,"completion_tokens":3},
+		"response":{"model":"nested","usage":{"input_tokens":999,"output_tokens":999}}}`)
+	u, err := normalizeUsage(body)
+	if err != nil {
+		t.Fatalf("normalizeUsage: %v", err)
+	}
+	if u.TotalInputTokens != 7 || u.OutputTokens != 3 {
+		t.Errorf("tokens = in %d out %d, want in 7 out 3", u.TotalInputTokens, u.OutputTokens)
+	}
+	if got := extractModelName(body); got != "top" {
+		t.Errorf("extractModelName = %q, want top", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 
 // Azure's first chat-completions SSE chunk carries an empty "model"; later

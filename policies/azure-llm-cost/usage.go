@@ -101,9 +101,23 @@ func normalizeUsage(responseBody []byte) (Usage, error) {
 	var resp struct {
 		ServiceTier string    `json:"service_tier"`
 		Usage       *rawUsage `json:"usage"`
+
+		// The Responses API stream wraps the completed response one level down,
+		// so its usage and tier are only reachable through here.
+		Response *struct {
+			ServiceTier string    `json:"service_tier"`
+			Usage       *rawUsage `json:"usage"`
+		} `json:"response"`
 	}
 	if err := json.Unmarshal(responseBody, &resp); err != nil {
 		return Usage{}, err
+	}
+	serviceTier := resp.ServiceTier
+	if resp.Usage == nil && resp.Response != nil {
+		resp.Usage = resp.Response.Usage
+		if serviceTier == "" {
+			serviceTier = resp.Response.ServiceTier
+		}
 	}
 	if resp.Usage == nil {
 		return Usage{}, nil
@@ -131,7 +145,7 @@ func normalizeUsage(responseBody []byte) (Usage, error) {
 
 	usage := Usage{
 		OutputTokens: outputTokens,
-		IsPriority:   resp.ServiceTier == priorityServiceTier || u.ServiceTier == priorityServiceTier,
+		IsPriority:   serviceTier == priorityServiceTier || u.ServiceTier == priorityServiceTier,
 	}
 
 	// Output-side details and server tools are reported the same way under both

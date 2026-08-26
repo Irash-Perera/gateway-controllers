@@ -118,7 +118,8 @@ func logUnmappedDeployment(deployment string) {
 		"deployment", deployment)
 }
 
-// extractModelName reads $.model, or $.message.model for Anthropic streams.
+// extractModelName reads $.model, or $.message.model for Anthropic streams,
+// or $.response.model for the Responses API stream envelope.
 func extractModelName(body []byte) string {
 	if len(body) == 0 {
 		return ""
@@ -128,6 +129,9 @@ func extractModelName(body []byte) string {
 		Message *struct {
 			Model string `json:"model"`
 		} `json:"message"`
+		Response *struct {
+			Model string `json:"model"`
+		} `json:"response"`
 	}
 	if err := json.Unmarshal(body, &probe); err != nil {
 		return ""
@@ -135,8 +139,11 @@ func extractModelName(body []byte) string {
 	if probe.Model != "" {
 		return probe.Model
 	}
-	if probe.Message != nil {
+	if probe.Message != nil && probe.Message.Model != "" {
 		return probe.Message.Model
+	}
+	if probe.Response != nil {
+		return probe.Response.Model
 	}
 	return ""
 }

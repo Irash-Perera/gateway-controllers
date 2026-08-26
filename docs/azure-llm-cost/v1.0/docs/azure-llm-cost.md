@@ -19,7 +19,7 @@ Use this policy for routes that reach an LLM through Azure. For a vendor's own e
 - **Deployment Tier Pricing**: Applies Global Standard, Data Zone Standard, or Standard rates per deployment, since the deployment type is chosen per deployment.
 - **Response Format Independence**: Reads token counts written in either the OpenAI style (`prompt_tokens`) or the Anthropic style (`input_tokens`), so every vendor Azure fronts is handled the same way.
 - **Cache, Category, and Tier Rates**: Charges cached input, cache writes, audio tokens, reasoning tokens, and web search queries at their own rates where the pricing database defines them, along with priority and above-272k rates.
-- **Streaming Support**: Accumulates streamed responses and prices them once, at the end of the stream.
+- **Streaming Support**: Accumulates streamed responses and prices them once, at the end of the stream. Chat completions additionally require `stream_options.include_usage` on the request, since the provider otherwise omits usage from the stream.
 - **Non-Blocking on Failure**: When no price can be determined the cost is set to `0.0000000000`, `x-llm-cost-status` is set to `not_calculated`, and the request proceeds untouched.
 
 ## Configuration
@@ -173,6 +173,7 @@ The second only bites where the response reports the deployment name. There, a d
 
 - Model names must match a pricing key exactly. There is no partial matching, because `gpt-4o` and `gpt-4o-mini` are priced very differently and matching loosely would quietly bill the wrong rate. A model absent from the database is reported unpriced instead.
 - Azure reports dated snapshots such as `gpt-4.1-2025-04-14`, and each needs its own key. A newly released snapshot is unpriced until the database is updated or a mapping points the deployment at a model it already carries.
+- A streamed chat completions call reports no token usage unless the request asks for it with `"stream_options": {"include_usage": true}`. Without it the provider sends no `usage` object at all, on Azure OpenAI and on Azure AI Foundry alike, so the call is recorded as unpriced. The Responses API and the Anthropic Messages API always report usage and need no extra parameter.
 - Image, character, per-second, and code interpreter charges are not applied. A model priced only in those units is reported unpriced.
 - `region` prefixes keys in the `azure/` catalog only. The `azure_ai/` keys shipped today are not tier-scoped, so it has no effect on a Foundry-native model, though it still applies to an OpenAI model hosted on Foundry.
 
