@@ -23,6 +23,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -75,6 +76,14 @@ type KeyComponent struct {
 	Key        string // header name or metadata key (required for header/metadata)
 	Expression string // CEL expression (required for cel type)
 	Fallback   string // value to use when the key is missing (optional; defaults to a "_missing_*_" placeholder)
+
+	// Match, when set, gates whether the quota applies at all: if the component's extracted
+	// value does not match, the entire quota is skipped for the request (not counted, not
+	// enforced). MatchType/MatchValue are kept alongside the compiled Match regexp so
+	// getQuotaCacheKey can fold the raw config into its hash without decompiling the regexp.
+	MatchType  string // "regex" (only supported value currently); empty if no match condition
+	MatchValue string
+	Match      *regexp.Regexp
 }
 
 // LimitConfig holds parsed rate limit configuration
@@ -931,6 +940,34 @@ func parseKeyExtraction(raw interface{}) ([]KeyComponent, error) {
 			return nil, fmt.Errorf("keyExtraction[%d]: type 'cel' requires 'expression' field", i)
 		}
 
+		// Parse optional match condition
+		if matchRaw, ok := compMap["match"]; ok {
+			matchMap, ok := matchRaw.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("keyExtraction[%d].match must be an object", i)
+			}
+			matchType, ok := matchMap["type"].(string)
+			if !ok {
+				return nil, fmt.Errorf("keyExtraction[%d].match.type is required", i)
+			}
+			matchValue, ok := matchMap["value"].(string)
+			if !ok || matchValue == "" {
+				return nil, fmt.Errorf("keyExtraction[%d].match.value is required", i)
+			}
+			switch matchType {
+			case "regex":
+				re, err := regexp.Compile(matchValue)
+				if err != nil {
+					return nil, fmt.Errorf("keyExtraction[%d].match.value is not a valid regex: %w", i, err)
+				}
+				comp.MatchType = matchType
+				comp.MatchValue = matchValue
+				comp.Match = re
+			default:
+				return nil, fmt.Errorf("keyExtraction[%d].match.type %q is not supported", i, matchType)
+			}
+		}
+
 		components = append(components, comp)
 	}
 
@@ -1256,7 +1293,7 @@ func getQuotaCacheKey(base, apiName string, q *QuotaRuntime, index int) string {
 	// Include key extraction
 	h.Write([]byte("keyExtraction:"))
 	for i, comp := range q.KeyExtraction {
-		h.Write([]byte(fmt.Sprintf("[%d:t=%s,k=%s]", i, comp.Type, comp.Key)))
+		h.Write([]byte(fmt.Sprintf("[%d:t=%s,k=%s,m=%s:%s]", i, comp.Type, comp.Key, comp.MatchType, comp.MatchValue)))
 	}
 	h.Write([]byte("|"))
 
@@ -1292,6 +1329,11 @@ func (p *RateLimitPolicy) OnRequestHeaders(ctx context.Context, reqCtx *policy.R
 		}
 		if hasCELKey {
 			slog.Debug("Deferring quota to body phase: CEL key extraction", "quota", quotaName)
+			continue
+		}
+
+		if !p.quotaAppliesFromHeaderCtx(reqCtx, q) {
+			slog.Debug("Quota skipped: match condition not satisfied", "quota", quotaName)
 			continue
 		}
 
@@ -1527,6 +1569,24 @@ func (p *RateLimitPolicy) extractKeyComponentFromHeaderCtx(reqCtx *policy.Reques
 	}
 }
 
+// quotaAppliesFromHeaderCtx reports whether every keyExtraction component with a match
+// condition matches its extracted value, using header-phase context. If false, the quota
+// does not apply to this request at all and must not be counted or enforced. Quotas with a
+// "cel" component are always deferred to the body phase before this is reached, so no
+// component here needs full RequestContext.
+func (p *RateLimitPolicy) quotaAppliesFromHeaderCtx(reqCtx *policy.RequestHeaderContext, q *QuotaRuntime) bool {
+	for _, comp := range q.KeyExtraction {
+		if comp.Match == nil {
+			continue
+		}
+		value := p.extractKeyComponentFromHeaderCtx(reqCtx, comp)
+		if !comp.Match.MatchString(value) {
+			return false
+		}
+	}
+	return true
+}
+
 // OnRequestBody performs rate limit check across all quotas.
 func (p *RateLimitPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.RequestContext,
 	_ map[string]interface{},
@@ -1562,13 +1622,18 @@ func (p *RateLimitPolicy) OnRequestBody(ctx context.Context, reqCtx *policy.Requ
 
 		for i := range p.quotas {
 			q := &p.quotas[i]
-
-			// Extract rate limit key for this quota
-			key := p.extractQuotaKey(reqCtx, q)
 			quotaName := q.Name
 			if quotaName == "" {
 				quotaName = fmt.Sprintf("quota-%d", i)
 			}
+
+			if !p.quotaApplies(reqCtx, q) {
+				slog.Debug("Quota skipped: match condition not satisfied", "quota", quotaName)
+				continue
+			}
+
+			// Extract rate limit key for this quota
+			key := p.extractQuotaKey(reqCtx, q)
 			quotaKeys[quotaName] = key
 
 			slog.Debug("Rate limit key extracted",
@@ -2257,6 +2322,23 @@ func (p *RateLimitPolicy) extractKeyComponent(reqCtx *policy.RequestContext, com
 		slog.Warn("Unknown key component type, using empty string", "type", comp.Type)
 		return ""
 	}
+}
+
+// quotaApplies reports whether every keyExtraction component with a match condition
+// matches its extracted value, using full request context (supports "cel" components).
+// If false, the quota does not apply to this request at all and must not be counted or
+// enforced.
+func (p *RateLimitPolicy) quotaApplies(reqCtx *policy.RequestContext, q *QuotaRuntime) bool {
+	for _, comp := range q.KeyExtraction {
+		if comp.Match == nil {
+			continue
+		}
+		value := p.extractKeyComponent(reqCtx, comp)
+		if !comp.Match.MatchString(value) {
+			return false
+		}
+	}
+	return true
 }
 
 // extractIPAddress extracts client IP from headers
