@@ -69,4 +69,4 @@ systemParameters:
         Path to the model pricing file shipped with the gateway. This is the
         same file the llm-cost policy uses. Gateway admins can override it in
         config.toml.
-      "wso2/defaultValue": "${config.policy_configurations.azure_llm_cost_v0.pricing_file}"
+      "wso2/defaultValue": "${config.policy_configurations.azure_llm_cost_v1.pricing_file}"
