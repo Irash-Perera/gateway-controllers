@@ -7,7 +7,7 @@ title: "Overview"
 
 The Azure LLM Cost policy calculates the monetary cost of an LLM API call made through **Azure OpenAI** or **Azure AI Foundry** at response time and stores the result in `SharedContext.Metadata`. The cost is not exposed as a response header, so it is only available to other policies in the same pipeline, such as the [LLM Cost Based Ratelimit](../../../llm-cost-based-ratelimit/v1.0/docs/llm-cost-based-ratelimit.md) policy.
 
-Azure differs from other providers in one way that matters here: you never call a model by name, you call a *deployment*, which is your own alias for a model instance. Because the pricing database is keyed by model name, the policy needs to know which model sits behind each deployment. That mapping is the only configuration it requires.
+Azure differs from other providers in one way that matters here: you never call a model by name, you call a *deployment*, which is your own alias for a model instance. Because the pricing database is keyed by model name, the policy needs to know which model sits behind each deployment. That model-deployment mapping and the deployed region are the only configurations it requires.
 
 Use this policy for routes that reach an LLM through Azure. For a vendor's own endpoint, use the [LLM Cost](../../../llm-cost/v1.1/docs/llm-cost.md) policy instead. The endpoint decides which applies, not the model: Claude served by Azure AI Foundry belongs to this policy, Claude served by Anthropic directly belongs to the other. Never attach both to the same route, as they write to the same metadata keys.
 
