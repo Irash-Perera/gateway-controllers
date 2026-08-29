@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/wso2/api-platform/sdk/ai/llmusage"
 	policy "github.com/wso2/api-platform/sdk/core/policy/v1alpha2"
@@ -134,6 +135,27 @@ type costResult struct {
 	calculated       bool
 }
 
+// resourcePathFrom derives the path resourceMappings are matched against. The
+// route's declared path collapses to "/*" when the provider allows everything,
+// so the called URL is used instead, with the API's context trimmed off. What
+// remains still carries any pathParam value, which sits after the context.
+func resourcePathFrom(sc *policy.SharedContext, requestPath string) string {
+	if i := strings.IndexByte(requestPath, '?'); i >= 0 {
+		requestPath = requestPath[:i]
+	}
+	if sc == nil {
+		return requestPath
+	}
+	ctx := strings.ReplaceAll(sc.APIContext, "$version", sc.APIVersion)
+	if ctx != "" && ctx != "/" {
+		requestPath = strings.TrimPrefix(requestPath, ctx)
+	}
+	if !strings.HasPrefix(requestPath, "/") {
+		requestPath = "/" + requestPath
+	}
+	return requestPath
+}
+
 // price resolves usage, looks up the model and computes the cost. Every failure
 // yields an uncalculated result and leaves the response untouched.
 func (p *LLMCostPolicy) price(sc *policy.SharedContext, body, requestBody []byte, requestPath string) costResult {
@@ -142,7 +164,7 @@ func (p *LLMCostPolicy) price(sc *policy.SharedContext, body, requestBody []byte
 		return costResult{}
 	}
 
-	extracted, err := llmusage.Get(sc, body, requestBody, requestPath)
+	extracted, err := llmusage.Get(sc, body, requestBody, resourcePathFrom(sc, requestPath))
 	if err != nil {
 		slog.Warn("llm-cost: could not extract usage", "path", requestPath, "error", err)
 		return costResult{}

@@ -428,3 +428,78 @@ func TestBedrockModelResolutionAcrossResponseShapes(t *testing.T) {
 		})
 	}
 }
+
+// runResponseInContext drives a response for an API published under a context,
+// so the resource path the policy derives is exercised rather than assumed.
+func runResponseInContext(t *testing.T, p *llmcost.LLMCostPolicy, handle string,
+	body []byte, requestPath, apiContext, apiVersion string) (string, string) {
+	t.Helper()
+
+	sc := &policy.SharedContext{
+		APIContext: apiContext,
+		APIVersion: apiVersion,
+		Metadata:   map[string]interface{}{llmusage.MetadataTemplateHandle: handle},
+	}
+	respCtx := &policy.ResponseStreamContext{SharedContext: sc, RequestPath: requestPath}
+
+	p.OnResponseBodyChunk(context.Background(), respCtx,
+		&policy.StreamBody{Chunk: body, EndOfStream: true, Index: 0}, nil)
+
+	cost, _ := sc.Metadata[llmcost.MetadataLLMCost].(string)
+	status, _ := sc.Metadata[llmcost.MetadataLLMCostStatus].(string)
+	return cost, status
+}
+
+// A provider set to allow every path publishes one catch-all operation, so the
+// called URL is the only thing that still identifies the resource.
+func TestResponsesPricedUnderAPIContext(t *testing.T) {
+	body := []byte(`{"model":"gpt-4.1-2025-04-14","usage":{"input_tokens":1000,"output_tokens":500,"total_tokens":1500}}`)
+	const wantCost = "0.0060000000"
+
+	tests := []struct {
+		name        string
+		requestPath string
+		apiContext  string
+		apiVersion  string
+	}{
+		{"no context", "/responses", "", ""},
+		{"context", "/openai-01/responses", "/openai-01", ""},
+		{"versioned context", "/openai-01/v1/responses", "/openai-01/$version", "v1"},
+		{"query string", "/openai-01/responses?stream=false", "/openai-01", ""},
+		{"context only", "/responses", "/", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loadShippedTemplate(t, "openai", "openai-template.yaml")
+			p := newTestPolicy(t)
+
+			cost, status := runResponseInContext(t, p, "openai", body, tt.requestPath, tt.apiContext, tt.apiVersion)
+
+			if status != llmcost.CostStatusCalculated {
+				t.Fatalf("status = %q, want %q", status, llmcost.CostStatusCalculated)
+			}
+			if cost != wantCost {
+				t.Fatalf("cost = %q, want %q", cost, wantCost)
+			}
+		})
+	}
+}
+
+// Trimming the context must leave the part a pathParam identifier reads the
+// model from intact.
+func TestPathParamModelSurvivesContextTrim(t *testing.T) {
+	loadShippedTemplate(t, "gemini", "gemini-template.yaml")
+	p := newTestPolicy(t)
+
+	body := []byte(`{"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"totalTokenCount":15}}`)
+	path := "/gemini-01/v1beta/models/gemini-1.5-flash:generateContent"
+
+	cost, status := runResponseInContext(t, p, "gemini", body, path, "/gemini-01", "")
+
+	if status != llmcost.CostStatusCalculated {
+		t.Fatalf("status = %q, want %q", status, llmcost.CostStatusCalculated)
+	}
+	if cost == "" || cost == "0.0000000000" {
+		t.Fatalf("cost = %q, want a priced value", cost)
+	}
+}
