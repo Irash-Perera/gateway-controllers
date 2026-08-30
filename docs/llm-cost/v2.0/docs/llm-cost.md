@@ -28,7 +28,7 @@ Use this policy when you need to:
 - **Prices more than plain tokens**: Prompt caching, reasoning tokens, and audio and image tokens are billed at their own rates. Charges that are not token counts at all, such as web search or grounding calls, are added by a per-provider calculator where the pricing file defines a rate.
 - **Follows the pricing file**: Large-context tiers and cheaper or premium service tiers are applied when the model's pricing entry defines them, and the standard rate is used when it does not.
 - **Never blocks a request**: If the cost cannot be worked out, it is reported as zero with a status saying so, and the response is passed through untouched.
-- **Publishes analytics**: The cost, the model, and the token counts are sent to analytics alongside the request.
+- **Publishes analytics**: The cost is sent to analytics for every call. The model and token counts are also sent when pricing succeeded; analytics collects those independently in any case.
 
 ## Configuration
 
@@ -44,7 +44,7 @@ This policy has no user parameters. Everything is configured by the gateway admi
 
 ```toml
 [policy_configurations.llm_cost_v2]
-pricing_file = "/etc/gateway/pricing.json"
+pricing_file = "/etc/policy-engine/llm-pricing/model_prices.json"
 ```
 
 **Note:**
@@ -98,7 +98,7 @@ This policy runs in the response phase. Place it after any policy that consumes 
 
 ### Example 1: Attach to a Provider
 
-The `template` field selects the `LlmProviderTemplate` used to read usage. Nothing else needs configuring:
+The `template` field selects the `LlmProviderTemplate` used to read usage. Nothing else is needed on the provider itself, given the `pricing_file` the gateway administrator has set:
 
 ```yaml
 apiVersion: gateway.api-platform.wso2.com/v1
