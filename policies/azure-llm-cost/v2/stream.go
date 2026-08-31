@@ -17,6 +17,7 @@
 package azurellmcost
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -51,24 +52,51 @@ func normalizeStreamBody(body []byte) ([]byte, error) {
 // "model" that later chunks replace.
 func mergeSSEEvents(body []byte) ([]byte, error) {
 	var events [][]byte
+	var fields [][]byte
+
+	// An event may split its payload over several data fields, joined on dispatch.
+	dispatch := func() {
+		for _, payload := range eventPayloads(fields) {
+			if json.Valid(payload) {
+				events = append(events, payload)
+			}
+		}
+		fields = nil
+	}
+
 	for _, line := range strings.Split(string(body), "\n") {
 		line = strings.TrimRight(line, "\r")
-		var value string
 		switch {
+		case strings.TrimSpace(line) == "":
+			dispatch()
 		case strings.HasPrefix(line, sseDataPrefix):
-			value = strings.TrimPrefix(line, sseDataPrefix)
+			value := strings.TrimSpace(strings.TrimPrefix(line, sseDataPrefix))
+			if value == "" || value == sseDone {
+				continue
+			}
+			fields = append(fields, []byte(value))
 		case strings.HasPrefix(line, sseEventPrefix):
-			value = strings.TrimSpace(strings.TrimPrefix(line, sseEventPrefix))
-		default:
-			continue
+			value := strings.TrimSpace(strings.TrimPrefix(line, sseEventPrefix))
+			if value != "" && value != sseDone && json.Valid([]byte(value)) {
+				events = append(events, []byte(value))
+			}
 		}
-		value = strings.TrimSpace(value)
-		if value == "" || value == sseDone || !json.Valid([]byte(value)) {
-			continue
-		}
-		events = append(events, []byte(value))
 	}
+	dispatch()
+
 	return mergeJSONEvents(events)
+}
+
+// eventPayloads returns the newline-joined form the stream format defines, or
+// each field alone for streams that pack a whole object into every field.
+func eventPayloads(fields [][]byte) [][]byte {
+	if len(fields) < 2 {
+		return fields
+	}
+	if joined := bytes.Join(fields, []byte("\n")); json.Valid(joined) {
+		return [][]byte{joined}
+	}
+	return fields
 }
 
 func mergeJSONEvents(events [][]byte) ([]byte, error) {
