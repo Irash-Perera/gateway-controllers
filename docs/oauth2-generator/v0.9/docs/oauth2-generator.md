@@ -7,10 +7,8 @@ title: "Overview"
 
 The **OAuth2 Generator** policy generates an upstream credential and injects
 it into a configurable request header before the request is forwarded to the
-backend. It is the policy the gateway attaches when an LLM Provider, LLM
-Proxy, or MCP resource's `upstream.auth.type` (or `provider.auth.type`) is
-set to `oauth2` — but like any other gateway policy, it can also be attached
-directly (via `policies:`/`operationPolicies:`) to any API kind.
+backend. It can be attached (via `policies:`/`operationPolicies:`) to any
+API kind.
 
 Configure exactly one of two mutually exclusive auth paths:
 
@@ -50,16 +48,12 @@ supports proxying and custom TLS trust (`proxyURL`/`tlsCaCert`/
   proxied request's own upstream connection
 - Extra headers (`tokenRequestHeaders`) and extra grant/body parameters
   (`tokenRequestParams`, e.g. `scope`) on the token request itself
-- `policyName`/`policyVersion` let `type: oauth2` (and `type: api-key`) on an
-  LLM/MCP resource point at a fork or a specific major version of this
-  policy instead of the built-in default
 
 ## Configuration
 
-This policy has two levels of configuration: **user parameters**, set per-API
-(or via an LLM/MCP resource's `upstream.auth`/`provider.auth` convenience
-fields), and **system parameters**, set by the gateway operator in
-`config.toml` and shared across every policy instance.
+This policy has two levels of configuration: **user parameters**, set per-API,
+and **system parameters**, set by the gateway operator in `config.toml` and
+shared across every policy instance.
 
 ### User Parameters (API Definition)
 
@@ -86,13 +80,6 @@ fields), and **system parameters**, set by the gateway operator in
 | `proxyURL` | string | No | `""` | Explicit HTTP/HTTPS proxy URL for the token-endpoint call only (e.g. `"http://user:pass@proxy.internal:8080"`) — independent of the proxied request's own upstream connection. Defaults to the standard `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` environment variables when omitted. |
 | `tlsCaCert` | string | No | `""` | PEM-encoded CA certificate **content** to trust for the token endpoint's TLS connection — for a private/internal CA (on-prem IdPs, TLS-inspecting corporate proxies). This is the certificate content itself, not a filesystem path; supply it via a secret reference (e.g. `{{ secret "handle" }}`) rather than a literal value. Once set, the token endpoint's TLS connection trusts *only* the CA(s) given here, not the system's default public CAs as well — if the endpoint's certificate chain also needs a public root/intermediate to validate, concatenate that certificate into this same value too (multiple PEM certificates in one value are supported, to trust more than one CA). |
 | `tlsInsecureSkipVerify` | boolean | No | `false` | Skips TLS certificate verification for the token-endpoint call. Only ever use this in local/throwaway test setups, never against a real identity provider. |
-
-> **Deprecated fields.** `header`/`value` on an LLM/MCP resource's
-> `upstream.auth` (`type: api-key`) are deprecated in favor of `policyParams`
-> — they still work as a fallback when `policyParams` is omitted, but
-> configuring both at once is rejected. `type: oauth2` never had typed
-> fields of its own; `policyParams` (this table) is the only configuration
-> surface for it.
 
 ### System Parameters (From config.toml)
 
@@ -188,36 +175,7 @@ spec:
       path: /orders
 ```
 
-### Example 2: LLM Provider Upstream Auth via the CRD Convenience Field
-
-For an LLM Provider (or LLM Proxy `provider`, or MCP resource), the same
-policy is attached implicitly by setting `upstream.auth.type: oauth2`:
-
-```yaml
-apiVersion: gateway.api-platform.wso2.com/v1
-kind: LlmProvider
-metadata:
-  name: openai-provider
-spec:
-  displayName: OpenAI Provider
-  version: v1.0
-  template: openai
-  context: /openai/latest
-  upstream:
-    url: https://api.openai.com
-    auth:
-      type: oauth2
-      policyParams:
-        tokenEndpoint: https://idp.example.com/oauth2/token
-        clientId: gateway-client
-        clientSecret: '{{ secret "openai-client-secret" }}'
-        cacheStrategy: redis
-        tokenPurgeStatusCodes: [401, 403]
-  accessControl:
-    mode: allow_all
-```
-
-### Example 3: Directly Supplied Static Token, Custom Header
+### Example 2: Directly Supplied Static Token, Custom Header
 
 ```yaml
   policies:
@@ -229,7 +187,7 @@ spec:
         valuePrefix: ""
 ```
 
-### Example 4: Password Grant with Custom Retry/Timeout Tuning
+### Example 3: Password Grant with Custom Retry/Timeout Tuning
 
 ```yaml
   policies:
@@ -246,7 +204,7 @@ spec:
         tokenRequestMaxRetries: 3
 ```
 
-### Example 5: Trusting a Private CA for the Token Endpoint
+### Example 4: Trusting a Private CA for the Token Endpoint
 
 ```yaml
   policies:
