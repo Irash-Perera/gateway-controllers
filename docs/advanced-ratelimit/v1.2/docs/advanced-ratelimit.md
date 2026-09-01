@@ -122,7 +122,7 @@ Each entry in the `quotas` array defines an independent rate limit bucket:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `type` | string | Yes | Type of component: `"header"`, `"metadata"`, `"authproperty"`, `"ip"`, `"apiname"`, `"apiversion"`, `"routename"`, `"cel"`, `"constant"`. |
-| `key` | string | Conditional | Header name, metadata key, or auth property (claim) name. Required for `header`, `metadata`, and `authproperty` types (1-256 chars). |
+| `key` | string | Conditional | Header name, metadata key, auth property (claim) name, or fixed value. Required for `header`, `metadata`, `authproperty`, and `constant` types (1-256 chars); for `constant`, `key` is the fixed value itself. |
 | `expression` | string | Conditional | CEL expression returning a string. Required for `cel` type (1-1024 chars). |
 | `match` | `Match` object | No | Optional match condition gating this component. See **Match Configuration** below. |
 
