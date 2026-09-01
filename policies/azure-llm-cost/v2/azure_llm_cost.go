@@ -180,11 +180,6 @@ func (p *AzureLLMCostPolicy) computeCost(sc *policy.SharedContext, body, request
 		slog.Warn("azure-llm-cost: empty response body, skipping cost calculation")
 		return costResult{}
 	}
-	body, mergeErr := normalizeStreamBody(body)
-	if mergeErr != nil {
-		slog.Warn("azure-llm-cost: failed to prepare response body", "error", mergeErr)
-		return costResult{}
-	}
 	v := selectVendor(templateHandleFrom(sc))
 	if v == nil {
 		return costResult{}
