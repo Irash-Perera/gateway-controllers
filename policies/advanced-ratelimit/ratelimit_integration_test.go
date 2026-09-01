@@ -1221,7 +1221,7 @@ func TestAuthPropertyKeyExtraction_EndToEnd(t *testing.T) {
 }
 
 // TestAuthPropertyAndMatch_Combined proves authproperty and match compose cleanly — this
-// is the actual combined shape needed for Hilton's case: bucket AND filter by a JWT claim
+// is the combined shape needed when a customer wants to bucket AND filter by a JWT claim
 // that is only reachable via AuthContext, not a header.
 func TestAuthPropertyAndMatch_Combined(t *testing.T) {
 	basePolicy := func(lim *fakeLimiter) *RateLimitPolicy {
