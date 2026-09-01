@@ -72,7 +72,7 @@ var globalLimiterCache = &limiterCache{
 
 // KeyComponent represents a single component for building rate limit keys
 type KeyComponent struct {
-	Type       string // "header", "metadata", "ip", "apiname", "apiversion", "routename", "cel"
+	Type       string // "header", "metadata", "authproperty", "ip", "apiname", "apiversion", "routename", "cel"
 	Key        string // header name or metadata key (required for header/metadata)
 	Expression string // CEL expression (required for cel type)
 	Fallback   string // value to use when the key is missing (optional; defaults to a "_missing_*_" placeholder)
@@ -1534,6 +1534,19 @@ func (p *RateLimitPolicy) extractKeyComponentFromHeaderCtx(reqCtx *policy.Reques
 		slog.Warn("Metadata key not found for rate limit key, using placeholder", "key", comp.Key, "type", comp.Type, "placeholder", placeholder)
 		return placeholder
 
+	case "authproperty":
+		if reqCtx.AuthContext != nil {
+			if val, ok := reqCtx.AuthContext.Properties[comp.Key]; ok && val != "" {
+				return val
+			}
+		}
+		if comp.Fallback != "" {
+			return comp.Fallback
+		}
+		placeholder := fmt.Sprintf("_missing_authproperty_%s_", comp.Key)
+		slog.Warn("Auth property not found for rate limit key, using placeholder", "key", comp.Key, "type", comp.Type, "placeholder", placeholder)
+		return placeholder
+
 	case "ip":
 		return p.extractIPAddress(reqCtx.DownstreamHeaders())
 
@@ -2281,6 +2294,19 @@ func (p *RateLimitPolicy) extractKeyComponent(reqCtx *policy.RequestContext, com
 		}
 		placeholder := fmt.Sprintf("_missing_metadata_%s_", comp.Key)
 		slog.Warn("Metadata key not found for rate limit key, using placeholder", "key", comp.Key, "type", comp.Type, "placeholder", placeholder)
+		return placeholder
+
+	case "authproperty":
+		if reqCtx.AuthContext != nil {
+			if val, ok := reqCtx.AuthContext.Properties[comp.Key]; ok && val != "" {
+				return val
+			}
+		}
+		if comp.Fallback != "" {
+			return comp.Fallback
+		}
+		placeholder := fmt.Sprintf("_missing_authproperty_%s_", comp.Key)
+		slog.Warn("Auth property not found for rate limit key, using placeholder", "key", comp.Key, "type", comp.Type, "placeholder", placeholder)
 		return placeholder
 
 	case "ip":

@@ -13,7 +13,7 @@ The Rate Limiting policy controls the rate of requests to your APIs by enforcing
 - Weighted rate limiting via cost parameter
 - Post-response cost extraction for dynamic rate limiting (e.g., LLM token usage)
 - Multiple concurrent limits (e.g., 10/second AND 1000/hour)
-- Flexible key extraction (headers, metadata, IP, API name, route name)
+- Flexible key extraction (headers, metadata, auth-context/JWT properties, IP, API name, route name)
 - Conditional key matching — restrict a quota to requests whose key component matches a pattern; non-matching requests bypass the quota entirely, with no counting or enforcement
 - Three storage backends: in-memory (single instance), Redis (distributed, exact), or Redis-local-async (distributed, local-first counting with asynchronous Redis reconcile — lower per-request latency and Redis load, with a small bounded overshoot)
 - Shared Redis client across all rate-limit policy instances (one connection pool per Redis endpoint per replica)
@@ -121,14 +121,15 @@ Each entry in the `quotas` array defines an independent rate limit bucket:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `type` | string | Yes | Type of component: `"header"`, `"metadata"`, `"ip"`, `"apiname"`, `"apiversion"`, `"routename"`, `"cel"`, `"constant"`. |
-| `key` | string | Conditional | Header name or metadata key. Required for `header` and `metadata` types (1-256 chars). |
+| `type` | string | Yes | Type of component: `"header"`, `"metadata"`, `"authproperty"`, `"ip"`, `"apiname"`, `"apiversion"`, `"routename"`, `"cel"`, `"constant"`. |
+| `key` | string | Conditional | Header name, metadata key, or auth property (claim) name. Required for `header`, `metadata`, and `authproperty` types (1-256 chars). |
 | `expression` | string | Conditional | CEL expression returning a string. Required for `cel` type (1-1024 chars). |
 | `match` | `Match` object | No | Optional match condition gating this component. See **Match Configuration** below. |
 
 **Key extraction types:**
 - `header`: Extract from HTTP header (requires `key` field)
 - `metadata`: Extract from SharedContext.Metadata (requires `key` field)
+- `authproperty`: Extract from SharedContext.AuthContext.Properties — a claim resolved by an earlier auth policy such as `jwt-auth` (requires `key` field, the claim name)
 - `ip`: Extract client IP from X-Forwarded-For/X-Real-IP headers
 - `apiname`: Use API name from context
 - `apiversion`: Use API version from context
@@ -161,6 +162,10 @@ Each entry in the `quotas` array defines an independent rate limit bucket:
 > These are treated as **different rate limit buckets** with separate counters. If you change the component order in your configuration, it will effectively reset all rate limit counters for that policy.
 >
 > **Best Practice:** Maintain consistent component ordering across all environments and configuration updates to avoid unexpected rate limit resets.
+
+> **Important: authproperty vs. header/metadata**
+>
+> `authproperty` reads a value already resolved by an earlier authentication policy — for example, `jwt-auth` extracts every non-standard JWT claim into `AuthContext.Properties[claimName]` automatically, for every successfully authenticated request, regardless of any optional auth-policy configuration. This is the only `keyExtraction` type that can reach a JWT claim that isn't also forwarded as a header or written to `SharedContext.Metadata` — `header` and `metadata` cannot see it. Use `authproperty` when the value you want to key or filter by only exists inside a verified token, not on the wire as a plain header.
 
 #### Match Configuration
 
@@ -704,6 +709,48 @@ spec:
 ```
 
 With this configuration, a request with `X-App-ID: guest-42` or `X-App-ID: channel-partner` is counted against the 100/minute quota. A request with any other `X-App-ID` (e.g. an internal application) is not counted or throttled by this quota at all — it is treated as if the quota were not configured.
+
+### Example 12: Conditional Rate Limiting by a JWT Claim (authproperty + match)
+
+The same conditional-throttling need as Example 11, but for an application ID that is only available as a custom claim inside a JWT — not sent as a header. Combines `authproperty` (to reach the claim) with `match` (to apply the quota only to matching applications). Requires `jwt-auth` (or another auth policy that populates `AuthContext.Properties`) to run before `advanced-ratelimit` in the policy chain:
+
+```yaml
+apiVersion: gateway.api-platform.wso2.com/v1
+kind: RestApi
+metadata:
+  name: hotel-booking-api-v1.0
+spec:
+  displayName: Hotel-Booking-API
+  version: v1.0
+  context: /booking
+  upstream:
+    main:
+      url: https://booking-service:8080
+  operations:
+    - method: POST
+      path: /checkout
+      policies:
+        - name: jwt-auth
+          version: v1
+        - name: advanced-ratelimit
+          version: v1
+          params:
+            quotas:
+              - name: guest-and-partner-checkout
+                limits:
+                  - limit: 100
+                    duration: "1m"
+                keyExtraction:
+                  - type: authproperty
+                    key: app_id
+                    match:
+                      type: regex
+                      value: "^(guest-.*|channel-partner)$"
+    - method: GET
+      path: /availability
+```
+
+`jwt-auth` validates the token and automatically extracts the `app_id` claim into `AuthContext.Properties` (no extra auth-policy configuration needed). `advanced-ratelimit` then reads `app_id` from there: a request whose claim matches `guest-*` or `channel-partner` is counted against the 100/minute quota and bucketed per application; a request with any other `app_id` is not counted or throttled by this quota at all — the claim never needs to be forwarded as a header for this to work.
 
 ## How it Works
 

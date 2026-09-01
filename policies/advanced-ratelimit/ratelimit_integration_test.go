@@ -1093,6 +1093,193 @@ func TestKeyExtractionHeaderPhase(t *testing.T) {
 	})
 }
 
+// TestAuthPropertyKeyExtraction covers the "authproperty" keyExtraction type — reads a
+// value from SharedContext.AuthContext.Properties, populated by auth policies like jwt-auth
+// from non-standard JWT claims (e.g. a custom "app_id" claim), which is NOT reachable via
+// "header" or "metadata".
+func TestAuthPropertyKeyExtraction(t *testing.T) {
+	p := &RateLimitPolicy{routeName: "route-main"}
+
+	t.Run("present auth property is returned", func(t *testing.T) {
+		hctx := &policy.RequestHeaderContext{
+			SharedContext: &policy.SharedContext{
+				Metadata: map[string]interface{}{},
+				AuthContext: &policy.AuthContext{
+					Authenticated: true,
+					Properties:    map[string]string{"app_id": "guest-42"},
+				},
+			},
+			Headers: policy.NewHeaders(nil),
+		}
+		got := p.extractKeyComponentFromHeaderCtx(hctx, KeyComponent{Type: "authproperty", Key: "app_id"})
+		if got != "guest-42" {
+			t.Fatalf("expected guest-42, got %q", got)
+		}
+	})
+
+	t.Run("missing AuthContext falls back to placeholder when no Fallback set", func(t *testing.T) {
+		hctx := &policy.RequestHeaderContext{
+			SharedContext: &policy.SharedContext{Metadata: map[string]interface{}{}},
+			Headers:       policy.NewHeaders(nil),
+		}
+		got := p.extractKeyComponentFromHeaderCtx(hctx, KeyComponent{Type: "authproperty", Key: "app_id"})
+		if got != "_missing_authproperty_app_id_" {
+			t.Fatalf("expected placeholder, got %q", got)
+		}
+	})
+
+	t.Run("missing claim uses Fallback when set", func(t *testing.T) {
+		hctx := &policy.RequestHeaderContext{
+			SharedContext: &policy.SharedContext{
+				Metadata:    map[string]interface{}{},
+				AuthContext: &policy.AuthContext{Authenticated: true, Properties: map[string]string{}},
+			},
+			Headers: policy.NewHeaders(nil),
+		}
+		got := p.extractKeyComponentFromHeaderCtx(hctx, KeyComponent{Type: "authproperty", Key: "app_id", Fallback: "unknown-app"})
+		if got != "unknown-app" {
+			t.Fatalf("expected fallback unknown-app, got %q", got)
+		}
+	})
+
+	t.Run("does not read from Metadata even if same key exists there", func(t *testing.T) {
+		// Guards against accidentally aliasing authproperty to the metadata map.
+		hctx := &policy.RequestHeaderContext{
+			SharedContext: &policy.SharedContext{
+				Metadata:    map[string]interface{}{"app_id": "from-metadata-not-auth"},
+				AuthContext: &policy.AuthContext{Authenticated: true, Properties: map[string]string{"app_id": "from-auth-context"}},
+			},
+			Headers: policy.NewHeaders(nil),
+		}
+		got := p.extractKeyComponentFromHeaderCtx(hctx, KeyComponent{Type: "authproperty", Key: "app_id"})
+		if got != "from-auth-context" {
+			t.Fatalf("expected value from AuthContext.Properties, got %q", got)
+		}
+	})
+
+	t.Run("full-context extraction (extractKeyComponent) behaves the same as header-phase", func(t *testing.T) {
+		reqCtx := &policy.RequestContext{
+			SharedContext: &policy.SharedContext{
+				Metadata: map[string]interface{}{},
+				AuthContext: &policy.AuthContext{
+					Authenticated: true,
+					Properties:    map[string]string{"app_id": "channel-partner"},
+				},
+			},
+			Headers: policy.NewHeaders(nil),
+		}
+		got := p.extractKeyComponent(reqCtx, KeyComponent{Type: "authproperty", Key: "app_id"})
+		if got != "channel-partner" {
+			t.Fatalf("expected channel-partner, got %q", got)
+		}
+	})
+}
+
+// TestAuthPropertyKeyExtraction_EndToEnd proves authproperty works through the actual
+// policy entrypoint (OnRequestHeaders), not just the extraction helper — mirrors a JWT
+// carrying a custom "app_id" claim, which jwt-auth would already have written into
+// AuthContext.Properties before advanced-ratelimit runs.
+func TestAuthPropertyKeyExtraction_EndToEnd(t *testing.T) {
+	lim := &fakeLimiter{allowNFn: func(ctx context.Context, key string, n int64) (*limiter.Result, error) {
+		if key != "guest-42" {
+			t.Fatalf("expected limiter key %q derived from AuthContext.Properties, got %q", "guest-42", key)
+		}
+		return newResult(true, 10, 9, 0, time.Minute), nil
+	}}
+	p := &RateLimitPolicy{
+		quotas: []QuotaRuntime{{
+			Name:          "per-app",
+			KeyExtraction: []KeyComponent{{Type: "authproperty", Key: "app_id"}},
+			Limiter:       lim,
+			Limits:        []LimitConfig{{Limit: 10, Duration: time.Minute}},
+		}},
+		routeName:      "route-main",
+		statusCode:     429,
+		responseBody:   `{"error":"limited"}`,
+		responseFormat: "json",
+		backend:        "memory",
+	}
+	hctx := &policy.RequestHeaderContext{
+		SharedContext: &policy.SharedContext{
+			Metadata: map[string]interface{}{},
+			AuthContext: &policy.AuthContext{
+				Authenticated: true,
+				AuthType:      "jwt",
+				Properties:    map[string]string{"app_id": "guest-42"},
+			},
+		},
+		Headers: policy.NewHeaders(nil),
+	}
+
+	action := p.OnRequestHeaders(context.Background(), hctx, nil)
+	if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
+		t.Fatalf("expected UpstreamRequestHeaderModifications, got %T", action)
+	}
+	if lim.allowNCalls != 1 {
+		t.Fatalf("expected AllowN called once, got %d calls", lim.allowNCalls)
+	}
+}
+
+// TestAuthPropertyAndMatch_Combined proves authproperty and match compose cleanly — this
+// is the actual combined shape needed for Hilton's case: bucket AND filter by a JWT claim
+// that is only reachable via AuthContext, not a header.
+func TestAuthPropertyAndMatch_Combined(t *testing.T) {
+	basePolicy := func(lim *fakeLimiter) *RateLimitPolicy {
+		return &RateLimitPolicy{
+			quotas: []QuotaRuntime{{
+				Name: "guest-and-partner-checkout",
+				KeyExtraction: []KeyComponent{
+					{Type: "authproperty", Key: "app_id", Match: regexp.MustCompile("^(guest-.*|channel-partner)$")},
+				},
+				Limiter: lim,
+				Limits:  []LimitConfig{{Limit: 10, Duration: time.Minute}},
+			}},
+			routeName:      "route-main",
+			statusCode:     429,
+			responseBody:   `{"error":"limited"}`,
+			responseFormat: "json",
+			backend:        "memory",
+		}
+	}
+	authCtx := func(appID string) *policy.RequestHeaderContext {
+		return &policy.RequestHeaderContext{
+			SharedContext: &policy.SharedContext{
+				Metadata:    map[string]interface{}{},
+				AuthContext: &policy.AuthContext{Authenticated: true, AuthType: "jwt", Properties: map[string]string{"app_id": appID}},
+			},
+			Headers: policy.NewHeaders(nil),
+		}
+	}
+
+	t.Run("matching JWT claim is counted and enforced", func(t *testing.T) {
+		lim := &fakeLimiter{allowNFn: func(ctx context.Context, key string, n int64) (*limiter.Result, error) {
+			return newResult(true, 10, 9, 0, time.Minute), nil
+		}}
+		p := basePolicy(lim)
+		action := p.OnRequestHeaders(context.Background(), authCtx("guest-42"), nil)
+		if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
+			t.Fatalf("expected UpstreamRequestHeaderModifications, got %T", action)
+		}
+		if lim.allowNCalls != 1 {
+			t.Fatalf("expected AllowN called once, got %d calls", lim.allowNCalls)
+		}
+	})
+
+	t.Run("non-matching JWT claim bypasses the quota entirely", func(t *testing.T) {
+		lim := &fakeLimiter{allowNFn: func(ctx context.Context, key string, n int64) (*limiter.Result, error) {
+			return newResult(false, 10, 0, 5*time.Second, time.Minute), nil
+		}}
+		p := basePolicy(lim)
+		action := p.OnRequestHeaders(context.Background(), authCtx("internal-app-1"), nil)
+		if _, ok := action.(policy.UpstreamRequestHeaderModifications); !ok {
+			t.Fatalf("expected non-matching request to be allowed through, got %T", action)
+		}
+		if lim.allowNCalls != 0 {
+			t.Fatalf("expected AllowN to never be called for a non-matching request, got %d calls", lim.allowNCalls)
+		}
+	})
+}
+
 func TestParseKeyExtraction_FallbackField(t *testing.T) {
 	t.Run("fallback string is parsed", func(t *testing.T) {
 		raw := []interface{}{
