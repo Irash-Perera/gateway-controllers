@@ -12,7 +12,11 @@ permissions:
   issues: write
   contents: read
 
-env: 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
   DEPENDENCY_SCOPE: api-platform # Change this value based on the repository. See https://github.com/wso2/engineering-governance/blob/main/dependency-registry/README.md#available-scopes
 
 jobs:
