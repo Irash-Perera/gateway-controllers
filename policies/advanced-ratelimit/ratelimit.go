@@ -1901,8 +1901,8 @@ func (p *RateLimitPolicy) OnResponseHeaders(ctx context.Context, respCtx *policy
 			slog.Debug("Processing response-header-phase cost extraction",
 				"quota", quotaName)
 
-			key := quotaKeys[quotaName]
-			if key == "" {
+			key, ok := quotaKeys[quotaName]
+			if !ok {
 				slog.Warn("Rate limit key not found for cost extraction", "quota", quotaName)
 				continue
 			}
@@ -2011,8 +2011,8 @@ func (p *RateLimitPolicy) OnResponseHeaders(ctx context.Context, respCtx *policy
 				// successive requests as each EOS deduction is applied.
 				// For buffered responses this branch is intentionally skipped —
 				// OnResponseBody will set accurate post-consumption values instead.
-				key := quotaKeys[quotaName]
-				if key != "" {
+				key, ok := quotaKeys[quotaName]
+				if ok {
 					available, err := q.Limiter.GetAvailable(context.Background(), key)
 					if err == nil {
 						duration := getDurationFromQuota(q)
@@ -2132,8 +2132,8 @@ func (p *RateLimitPolicy) OnResponseBody(ctx context.Context, respCtx *policy.Re
 				slog.Debug("Processing response-phase cost extraction",
 					"quota", quotaName)
 
-				key := quotaKeys[quotaName]
-				if key == "" {
+				key, ok := quotaKeys[quotaName]
+				if !ok {
 					slog.Warn("Rate limit key not found for cost extraction", "quota", quotaName)
 					continue
 				}
@@ -2499,8 +2499,8 @@ func (p *RateLimitPolicy) finalizeAndConsumeStreamingCosts(
 		}
 
 		quotaName := quotaNameFor(q, i)
-		key := quotaKeys[quotaName]
-		if key == "" {
+		key, ok := quotaKeys[quotaName]
+		if !ok {
 			slog.Warn("Rate limit key not found for streaming cost consumption", "quota", quotaName)
 			continue
 		}

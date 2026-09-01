@@ -3644,6 +3644,50 @@ func TestOnResponseBodyChunk_MatchSkippedQuota_NoPhantomConsumption(t *testing.T
 	}
 }
 
+// TestOnResponseBodyChunk_PresentEmptyKey_StillConsumes guards against a stricter-but-wrong
+// fix for the phantom-consumption bug above: a quota that was NOT skipped, and whose
+// keyExtraction (e.g. "apiname" on an API with no name) legitimately produced an empty
+// string, has a real entry in quotaKeys ("guest-tokens": "") — present, just empty. Unlike
+// the absent-key case, this quota's streaming cost must still be consumed; the guard must
+// distinguish "never recorded" from "recorded as empty" using the map's ok flag, not a
+// key == "" check, which would incorrectly treat both the same way.
+func TestOnResponseBodyChunk_PresentEmptyKey_StillConsumes(t *testing.T) {
+	lim := &fakeLimiter{}
+	ce := NewCostExtractor(CostExtractionConfig{
+		Enabled: true,
+		Default: 1,
+		Sources: []CostSource{{Type: CostSourceResponseBody, JSONPath: "$.usage.total_tokens", Multiplier: 1}},
+	})
+	p := &RateLimitPolicy{
+		quotas: []QuotaRuntime{{
+			Name: "guest-tokens", Limiter: lim,
+			Limits:                []LimitConfig{{Limit: 10000, Duration: time.Minute}},
+			KeyExtraction:         []KeyComponent{{Type: "apiname"}},
+			CostExtractor:         ce,
+			CostExtractionEnabled: true,
+		}},
+		routeName: "route-chatbot",
+	}
+
+	// Present entry with an empty value — the quota WAS processed (e.g. apiname was unset),
+	// not skipped by match. This must not be confused with an absent entry.
+	meta := map[string]interface{}{
+		rateLimitKeysKey: map[string]string{"guest-tokens": ""},
+	}
+	respCtx := newResponseStreamCtx(nil, nil, meta, 200)
+
+	sendChunks(t, p, respCtx, [][]byte{
+		[]byte("data: {\"usage\":{\"total_tokens\":800}}\n"),
+	})
+
+	if lim.consumeNCalls != 1 {
+		t.Fatalf("expected ConsumeN called once for a present-but-empty key, got %d calls", lim.consumeNCalls)
+	}
+	if lim.lastCost != 800 {
+		t.Fatalf("expected cost=800, got %d", lim.lastCost)
+	}
+}
+
 // clearCaches resets all global caches for test isolation.
 func clearCaches() {
 	globalLimiterCache.mu.Lock()
