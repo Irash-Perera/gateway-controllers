@@ -3596,6 +3596,54 @@ func TestOnResponseBodyChunk_NoCostExtractionEnabled_NoConsume(t *testing.T) {
 	}
 }
 
+// TestOnResponseBodyChunk_MatchSkippedQuota_NoPhantomConsumption is a regression test for a
+// bug where a quota skipped by a "match" condition (so it never gets an entry in the
+// rateLimitKeysKey map) still had its streaming cost charged at end-of-stream — against an
+// empty-string key, since the map lookup for a missing quota name silently returns "". That
+// empty key is not private: apiname/apiversion/cel components can legitimately produce ""
+// for an unrelated quota, so the phantom charge could land on a real, unrelated bucket.
+// finalizeAndConsumeStreamingCosts must treat an empty looked-up key the same as "this quota
+// was never assigned a key" and skip consumption entirely, matching the guard already used
+// by the other three quotaKeys consumers (OnResponseHeaders cost extraction, the streaming
+// availability snapshot, and OnResponseBody cost extraction).
+func TestOnResponseBodyChunk_MatchSkippedQuota_NoPhantomConsumption(t *testing.T) {
+	lim := &fakeLimiter{}
+	ce := NewCostExtractor(CostExtractionConfig{
+		Enabled: true,
+		Default: 1,
+		Sources: []CostSource{{Type: CostSourceResponseBody, JSONPath: "$.usage.total_tokens", Multiplier: 1}},
+	})
+	p := &RateLimitPolicy{
+		quotas: []QuotaRuntime{{
+			Name: "guest-tokens", Limiter: lim,
+			Limits: []LimitConfig{{Limit: 10000, Duration: time.Minute}},
+			KeyExtraction: []KeyComponent{
+				{Type: "header", Key: "X-App-ID", Match: regexp.MustCompile("^guest-.*$")},
+			},
+			CostExtractor:         ce,
+			CostExtractionEnabled: true,
+		}},
+		routeName: "route-chatbot",
+	}
+
+	// Simulates a match-skipped quota: the request phase never reached
+	// quotaKeys[quotaName] = key for "guest-tokens" (its match didn't apply), so no entry
+	// exists here — exactly what a real skip produces, not something contrived for the test.
+	meta := map[string]interface{}{
+		rateLimitKeysKey: map[string]string{},
+	}
+	respCtx := newResponseStreamCtx(nil, nil, meta, 200)
+
+	sendChunks(t, p, respCtx, [][]byte{
+		[]byte("data: {\"usage\":{\"total_tokens\":800}}\n"),
+	})
+
+	if lim.consumeNCalls != 0 {
+		t.Fatalf("expected ConsumeN not called for a match-skipped quota, got %d calls (lastKey=%q, lastCost=%d)",
+			lim.consumeNCalls, lim.lastKey, lim.lastCost)
+	}
+}
+
 // clearCaches resets all global caches for test isolation.
 func clearCaches() {
 	globalLimiterCache.mu.Lock()

@@ -2500,6 +2500,10 @@ func (p *RateLimitPolicy) finalizeAndConsumeStreamingCosts(
 
 		quotaName := quotaNameFor(q, i)
 		key := quotaKeys[quotaName]
+		if key == "" {
+			slog.Warn("Rate limit key not found for streaming cost consumption", "quota", quotaName)
+			continue
+		}
 		qs := state[quotaName]
 
 		var (
