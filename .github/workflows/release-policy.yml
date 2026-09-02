@@ -14,6 +14,7 @@
 # whatever HEAD is now.
 
 name: Release Policy
+run-name: Release Policy - ${{ inputs.policy }} v${{ inputs.version }}
 
 on:
   workflow_dispatch:

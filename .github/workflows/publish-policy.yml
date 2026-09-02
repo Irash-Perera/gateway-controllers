@@ -11,6 +11,7 @@
 # rules and secrets — matching the structure of Release Policy.
 
 name: Publish Policy
+run-name: Publish Policy - ${{ inputs.policy_name }} v${{ inputs.minor_version }} (${{ inputs.publish_dev && 'Dev' || '' }}${{ inputs.publish_dev && inputs.publish_staging && ', ' || '' }}${{ inputs.publish_staging && 'Staging' || '' }}${{ inputs.publish_production && (inputs.publish_dev || inputs.publish_staging) && ', ' || '' }}${{ inputs.publish_production && 'Production' || '' }})
 
 on:
   workflow_dispatch:
