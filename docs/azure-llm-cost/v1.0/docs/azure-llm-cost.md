@@ -59,7 +59,7 @@ Inside the `gateway/build.yaml`, ensure the policy module is added under `polici
 
 ```yaml
 - name: azure-llm-cost
-  gomodule: github.com/wso2/gateway-controllers/policies/azure-llm-cost@v0
+  gomodule: github.com/wso2/gateway-controllers/policies/azure-llm-cost@v1
 ```
 
 ## Reference Scenarios

@@ -55,7 +55,8 @@ parameters:
             description: |
               The deployment type, which sets the price tier. Global Standard is
               Azure's default. Choose us, eu or apac for a Data Zone deployment,
-              or regional for a single-region one. Ignored for Azure AI Foundry.
+              or regional for a single-region one. Ignored for Azure AI
+              Foundry's own models, applied to the Azure OpenAI models it hosts.
   required:
     - modelMappings
 
