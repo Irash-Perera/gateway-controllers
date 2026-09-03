@@ -49,7 +49,7 @@ List every deployment the route can reach. `region` sits on each entry rather th
 #### Sample System Configuration
 
 ```toml
-[policy_configurations.azure_llm_cost_v0]
+[policy_configurations.azure_llm_cost_v1]
 pricing_file = "/etc/policy-engine/llm-pricing/model_prices.json"
 ```
 
@@ -91,7 +91,7 @@ spec:
         methods: [POST]
   operationPolicies:
     - name: azure-llm-cost
-      version: v0
+      version: v1
       paths:
         - path: /chat/completions
           methods: [POST]
@@ -141,7 +141,7 @@ operationPolicies:
             - amount: 10
               duration: "24h"
   - name: azure-llm-cost
-    version: v0
+    version: v1
     paths:
       - path: /chat/completions
         methods: [POST]
